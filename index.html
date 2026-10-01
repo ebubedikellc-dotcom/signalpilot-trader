@@ -62,39 +62,47 @@
             <div>
               <span class="login-badge">Customer Dashboard</span>
               <h3 id="customerWelcome">Your account</h3>
-              <p>Use the deposit wallet below. Your balance updates after the owner credits your deposit in the control panel.</p>
+              <p>Deposit is simple: choose a plan, copy the wallet, send SOL or USDC, then wait for your balance to be credited.</p>
             </div>
           </div>
 
-          <div class="metric-grid">
+          <div class="metric-grid customer-summary">
             <article><span>Deposited</span><strong id="customerDeposited">$0.00</strong></article>
-            <article><span>Gross gain</span><strong id="customerProfit">$0.00</strong></article>
-            <article><span>Business share</span><strong id="customerOwnerShare">$0.00</strong></article>
-            <article><span>Your net gain</span><strong id="customerNetProfit">$0.00</strong></article>
             <article><span>Withdrawable</span><strong id="customerWithdrawable">$0.00</strong></article>
             <article><span>Status</span><strong id="customerStatus">Active</strong></article>
+          </div>
+          <div class="customer-profit-line">
+            <span>Gain: <strong id="customerProfit">$0.00</strong></span>
+            <span>Business share: <strong id="customerOwnerShare">$0.00</strong></span>
+            <span>You keep: <strong id="customerNetProfit">$0.00</strong></span>
           </div>
           <p id="customerShareRule" class="share-rule">Business share: 0% of gain only.</p>
 
           <div class="customer-tools">
             <article class="tool-card deposit-card">
-              <h4>Deposit wallet</h4>
-              <p class="muted">Pick the trading plan you want. Copy the wallet address and deposit SOL or USDC there.</p>
+              <span class="login-badge">Step 1</span>
+              <h4>Deposit money</h4>
+              <p class="muted">Choose your plan. Copy the wallet address. Send SOL or USDC to that wallet.</p>
               <label>
-                Trading plan
+                Choose plan
                 <select id="customerPlan">
                   <option value="frog">Frog Beginner</option>
                   <option value="truenest">Truenest Big Win</option>
                   <option value="both">Both wallets</option>
                 </select>
               </label>
-              <button id="saveCustomerPlan" class="secondary-action" type="button">Save plan</button>
+              <button id="saveCustomerPlan" class="secondary-action" type="button">Show my deposit wallet</button>
               <div id="depositAddresses" class="deposit-addresses"></div>
+              <div class="deposit-help">
+                <strong>After sending money</strong>
+                <span>Your balance shows after the owner confirms your deposit in the control panel.</span>
+              </div>
             </article>
 
             <article class="tool-card">
-              <h4>Request withdrawal</h4>
-              <p class="muted">When you have withdrawable balance, send the amount and wallet here.</p>
+              <span class="login-badge">Step 2</span>
+              <h4>Withdraw later</h4>
+              <p class="muted">When your withdrawable balance is ready, enter the amount and your wallet.</p>
               <label>Amount <input id="withdrawAmount" inputmode="decimal" placeholder="0"></label>
               <label>Your Solana wallet <input id="withdrawWallet" placeholder="Paste wallet address"></label>
               <button id="requestWithdraw" class="primary-action" type="button">Request withdrawal</button>
@@ -134,3 +142,4 @@
     <script src="./script.js"></script>
   </body>
 </html>
+<!doctype html><html lang="en">  <head>    <meta charset="utf-8">    <meta name="viewport" content="width=device-width, initial-scale=1">    <title>SignalPilot Trader</title>    <meta name="description" content="SignalPilot customer trading dashboard for deposits, plans, balances, and withdrawals.">    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2309161f'/%3E%3Cpath d='M14 41h36' stroke='%232ee6a6' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M18 37l9-12 9 8 10-15' fill='none' stroke='%23f6c95c' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='48' cy='18' r='5' fill='%232ee6a6'/%3E%3C/svg%3E">    <link rel="stylesheet" href="./styles.css">  </head>  <body data-page="customer">    <main class="app-shell public-shell">      <header class="topbar public-hero">        <div>          <p class="eyebrow">SignalPilot Trader</p>          <h1>Log in first. Then deposit and trade.</h1>          <p class="lede">Customers must log in or create an account before any deposit wallet, trading plan, balance, or withdrawal tools are shown.</p>          <div class="hero-actions">            <a class="link-action" href="#customerLoginCard">Customer login</a>            <a class="secondary-link" href="#createAccount">Create account</a>          </div>        </div>        <div class="system-card">          <span class="system-label">Private by default</span>          <strong>Wallet hidden until login</strong>          <small>The trading wallet and deposit tools unlock only inside the customer dashboard.</small>        </div>      </header>      <section class="business-portal customer-entry" aria-labelledby="customerPortalTitle">        <div class="section-title">          <div>            <p class="eyebrow">Customer Access</p>            <h2 id="customerPortalTitle">Open your trading account</h2>          </div>          <button id="logoutButton" class="secondary-action hidden" type="button">Log out</button>        </div>        <div id="authPanel" class="auth-grid customer-auth-grid">          <article class="login-card" id="customerLoginCard">            <span class="login-badge">Existing Customer</span>            <h3>Log in first</h3>            <p>Use your email and password to open your dashboard, deposit wallet, trading plan, and withdrawal tools.</p>            <label>Email <input id="customerLoginEmail" autocomplete="email" placeholder="customer@email.com"></label>            <label>Password <input id="customerLoginPassword" type="password" autocomplete="current-password" placeholder="Password"></label>            <button id="customerLogin" class="primary-action" type="button">Log in customer</button>          </article>          <article class="login-card" id="createAccount">            <span class="login-badge">New Customer</span>            <h3>Create account</h3>            <p>Start here. After you create the account, your deposit wallet appears immediately.</p>            <label>Name <input id="signupName" autocomplete="name" placeholder="Full name"></label>            <label>Email <input id="signupEmail" autocomplete="email" placeholder="customer@email.com"></label>            <label>Password <input id="signupPassword" type="password" autocomplete="new-password" placeholder="At least 6 characters"></label>            <button id="customerSignup" class="primary-action" type="button">Create customer account</button>          </article>        </div>        <div id="customerPanel" class="customer-dashboard hidden">          <div class="dashboard-head">
