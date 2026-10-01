@@ -27,6 +27,7 @@ const defaultState = {
     liveTradingSwitch: "on",
     vaultMode: "private",
     vaultFeePercent: "0",
+    ownerProfitSharePercent: "0",
     ownerFeeWallet: "",
     vaultNote: "Private vault first. Open to users later."
   },
@@ -69,6 +70,7 @@ const fields = [
   "liveTradingSwitch",
   "vaultMode",
   "vaultFeePercent",
+  "ownerProfitSharePercent",
   "ownerFeeWallet",
   "vaultNote"
 ];
@@ -191,6 +193,7 @@ function publicSettings(settings = {}, includeSecrets = false) {
     liveTradingSwitch: settings.liveTradingSwitch || "on",
     vaultMode: settings.vaultMode || "private",
     vaultFeePercent: settings.vaultFeePercent || "0",
+    ownerProfitSharePercent: settings.ownerProfitSharePercent || "0",
     vaultNote: settings.vaultNote || ""
   };
 }
@@ -209,7 +212,11 @@ function depositAddresses(state, plan = "frog") {
 function customerPublic(customer, state) {
   const deposited = Number(customer.deposited || 0);
   const profit = Number(customer.profit || 0);
-  const withdrawable = deposited + profit - Number(customer.withdrawn || 0);
+  const ownerProfitSharePercent = clampPercent(state.settings.ownerProfitSharePercent);
+  const ownerProfitShare = Math.max(0, profit) * (ownerProfitSharePercent / 100);
+  const customerNetProfit = profit - ownerProfitShare;
+  const withdrawn = Number(customer.withdrawn || 0);
+  const withdrawable = deposited + customerNetProfit - withdrawn;
   return {
     id: customer.id,
     name: customer.name,
@@ -218,21 +225,37 @@ function customerPublic(customer, state) {
     status: customer.status || "active",
     deposited,
     profit,
-    withdrawn: Number(customer.withdrawn || 0),
+    ownerProfitSharePercent,
+    ownerProfitShare,
+    customerNetProfit,
+    withdrawn,
     withdrawable,
     depositAddresses: depositAddresses(state, customer.plan)
   };
+}
+
+function clampPercent(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return 0;
+  return Math.min(100, Math.max(0, number));
 }
 
 function businessSummary(state) {
   const customers = state.customers || [];
   const deposited = customers.reduce((sum, customer) => sum + Number(customer.deposited || 0), 0);
   const profit = customers.reduce((sum, customer) => sum + Number(customer.profit || 0), 0);
+  const ownerProfitSharePercent = clampPercent(state.settings.ownerProfitSharePercent);
+  const ownerProfitShare = customers.reduce((sum, customer) => {
+    return sum + (Math.max(0, Number(customer.profit || 0)) * (ownerProfitSharePercent / 100));
+  }, 0);
   const pendingWithdrawals = (state.withdrawals || []).filter((item) => item.status === "pending").length;
   return {
     customers: customers.length,
     deposited,
     profit,
+    ownerProfitSharePercent,
+    ownerProfitShare,
+    customerNetProfit: profit - ownerProfitShare,
     pendingWithdrawals
   };
 }
@@ -363,68 +386,7 @@ async function runCopyWorkerOnce() {
   for (const profile of runningProfiles) {
     const wallet = targetWallet(state, profile);
     if (!wallet) continue;
-import { createServer } from "node:http";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { createReadStream } from "node:fs";
-import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const port = Number(process.env.PORT || 3000);
-const host = process.env.HOST || (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
-const dataDir = process.env.DATA_DIR || path.join(__dirname, ".data");
-const dataFile = path.join(dataDir, "signalpilot-state.json");
-const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 15000);
-const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
-const sessionMaxAge = 60 * 60 * 24 * 30;
-
-const defaultState = {
-  settings: {
-    frogWallet: "4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh",
-    frogMax: "420",
-    frogMode: "Copy exact amount",
-    truenestWallet: "ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT",
-    truenestMax: "750",
-    truenestMode: "Copy exact amount",
-    walletSync: "Turnkey server wallet",
-    riskControl: "on",
-    liveTradingSwitch: "on",
-    vaultMode: "private",
-    vaultFeePercent: "0",
-    ownerProfitSharePercent: "0",
-    ownerFeeWallet: "",
-    vaultNote: "Private vault first. Open to users later."
-  },
-  profiles: {
-    frog: { running: false, profit: 0, lastAction: null, lastSignature: null },
-    truenest: { running: false, profit: 0, lastAction: null, lastSignature: null }
-  },
-  owner: {
-    email: ownerEmail
-  },
-  customers: [],
-  deposits: [],
-  withdrawals: [],
-  sessions: {},
-  activity: ["Site engine created. Add API and wallet details, then press Save."],
-  trades: []
-};
-
-const fields = [
-  "heliusKey",
-  "routeApi",
-  "turnkeyOrgId",
-  "turnkeyApiPublicKey",
-  "turnkeyApiPrivateKey",
-  "turnkeyPolicyId",
-  "frogTradeWallet",
-  "truenestTradeWallet",
-  "frogSignerToken",
-  "truenestSignerToken",
-  "frogDeposit",
-  "truenestDeposit",
-  "frogWallet",    const transactions = await fetchTransactionsForAddress(state.settings.heliusKey, wallet);
+    const transactions = await fetchTransactionsForAddress(state.settings.heliusKey, wallet);
     const newest = newestSignature(transactions);
     if (!newest) continue;
 
