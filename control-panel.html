@@ -13,8 +13,8 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">Owner Control Panel</p>
-          <h1>Accounts, secrets, wallets, and trading controls.</h1>
-          <p class="lede">This page is for the business owner only. Customers use the SignalPilot page; the private keys and full engine stay here.</p>
+          <h1>Your simple owner screen.</h1>
+          <p class="lede">Use this page to set your business percentage, add customers, credit deposits, and check balances. Advanced engine settings stay hidden until you need them.</p>
           <div class="hero-actions">
             <a class="secondary-link" href="/">Open customer page</a>
           </div>
@@ -52,7 +52,7 @@
           <div class="dashboard-head">
             <div>
               <span class="login-badge">Owner Mode</span>
-              <h3>Full control panel</h3>
+              <h3>Owner home</h3>
               <p id="ownerIdentity">Logged in as owner.</p>
             </div>
           </div>
@@ -67,14 +67,17 @@
 
           <div class="owner-tools">
             <article class="tool-card share-control-card">
-              <h4>Business share from customer gain</h4>
-              <p class="muted">Put the percentage your business keeps from customer gain. It is taken from profit only, not from their deposit.</p>
-              <label>Owner percentage <input id="ownerProfitSharePercent" inputmode="decimal" placeholder="Example: 20"></label>
-              <button id="saveProfitShare" class="primary-action" type="button">Save percentage</button>
+              <span class="login-badge">1</span>
+              <h4>Your percent from gain</h4>
+              <p class="muted">Put the percent your business keeps from customer profit. It does not touch their deposit.</p>
+              <label>Business percent <input id="ownerProfitSharePercent" inputmode="decimal" placeholder="Example: 20"></label>
+              <button id="saveProfitShare" class="primary-action" type="button">Save percent</button>
             </article>
 
             <article class="tool-card">
-              <h4>Create customer from owner panel</h4>
+              <span class="login-badge">2</span>
+              <h4>Add customer or credit deposit</h4>
+              <p class="muted">Use this when someone pays. Add their email, choose their plan, and type the deposit amount you confirmed.</p>
               <label>Name <input id="ownerCustomerName" placeholder="Customer name"></label>
               <label>Email <input id="ownerCustomerEmail" placeholder="customer@email.com"></label>
               <label>Temporary password <input id="ownerCustomerPassword" placeholder="Optional"></label>
@@ -87,11 +90,13 @@
                 </select>
               </label>
               <label>Deposit credited <input id="ownerCustomerDeposit" inputmode="decimal" placeholder="0"></label>
-              <button id="ownerCreateCustomer" class="primary-action" type="button">Save customer</button>
+              <button id="ownerCreateCustomer" class="primary-action" type="button">Save customer deposit</button>
             </article>
 
             <article class="tool-card">
-              <h4>Customer accounts</h4>
+              <span class="login-badge">3</span>
+              <h4>Customers and balances</h4>
+              <p class="muted">Update deposit or gain here. Customers only see their own dashboard.</p>
               <div id="customerList" class="customer-list">
                 <p class="muted">No customer account yet.</p>
               </div>
@@ -101,6 +106,12 @@
 
         <p id="businessMessage" class="message-line"></p>
       </section>
+
+      <details class="advanced-owner owner-area">
+        <summary>
+          <span>Advanced setup and trading engine</span>
+          <small>Open this only when you need keys, wallet IDs, start/stop, logs, or trade history.</small>
+        </summary>
 
       <section class="easy-setup owner-area" aria-labelledby="easySetupTitle">
         <div class="section-title">
@@ -299,6 +310,7 @@
           </table>
         </div>
       </section>
+      </details>
     </main>
     <script src="./script.js"></script>
   </body>
