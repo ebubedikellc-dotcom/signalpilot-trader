@@ -698,7 +698,7 @@ async function handleApi(request, response, url) {
 }
 
 function serveFile(response, pathname) {
-  const safePath = pathname === "/" ? "/index.html" : pathname;
+  const safePath = pathname === "/" ? "/index.html" : pathname === "/control-panel" ? "/control-panel.html" : pathname;
   const filePath = path.normalize(path.join(__dirname, safePath));
   const relativePath = path.relative(__dirname, filePath);
   const hiddenSegment = relativePath.split(path.sep).some((segment) => segment.startsWith("."));
