@@ -45,10 +45,27 @@ const vaultFee = document.getElementById("vaultFee");
 const vaultFeeNote = document.getElementById("vaultFeeNote");
 const vaultWithdrawable = document.getElementById("vaultWithdrawable");
 const liveEnvStatus = document.getElementById("liveEnvStatus");
+const authPanel = document.getElementById("authPanel");
+const ownerPanel = document.getElementById("ownerPanel");
+const customerPanel = document.getElementById("customerPanel");
+const logoutButton = document.getElementById("logoutButton");
+const businessMessage = document.getElementById("businessMessage");
+
+let currentUser = null;
 
 function money(value) {
   const amount = Number(value || 0);
   return amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[character]);
 }
 
 function value(id) {
@@ -207,13 +224,246 @@ async function api(path, options = {}) {
     headers: { "Content-Type": "application/json" },
     ...options
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) {
+    const text = await response.text();
+    let message = text;
+    try {
+      message = JSON.parse(text).error || text;
+    } catch {}
+    throw new Error(message);
+  }
   return response.json();
+}
+
+function showBusinessMessage(text, error = false) {
+  businessMessage.textContent = text || "";
+  businessMessage.className = error ? "message-line error" : "message-line";
+}
+
+function setMode(role) {
+  document.body.dataset.role = role || "guest";
+  authPanel.classList.toggle("hidden", Boolean(role));
+  ownerPanel.classList.toggle("hidden", role !== "owner");
+  customerPanel.classList.toggle("hidden", role !== "customer");
+  logoutButton.classList.toggle("hidden", !role);
+  document.querySelectorAll(".owner-area").forEach((node) => {
+    node.classList.toggle("hidden", role !== "owner");
+  });
+}
+
+function renderAddresses(addresses = []) {
+  const wrap = document.getElementById("depositAddresses");
+  wrap.innerHTML = "";
+  addresses.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "address-card";
+    row.innerHTML = `
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.address || "Wallet not connected yet")}</strong>
+      <button type="button" ${item.address ? "" : "disabled"}>Copy</button>
+    `;
+    row.querySelector("button").addEventListener("click", async () => {
+      await navigator.clipboard.writeText(item.address);
+      showBusinessMessage(`${item.label} deposit address copied.`);
+    });
+    wrap.appendChild(row);
+  });
+}
+
+function renderCustomer(customer) {
+  if (!customer) return;
+  document.getElementById("customerWelcome").textContent = `${customer.name || customer.email} account`;
+  document.getElementById("customerDeposited").textContent = money(customer.deposited);
+  document.getElementById("customerProfit").textContent = money(customer.profit);
+  document.getElementById("customerWithdrawable").textContent = money(customer.withdrawable);
+  document.getElementById("customerStatus").textContent = customer.status || "active";
+  document.getElementById("customerPlan").value = customer.plan || "frog";
+  renderAddresses(customer.depositAddresses || []);
+}
+
+function renderOwner(data) {
+  document.getElementById("ownerIdentity").textContent = `Logged in as ${data.owner?.email || "owner"}.`;
+  document.getElementById("ownerCustomerCount").textContent = data.summary?.customers || 0;
+  document.getElementById("ownerTotalDeposits").textContent = money(data.summary?.deposited);
+  document.getElementById("ownerTotalProfit").textContent = money(data.summary?.profit);
+  document.getElementById("ownerPendingWithdrawals").textContent = data.summary?.pendingWithdrawals || 0;
+
+  const list = document.getElementById("customerList");
+  list.innerHTML = "";
+  if (!data.customers?.length) {
+    list.innerHTML = '<p class="muted">No customer account yet.</p>';
+    return;
+  }
+
+  data.customers.forEach((customer) => {
+    const row = document.createElement("article");
+    row.className = "customer-row";
+    row.innerHTML = `
+      <div>
+        <strong>${escapeHtml(customer.name || customer.email)}</strong>
+        <span>${escapeHtml(customer.email)}</span>
+      </div>
+      <label>Plan
+        <select data-field="plan">
+          <option value="frog">Frog</option>
+          <option value="truenest">Truenest</option>
+          <option value="both">Both</option>
+        </select>
+      </label>
+      <label>Deposited <input data-field="deposited" inputmode="decimal" value="${escapeHtml(customer.deposited)}"></label>
+      <label>Profit <input data-field="profit" inputmode="decimal" value="${escapeHtml(customer.profit)}"></label>
+      <label>Status
+        <select data-field="status">
+          <option value="active">Active</option>
+          <option value="paused">Paused</option>
+        </select>
+      </label>
+      <button type="button" class="secondary-action">Save</button>
+    `;
+    row.querySelector('[data-field="plan"]').value = customer.plan || "frog";
+    row.querySelector('[data-field="status"]').value = customer.status || "active";
+    row.querySelector("button").addEventListener("click", async () => {
+      const result = await api(`/api/owner/customer/${customer.id}`, {
+        method: "POST",
+        body: JSON.stringify({
+          plan: row.querySelector('[data-field="plan"]').value,
+          deposited: row.querySelector('[data-field="deposited"]').value,
+          profit: row.querySelector('[data-field="profit"]').value,
+          status: row.querySelector('[data-field="status"]').value
+        })
+      });
+      renderOwner({ ...data, ...result });
+      showBusinessMessage("Customer saved.");
+    });
+    list.appendChild(row);
+  });
+}
+
+async function loadBusiness() {
+  try {
+    const data = await api("/api/business");
+    if (data.role === "owner") {
+      currentUser = { role: "owner" };
+      setMode("owner");
+      renderOwner(data);
+    }
+    if (data.role === "customer") {
+      currentUser = { role: "customer" };
+      setMode("customer");
+      renderCustomer(data.customer);
+    }
+  } catch {
+    currentUser = null;
+    setMode(null);
+  }
+}
+
+async function ownerLogin() {
+  try {
+    const email = document.getElementById("ownerEmail").value.trim();
+    await api("/api/auth/owner", { method: "POST", body: JSON.stringify({ email }) });
+    showBusinessMessage("Owner control panel opened.");
+    await loadBusiness();
+    await refresh();
+  } catch (error) {
+    showBusinessMessage(error.message, true);
+  }
+}
+
+async function customerLogin() {
+  try {
+    await api("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({
+        email: document.getElementById("customerLoginEmail").value,
+        password: document.getElementById("customerLoginPassword").value
+      })
+    });
+    showBusinessMessage("Customer account opened.");
+    await loadBusiness();
+  } catch (error) {
+    showBusinessMessage(error.message, true);
+  }
+}
+
+async function customerSignup() {
+  try {
+    await api("/api/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({
+        name: document.getElementById("signupName").value,
+        email: document.getElementById("signupEmail").value,
+        password: document.getElementById("signupPassword").value
+      })
+    });
+    showBusinessMessage("Customer account created.");
+    await loadBusiness();
+  } catch (error) {
+    showBusinessMessage(error.message, true);
+  }
+}
+
+async function ownerCreateCustomer() {
+  try {
+    const result = await api("/api/owner/customer", {
+      method: "POST",
+      body: JSON.stringify({
+        name: document.getElementById("ownerCustomerName").value,
+        email: document.getElementById("ownerCustomerEmail").value,
+        password: document.getElementById("ownerCustomerPassword").value,
+        plan: document.getElementById("ownerCustomerPlan").value,
+        deposited: document.getElementById("ownerCustomerDeposit").value
+      })
+    });
+    renderOwner({ owner: { email: document.getElementById("ownerEmail").value }, ...result });
+    showBusinessMessage("Customer saved in owner panel.");
+  } catch (error) {
+    showBusinessMessage(error.message, true);
+  }
+}
+
+async function saveCustomerPlan() {
+  try {
+    const result = await api("/api/customer/plan", {
+      method: "POST",
+      body: JSON.stringify({ plan: document.getElementById("customerPlan").value })
+    });
+    renderCustomer(result.customer);
+    showBusinessMessage("Trading wallet choice saved.");
+  } catch (error) {
+    showBusinessMessage(error.message, true);
+  }
+}
+
+async function requestWithdrawal() {
+  try {
+    const result = await api("/api/customer/withdraw", {
+      method: "POST",
+      body: JSON.stringify({
+        amount: document.getElementById("withdrawAmount").value,
+        wallet: document.getElementById("withdrawWallet").value
+      })
+    });
+    renderCustomer(result.customer);
+    showBusinessMessage("Withdrawal request sent to the owner panel.");
+  } catch (error) {
+    showBusinessMessage(error.message, true);
+  }
+}
+
+async function logout() {
+  await api("/api/auth/logout", { method: "POST" });
+  currentUser = null;
+  setMode(null);
+  showBusinessMessage("Logged out.");
 }
 
 async function refresh() {
   try {
-    renderState(await api("/api/status"));
+    const state = await api("/api/status");
+    if (state.auth?.role === "owner") {
+      renderState(state);
+    }
   } catch {
     engineStatus.textContent = "Backend not connected";
     engineSubtext.textContent = "Render is not answering right now. The site cannot monitor until backend returns.";
@@ -240,6 +490,14 @@ async function stopProfile(profile) {
 }
 
 document.getElementById("saveSettings").addEventListener("click", saveSettings);
+document.getElementById("saveSettingsInline").addEventListener("click", saveSettings);
+document.getElementById("ownerLogin").addEventListener("click", ownerLogin);
+document.getElementById("customerLogin").addEventListener("click", customerLogin);
+document.getElementById("customerSignup").addEventListener("click", customerSignup);
+document.getElementById("ownerCreateCustomer").addEventListener("click", ownerCreateCustomer);
+document.getElementById("saveCustomerPlan").addEventListener("click", saveCustomerPlan);
+document.getElementById("requestWithdraw").addEventListener("click", requestWithdrawal);
+logoutButton.addEventListener("click", logout);
 fields.forEach((id) => document.getElementById(id).addEventListener("input", () => {
   renderState({ settings: payload(), profiles: {}, activity: [] });
 }));
@@ -248,5 +506,6 @@ frogStop.addEventListener("click", () => stopProfile("frog"));
 truenestStart.addEventListener("click", () => startProfile("truenest"));
 truenestStop.addEventListener("click", () => stopProfile("truenest"));
 
-refresh();
+setMode(null);
+loadBusiness().then(refresh);
 setInterval(refresh, 5000);
