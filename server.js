@@ -19,9 +19,13 @@ const defaultState = {
     truenestWallet: "ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT",
     truenestMax: "750",
     truenestMode: "Copy exact amount",
-    walletSync: "Privy server wallet",
+    walletSync: "Turnkey server wallet",
     riskControl: "on",
-    liveTradingSwitch: "on"
+    liveTradingSwitch: "on",
+    vaultMode: "private",
+    vaultFeePercent: "0",
+    ownerFeeWallet: "",
+    vaultNote: "Private vault first. Open to users later."
   },
   profiles: {
     frog: { running: false, profit: 0, lastAction: null, lastSignature: null },
@@ -34,6 +38,10 @@ const defaultState = {
 const fields = [
   "heliusKey",
   "routeApi",
+  "turnkeyOrgId",
+  "turnkeyApiPublicKey",
+  "turnkeyApiPrivateKey",
+  "turnkeyPolicyId",
   "frogTradeWallet",
   "truenestTradeWallet",
   "frogSignerToken",
@@ -48,7 +56,11 @@ const fields = [
   "truenestMode",
   "walletSync",
   "riskControl",
-  "liveTradingSwitch"
+  "liveTradingSwitch",
+  "vaultMode",
+  "vaultFeePercent",
+  "ownerFeeWallet",
+  "vaultNote"
 ];
 
 const mime = {
@@ -100,6 +112,9 @@ function ready(state) {
   return Boolean(
     s.heliusKey &&
     s.routeApi &&
+    s.turnkeyOrgId &&
+    s.turnkeyApiPublicKey &&
+    s.turnkeyApiPrivateKey &&
     s.frogTradeWallet &&
     s.truenestTradeWallet &&
     s.frogSignerToken &&
