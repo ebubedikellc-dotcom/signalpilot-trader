@@ -9,6 +9,7 @@ const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
 const dataDir = process.env.DATA_DIR || path.join(__dirname, ".data");
 const dataFile = path.join(dataDir, "signalpilot-state.json");
+const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 15000);
 
 const defaultState = {
   settings: {
@@ -17,13 +18,17 @@ const defaultState = {
     frogMode: "Copy exact amount",
     truenestWallet: "ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT",
     truenestMax: "750",
-    truenestMode: "Copy exact amount"
+    truenestMode: "Copy exact amount",
+    walletSync: "Privy server wallet",
+    riskControl: "on",
+    liveTradingSwitch: "on"
   },
   profiles: {
-    frog: { running: false, profit: 0, lastAction: null },
-    truenest: { running: false, profit: 0, lastAction: null }
+    frog: { running: false, profit: 0, lastAction: null, lastSignature: null },
+    truenest: { running: false, profit: 0, lastAction: null, lastSignature: null }
   },
-  activity: ["Site engine created. Add API and wallet details, then press Save."]
+  activity: ["Site engine created. Add API and wallet details, then press Save."],
+  trades: []
 };
 
 const fields = [
@@ -40,7 +45,10 @@ const fields = [
   "frogMode",
   "truenestWallet",
   "truenestMax",
-  "truenestMode"
+  "truenestMode",
+  "walletSync",
+  "riskControl",
+  "liveTradingSwitch"
 ];
 
 const mime = {
@@ -99,6 +107,141 @@ function ready(state) {
   );
 }
 
+function liveTradingAllowed(state) {
+  return state.settings.liveTradingSwitch === "on" && process.env.ENABLE_LIVE_TRADING === "true";
+}
+
+function profileLabel(profile) {
+  return profile === "frog" ? "Frog beginner" : "Truenest Big Win";
+}
+
+function targetWallet(state, profile) {
+  return profile === "frog" ? state.settings.frogWallet : state.settings.truenestWallet;
+}
+
+function newestSignature(transactions) {
+  return transactions.find((transaction) => transaction?.signature)?.signature || null;
+}
+
+function looksLikeSwap(transaction) {
+  const type = `${transaction.type || transaction.transactionType || ""}`.toUpperCase();
+  const source = `${transaction.source || ""}`.toUpperCase();
+  return type.includes("SWAP") || source.includes("JUPITER") || source.includes("RAYDIUM") || source.includes("METEORA");
+}
+
+function tokenName(transaction) {
+  const transfer = transaction.tokenTransfers?.[0] || transaction.events?.swap?.tokenInputs?.[0] || transaction.events?.swap?.tokenOutputs?.[0];
+  return transfer?.symbol || transfer?.mint || transfer?.tokenMint || "Solana token";
+}
+
+function tradeAmount(transaction) {
+  const nativeAmount = transaction.nativeTransfers?.reduce((total, transfer) => total + Math.abs(Number(transfer.amount || 0)), 0) || 0;
+  if (nativeAmount) return nativeAmount / 1_000_000_000;
+  const tokenAmount = transaction.tokenTransfers?.[0]?.tokenAmount || transaction.events?.swap?.tokenInputs?.[0]?.tokenAmount;
+  return Number(tokenAmount || 0);
+}
+
+function tradeFromTransaction(profile, transaction, state) {
+  const status = liveTradingAllowed(state)
+    ? "Observed - signer execution needed"
+    : "Observed - live trading locked";
+  return {
+    id: transaction.signature,
+    signature: transaction.signature,
+    time: transaction.timestamp ? new Date(transaction.timestamp * 1000).toLocaleString("en-US", { hour12: false }) : new Date().toLocaleString("en-US", { hour12: false }),
+    profile: profileLabel(profile),
+    action: "Copied signal",
+    token: tokenName(transaction),
+    amount: tradeAmount(transaction),
+    pnl: 0,
+    status
+  };
+}
+
+async function fetchTransactionsForAddress(apiKey, address) {
+  const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(apiKey)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: "signalpilot-copy-worker",
+      method: "getTransactionsForAddress",
+      params: [address, { limit: 10 }]
+    })
+  });
+  if (!response.ok) throw new Error(`Helius returned ${response.status}`);
+  const payload = await response.json();
+  if (payload.error) throw new Error(payload.error.message || "Helius transaction lookup failed");
+  return Array.isArray(payload.result) ? payload.result : [];
+}
+
+async function runCopyWorkerOnce() {
+  const state = await readState();
+  const runningProfiles = ["frog", "truenest"].filter((profile) => state.profiles?.[profile]?.running);
+  if (!runningProfiles.length) return;
+
+  if (!state.settings?.heliusKey) {
+    state.activity = [line("Copy worker is waiting for Helius API key."), ...(state.activity || [])].slice(0, 20);
+    await saveState(state);
+    return;
+  }
+
+  for (const profile of runningProfiles) {
+    const wallet = targetWallet(state, profile);
+    if (!wallet) continue;
+    const transactions = await fetchTransactionsForAddress(state.settings.heliusKey, wallet);
+    const newest = newestSignature(transactions);
+    if (!newest) continue;
+
+    if (!state.profiles[profile].lastSignature) {
+      state.profiles[profile].lastSignature = newest;
+      state.activity = [line(`${profileLabel(profile)} worker synced to latest wallet transaction.`), ...(state.activity || [])].slice(0, 20);
+      continue;
+    }
+
+    const unseen = [];
+    for (const transaction of transactions) {
+      if (transaction.signature === state.profiles[profile].lastSignature) break;
+      if (transaction.signature) unseen.push(transaction);
+    }
+
+    if (!unseen.length) continue;
+    const existing = new Set((state.trades || []).map((trade) => trade.signature || trade.id));
+    const newTrades = unseen
+      .reverse()
+      .filter((transaction) => !existing.has(transaction.signature) && looksLikeSwap(transaction))
+      .map((transaction) => tradeFromTransaction(profile, transaction, state));
+
+    state.profiles[profile].lastSignature = newest;
+    if (newTrades.length) {
+      state.trades = [...newTrades, ...(state.trades || [])].slice(0, 100);
+      state.activity = [
+        line(`${profileLabel(profile)} worker found ${newTrades.length} new swap signal${newTrades.length === 1 ? "" : "s"}.`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+    }
+  }
+
+  await saveState(state);
+}
+
+function startCopyWorker() {
+  let working = false;
+  setInterval(async () => {
+    if (working) return;
+    working = true;
+    try {
+      await runCopyWorkerOnce();
+    } catch (error) {
+      const state = await readState();
+      state.activity = [line(`Copy worker warning: ${error.message}`), ...(state.activity || [])].slice(0, 20);
+      await saveState(state);
+    } finally {
+      working = false;
+    }
+  }, workerIntervalMs);
+}
+
 async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, { ok: true, liveTrading: process.env.ENABLE_LIVE_TRADING === "true" });
@@ -131,7 +274,9 @@ async function handleApi(request, response, url) {
     state.profiles[profile].lastAction = new Date().toISOString();
     state.activity = [
       line(`${profile === "frog" ? "Frog beginner" : "Truenest Big Win"} started.`),
-      line("Monitoring is active. Live swap execution stays locked until ENABLE_LIVE_TRADING is enabled on Render."),
+      line(liveTradingAllowed(state)
+        ? "Live trading switch is on. Copy worker is allowed to execute after wallet signer is connected."
+        : "Monitoring is active. Live swap execution stays locked until Render live trading is enabled."),
       ...(state.activity || [])
     ].slice(0, 20);
     await saveState(state);
@@ -186,4 +331,5 @@ createServer(async (request, response) => {
   }
 }).listen(port, host, () => {
   console.log(`SignalPilot site running on ${host}:${port}`);
+  startCopyWorker();
 });
