@@ -13,13 +13,13 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">SignalPilot Trader</p>
-          <h1>Copy the chosen traders from one control room.</h1>
-          <p class="lede">Frog is the beginner account. Truenest is the Big Win account. Each one has its own money, wallet, start button, and profit view.</p>
+          <h1>Frog for small trading. Truenest for big wins.</h1>
+          <p class="lede">Put the keys and wallet IDs once. After that, choose Frog or Truenest and SignalPilot watches that trader from the background.</p>
         </div>
         <div class="system-card">
-          <span class="system-label">Engine Status</span>
+          <span class="system-label">Simple Status</span>
           <strong id="engineStatus">Checking engine</strong>
-          <small id="engineSubtext">Render backend will keep this running nonstop.</small>
+          <small id="engineSubtext">Backend, keys, wallets, and live trading will show here clearly.</small>
         </div>
       </header>
 
@@ -138,9 +138,27 @@
         <div class="section-title">
           <div>
             <p class="eyebrow">Control Panel</p>
-            <h2 id="engineTitle">Engine Room</h2>
+            <h2 id="engineTitle">What you must put before trading</h2>
           </div>
           <button id="saveSettings" class="secondary-action">Save engine settings</button>
+        </div>
+
+        <div class="unlock-guide" aria-label="Unlock checklist">
+          <article>
+            <span>1</span>
+            <strong>Backend</strong>
+            <p>Already running on Render. This is the part that stays awake and watches the traders.</p>
+          </article>
+          <article>
+            <span>2</span>
+            <strong>Keys and wallets</strong>
+            <p>Paste Helius, Jupiter, Turnkey, Frog wallet, and Truenest wallet details below.</p>
+          </article>
+          <article>
+            <span>3</span>
+            <strong>Live trading unlock</strong>
+            <p id="liveEnvStatus">Render live trading is locked. Set ENABLE_LIVE_TRADING to true in Render Environment when you are ready.</p>
+          </article>
         </div>
 
         <div class="switch-board" aria-label="Main engine switches">
@@ -167,7 +185,7 @@
           <label class="switch-card bold-switch live-switch">
             <span>
               <strong>Live Trading</strong>
-              <small>Main switch for real buy and sell execution.</small>
+              <small>This switch is inside the site. Render must also be unlocked before real buying and selling can happen.</small>
             </span>
             <select id="liveTradingSwitch">
               <option value="on">ON - allow live trading</option>
