@@ -23,7 +23,177 @@
         </div>
       </header>
 
-      <section class="trader-grid" aria-label="Trader profiles">
+      <section class="business-portal" aria-labelledby="businessPortalTitle">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Business Access</p>
+            <h2 id="businessPortalTitle">Owner control and customer accounts</h2>
+          </div>
+          <button id="logoutButton" class="secondary-action hidden" type="button">Log out</button>
+        </div>
+
+        <div id="authPanel" class="auth-grid">
+          <article class="login-card owner-login">
+            <span class="login-badge">Owner</span>
+            <h3>Owner login</h3>
+            <p>Use your business email only. This opens the full control panel.</p>
+            <label>
+              Owner email
+              <input id="ownerEmail" autocomplete="email" value="ebubedikellc@gmail.com">
+            </label>
+            <button id="ownerLogin" class="primary-action" type="button">Open owner control panel</button>
+          </article>
+
+          <article class="login-card">
+            <span class="login-badge">Customer</span>
+            <h3>Customer login</h3>
+            <p>Customers use email and password to see deposit address, balance, and withdrawals.</p>
+            <label>Email <input id="customerLoginEmail" autocomplete="email" placeholder="customer@email.com"></label>
+            <label>Password <input id="customerLoginPassword" type="password" autocomplete="current-password" placeholder="Password"></label>
+            <button id="customerLogin" class="secondary-action" type="button">Log in customer</button>
+          </article>
+
+          <article class="login-card">
+            <span class="login-badge">New Customer</span>
+            <h3>Create account</h3>
+            <p>New customers create their own account before depositing into the business wallet.</p>
+            <label>Name <input id="signupName" autocomplete="name" placeholder="Full name"></label>
+            <label>Email <input id="signupEmail" autocomplete="email" placeholder="customer@email.com"></label>
+            <label>Password <input id="signupPassword" type="password" autocomplete="new-password" placeholder="At least 6 characters"></label>
+            <button id="customerSignup" class="secondary-action" type="button">Create customer account</button>
+          </article>
+        </div>
+
+        <div id="ownerPanel" class="owner-dashboard hidden">
+          <div class="dashboard-head">
+            <div>
+              <span class="login-badge">Owner Mode</span>
+              <h3>Full control panel</h3>
+              <p id="ownerIdentity">Logged in as owner.</p>
+            </div>
+          </div>
+
+          <div class="metric-grid">
+            <article><span>Customers</span><strong id="ownerCustomerCount">0</strong></article>
+            <article><span>Total deposits</span><strong id="ownerTotalDeposits">$0.00</strong></article>
+            <article><span>Total profit</span><strong id="ownerTotalProfit">$0.00</strong></article>
+            <article><span>Pending withdrawals</span><strong id="ownerPendingWithdrawals">0</strong></article>
+          </div>
+
+          <div class="owner-tools">
+            <article class="tool-card">
+              <h4>Create customer from owner panel</h4>
+              <label>Name <input id="ownerCustomerName" placeholder="Customer name"></label>
+              <label>Email <input id="ownerCustomerEmail" placeholder="customer@email.com"></label>
+              <label>Temporary password <input id="ownerCustomerPassword" placeholder="Optional"></label>
+              <label>
+                Trading plan
+                <select id="ownerCustomerPlan">
+                  <option value="frog">Frog Beginner</option>
+                  <option value="truenest">Truenest Big Win</option>
+                  <option value="both">Both wallets</option>
+                </select>
+              </label>
+              <label>Deposit credited <input id="ownerCustomerDeposit" inputmode="decimal" placeholder="0"></label>
+              <button id="ownerCreateCustomer" class="primary-action" type="button">Save customer</button>
+            </article>
+
+            <article class="tool-card">
+              <h4>Customer accounts</h4>
+              <div id="customerList" class="customer-list">
+                <p class="muted">No customer account yet.</p>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <div id="customerPanel" class="customer-dashboard hidden">
+          <div class="dashboard-head">
+            <div>
+              <span class="login-badge">Customer Mode</span>
+              <h3 id="customerWelcome">Your account</h3>
+              <p>Deposit to the wallet shown here, then the owner control panel can credit your balance.</p>
+            </div>
+          </div>
+
+          <div class="metric-grid">
+            <article><span>Deposited</span><strong id="customerDeposited">$0.00</strong></article>
+            <article><span>Profit</span><strong id="customerProfit">$0.00</strong></article>
+            <article><span>Withdrawable</span><strong id="customerWithdrawable">$0.00</strong></article>
+            <article><span>Status</span><strong id="customerStatus">Active</strong></article>
+          </div>
+
+          <div class="customer-tools">
+            <article class="tool-card">
+              <h4>Choose trading wallet</h4>
+              <label>
+                Plan
+                <select id="customerPlan">
+                  <option value="frog">Frog Beginner</option>
+                  <option value="truenest">Truenest Big Win</option>
+                  <option value="both">Both wallets</option>
+                </select>
+              </label>
+              <button id="saveCustomerPlan" class="secondary-action" type="button">Save plan</button>
+              <div id="depositAddresses" class="deposit-addresses"></div>
+            </article>
+
+            <article class="tool-card">
+              <h4>Request withdrawal</h4>
+              <label>Amount <input id="withdrawAmount" inputmode="decimal" placeholder="0"></label>
+              <label>Your Solana wallet <input id="withdrawWallet" placeholder="Paste wallet address"></label>
+              <button id="requestWithdraw" class="primary-action" type="button">Request withdrawal</button>
+            </article>
+          </div>
+        </div>
+
+        <p id="businessMessage" class="message-line"></p>
+      </section>
+
+      <section class="easy-setup owner-area" aria-labelledby="easySetupTitle">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Easy Setup</p>
+            <h2 id="easySetupTitle">Do this part once, then trading can start</h2>
+          </div>
+          <a class="link-action" href="https://app.turnkey.com" target="_blank" rel="noreferrer">Open Turnkey</a>
+        </div>
+
+        <div class="simple-steps">
+          <article class="active-step">
+            <span>Now</span>
+            <strong>Create Frog wallet</strong>
+            <p>In Turnkey Company Wallets, create <b>SignalPilot Frog Beginner</b>, then add <b>Frog Solana Account</b>.</p>
+          </article>
+          <article>
+            <span>Next</span>
+            <strong>Create Truenest wallet</strong>
+            <p>Create a second Company Wallet named <b>SignalPilot Truenest Big Win</b> with a Solana account.</p>
+          </article>
+          <article>
+            <span>Last</span>
+            <strong>Paste safe values here</strong>
+            <p>Paste wallet addresses and Turnkey IDs in the boxes below. Do not paste seed phrase or recovery words anywhere.</p>
+          </article>
+        </div>
+
+        <div class="setup-map">
+          <div>
+            <strong>Where your deposit goes</strong>
+            <p>Deposit SOL or USDC into the Turnkey Solana wallet address. SignalPilot only watches, trades, and records profit from that wallet.</p>
+          </div>
+          <div>
+            <strong>What I can do here</strong>
+            <p>I can fix the site, make the boxes, connect the backend, and tell you exactly what to tap.</p>
+          </div>
+          <div>
+            <strong>What Turnkey forces you to do</strong>
+            <p>Only your phone can approve biometric/passkey steps. That is why the cloud browser keeps failing on Turnkey.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="trader-grid owner-area" aria-label="Trader profiles">
         <article class="trader-card beginner">
           <div class="trader-head">
             <div class="avatar frog-face" aria-hidden="true">F</div>
@@ -75,7 +245,7 @@
         </article>
       </section>
 
-      <section class="vault-panel" aria-labelledby="vaultTitle">
+      <section class="vault-panel owner-area" aria-labelledby="vaultTitle">
         <div class="section-title">
           <div>
             <p class="eyebrow">Private Vault</p>
@@ -134,7 +304,7 @@
         </div>
       </section>
 
-      <section class="engine-room" aria-labelledby="engineTitle">
+      <section class="engine-room owner-area" aria-labelledby="engineTitle">
         <div class="section-title">
           <div>
             <p class="eyebrow">Control Panel</p>
@@ -215,6 +385,11 @@
             Turnkey API private key
             <input id="turnkeyApiPrivateKey" type="password" autocomplete="off" placeholder="Paste only inside this control panel">
           </label>
+          <div class="inline-save-box">
+            <strong>After you paste the private key</strong>
+            <span>Tap this save button here. No need to scroll back up.</span>
+            <button id="saveSettingsInline" class="secondary-action">Save private key / settings</button>
+          </div>
           <label>
             Turnkey policy ID
             <input id="turnkeyPolicyId" autocomplete="off" placeholder="Optional policy ID for trade approvals">
@@ -263,7 +438,7 @@
         </div>
       </section>
 
-      <section class="activity" aria-labelledby="activityTitle">
+      <section class="activity owner-area" aria-labelledby="activityTitle">
         <div>
           <p class="eyebrow">Live View</p>
           <h2 id="activityTitle">Trading activity</h2>
@@ -275,7 +450,7 @@
         </ul>
       </section>
 
-      <section class="activity trade-history" aria-labelledby="historyTitle">
+      <section class="activity trade-history owner-area" aria-labelledby="historyTitle">
         <div>
           <p class="eyebrow">Profit Tracking</p>
           <h2 id="historyTitle">Every copied trade</h2>
