@@ -22,6 +22,12 @@
       <article class="card truenest"><div class="head"><b>T</b><div><span>Big Win Slot</span><h2>Truenest</h2></div></div><p>Higher-risk profile for bigger trades.</p><dl><div><dt>Buy size</dt><dd>$500+</dd></div><div><dt>Rule</dt><dd>Automation only</dd></div></dl><div class="profit"><span>My Truenest profit</span><strong id="truenestProfit">$0.00</strong><small id="truenestBalance">Deposit: $0.00</small></div><div class="actions"><button id="truenestStart" disabled>Start Truenest</button><button id="truenestStop" class="stop" disabled>Stop</button></div></article>
     </section>
     <section class="panel"><div class="panel-head"><div><p class="eyebrow">Control Panel</p><h2>Engine Room</h2></div><button id="saveSettings" class="save">Save engine settings</button></div>
+
+      <div class="switch-board" aria-label="Main engine switches">
+        <label class="switch-card"><span><strong>Wallet Sync</strong><small>Use Privy first. Turnkey stays as backup.</small></span><select id="walletSync"><option>Privy server wallet</option><option>Turnkey server wallet</option><option>Manual wallet only</option></select></label>
+        <label class="switch-card bold-switch"><span><strong>Risk Control</strong><small>If this is OFF, the safety rules will not block trades.</small></span><select id="riskControl"><option value="on">ON - protect me</option><option value="off">OFF - exact copy only</option></select></label>
+        <label class="switch-card bold-switch live-switch"><span><strong>Live Trading</strong><small>Main switch for real buy and sell execution.</small></span><select id="liveTradingSwitch"><option value="on">ON - allow live trading</option><option value="off">OFF - monitor only</option></select></label>
+      </div>
       <div class="grid">
         <label>Helius API key<input id="heliusKey" type="password" placeholder="Paste Helius key"></label>
         <label>Jupiter route API<input id="routeApi" type="password" placeholder="Paste Jupiter key"></label>
@@ -42,7 +48,10 @@
       </div>
     </section>
     <section class="panel"><p class="eyebrow">Live View</p><h2>Trading activity</h2><ul id="activityLog"><li>Waiting for engine.</li></ul></section>
+
+    <section class="panel trade-history"><p class="eyebrow">Profit Tracking</p><h2>Every copied trade</h2><div class="table-wrap"><table><thead><tr><th>Time</th><th>Slot</th><th>Action</th><th>Token</th><th>Amount</th><th>Profit / Loss</th><th>Status</th></tr></thead><tbody id="tradeRows"><tr><td colspan="7">No copied trade yet. When SignalPilot trades, every buy and sell will show here.</td></tr></tbody></table></div></section>
   </main>
   <script src="./script.js"></script>
 </body>
 </html>
+
