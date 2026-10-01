@@ -26,32 +26,8 @@ const fields = [
   "vaultNote"
 ];
 
-const engineStatus = document.getElementById("engineStatus");
-const engineSubtext = document.getElementById("engineSubtext");
-const frogStart = document.getElementById("frogStart");
-const frogStop = document.getElementById("frogStop");
-const truenestStart = document.getElementById("truenestStart");
-const truenestStop = document.getElementById("truenestStop");
-const frogProfit = document.getElementById("frogProfit");
-const truenestProfit = document.getElementById("truenestProfit");
-const frogBalance = document.getElementById("frogBalance");
-const truenestBalance = document.getElementById("truenestBalance");
-const activityLog = document.getElementById("activityLog");
-const tradeRows = document.getElementById("tradeRows");
-const vaultStatus = document.getElementById("vaultStatus");
-const vaultDeposited = document.getElementById("vaultDeposited");
-const vaultProfit = document.getElementById("vaultProfit");
-const vaultFee = document.getElementById("vaultFee");
-const vaultFeeNote = document.getElementById("vaultFeeNote");
-const vaultWithdrawable = document.getElementById("vaultWithdrawable");
-const liveEnvStatus = document.getElementById("liveEnvStatus");
-const authPanel = document.getElementById("authPanel");
-const ownerPanel = document.getElementById("ownerPanel");
-const customerPanel = document.getElementById("customerPanel");
-const logoutButton = document.getElementById("logoutButton");
-const businessMessage = document.getElementById("businessMessage");
-
-let currentUser = null;
+const page = document.body.dataset.page || "customer";
+const $ = (id) => document.getElementById(id);
 
 function money(value) {
   const amount = Number(value || 0);
@@ -69,7 +45,17 @@ function escapeHtml(value) {
 }
 
 function value(id) {
-  return document.getElementById(id).value.trim();
+  return $(id)?.value.trim() || "";
+}
+
+function setText(id, text) {
+  const node = $(id);
+  if (node) node.textContent = text;
+}
+
+function setHidden(id, hidden) {
+  const node = $(id);
+  if (node) node.classList.toggle("hidden", hidden);
 }
 
 function payload() {
@@ -81,6 +67,8 @@ function payload() {
 }
 
 function setLog(lines) {
+  const activityLog = $("activityLog");
+  if (!activityLog) return;
   activityLog.innerHTML = "";
   lines.forEach((line) => {
     const li = document.createElement("li");
@@ -90,6 +78,8 @@ function setLog(lines) {
 }
 
 function renderTrades(trades = []) {
+  const tradeRows = $("tradeRows");
+  if (!tradeRows) return;
   tradeRows.innerHTML = "";
   if (!trades.length) {
     const row = document.createElement("tr");
@@ -126,14 +116,12 @@ function renderVault(settings = {}, profiles = {}) {
   const fee = Math.max(0, profit) * (feePercent / 100);
   const withdrawable = deposited + profit - fee;
 
-  vaultStatus.textContent = settings.vaultMode === "business" ? "Business vault mode" : "Private owner mode";
-  vaultDeposited.textContent = money(deposited);
-  vaultProfit.textContent = money(profit);
-  vaultFee.textContent = money(fee);
-  vaultFeeNote.textContent = feePercent
-    ? `${feePercent}% profit-share is only for future customer mode.`
-    : "No fee taken from your private vault now.";
-  vaultWithdrawable.textContent = money(withdrawable);
+  setText("vaultStatus", settings.vaultMode === "business" ? "Business vault mode" : "Private owner mode");
+  setText("vaultDeposited", money(deposited));
+  setText("vaultProfit", money(profit));
+  setText("vaultFee", money(fee));
+  setText("vaultFeeNote", feePercent ? `${feePercent}% profit-share is only for future customer mode.` : "No fee taken from your private vault now.");
+  setText("vaultWithdrawable", money(withdrawable));
 }
 
 function localReady(data = payload()) {
@@ -156,30 +144,29 @@ function renderState(state) {
   const liveTradingUnlocked = state.backend?.liveTrading === true;
 
   fields.forEach((id) => {
-    if (settings[id] && document.activeElement !== document.getElementById(id)) {
-      document.getElementById(id).value = settings[id];
-    }
+    const node = $(id);
+    if (node && settings[id] && document.activeElement !== node) node.value = settings[id];
   });
 
   const ready = localReady(settings);
-  frogStart.disabled = !ready || profiles.frog?.running;
-  truenestStart.disabled = !ready || profiles.truenest?.running;
-  frogStop.disabled = !profiles.frog?.running;
-  truenestStop.disabled = !profiles.truenest?.running;
+  if ($("frogStart")) $("frogStart").disabled = !ready || profiles.frog?.running;
+  if ($("truenestStart")) $("truenestStart").disabled = !ready || profiles.truenest?.running;
+  if ($("frogStop")) $("frogStop").disabled = !profiles.frog?.running;
+  if ($("truenestStop")) $("truenestStop").disabled = !profiles.truenest?.running;
 
-  frogProfit.textContent = money(profiles.frog?.profit);
-  truenestProfit.textContent = money(profiles.truenest?.profit);
-  frogBalance.textContent = `Deposit: ${money(settings.frogDeposit)}`;
-  truenestBalance.textContent = `Deposit: ${money(settings.truenestDeposit)}`;
+  setText("frogProfit", money(profiles.frog?.profit));
+  setText("truenestProfit", money(profiles.truenest?.profit));
+  setText("frogBalance", `Deposit: ${money(settings.frogDeposit)}`);
+  setText("truenestBalance", `Deposit: ${money(settings.truenestDeposit)}`);
   renderVault(settings, profiles);
   renderTrades(state.trades || []);
-  liveEnvStatus.textContent = liveTradingUnlocked
+  setText("liveEnvStatus", liveTradingUnlocked
     ? "Render live trading is unlocked. If the site switch is ON, SignalPilot can move from monitoring into execution."
-    : "Render live trading is locked. To unlock it, open Render > Environment, set ENABLE_LIVE_TRADING to true, save, then Manual Deploy latest commit.";
+    : "Render live trading is locked. Set ENABLE_LIVE_TRADING to true in Render Environment when you are ready.");
 
   if (!ready) {
-    engineStatus.textContent = "Trading locked - keys missing";
-    engineSubtext.textContent = "Backend is alive. Add the missing keys and wallet IDs below, then Save.";
+    setText("engineStatus", "Trading locked - keys missing");
+    setText("engineSubtext", "Backend is alive. Add the missing keys and wallet IDs inside this control panel, then Save.");
     const missing = [];
     if (!settings.heliusKey) missing.push("Waiting for Helius API key.");
     if (!settings.routeApi) missing.push("Waiting for Jupiter / trading route API.");
@@ -190,10 +177,6 @@ function renderState(state) {
     if (!settings.truenestTradeWallet) missing.push("Waiting for Truenest Big Win wallet.");
     if (!settings.frogSignerToken) missing.push("Waiting for Frog Turnkey wallet ID.");
     if (!settings.truenestSignerToken) missing.push("Waiting for Truenest Turnkey wallet ID.");
-    missing.push(`Wallet sync: ${settings.walletSync || "Turnkey server wallet"}.`);
-    missing.push(`Vault: ${settings.vaultMode === "business" ? "Business mode later" : "Private owner mode now"}.`);
-    missing.push(`Risk control: ${settings.riskControl === "off" ? "OFF - exact copy only" : "ON - protect me"}.`);
-    missing.push(`Site live trading switch: ${settings.liveTradingSwitch === "off" ? "OFF - monitor only" : "ON - allow live trading"}.`);
     missing.push(liveTradingUnlocked ? "Render unlock: ON." : "Render unlock: OFF - real trading stays locked.");
     setLog(missing);
     return;
@@ -204,18 +187,18 @@ function renderState(state) {
   if (profiles.truenest?.running) running.push("Truenest Big Win is running.");
 
   if (!liveTradingUnlocked) {
-    engineStatus.textContent = running.length ? "Monitoring running" : "Ready to monitor";
-    engineSubtext.textContent = running.length
+    setText("engineStatus", running.length ? "Monitoring running" : "Ready to monitor");
+    setText("engineSubtext", running.length
       ? "SignalPilot is watching the trader wallet. Real trading is still locked in Render."
-      : "Keys are saved. To allow real trades, set ENABLE_LIVE_TRADING=true in Render Environment.";
+      : "Keys are saved. To allow real trades, set ENABLE_LIVE_TRADING=true in Render Environment.");
     setLog(state.activity?.length ? state.activity : ["Keys are ready. Render live trading is still locked."]);
     return;
   }
 
-  engineStatus.textContent = running.length ? "Live copy engine running" : "Live trading unlocked";
-  engineSubtext.textContent = running.length
+  setText("engineStatus", running.length ? "Live copy engine running" : "Live trading unlocked");
+  setText("engineSubtext", running.length
     ? `${settings.walletSync || "Turnkey server wallet"} is selected. Render is watching the trader and live execution is unlocked.`
-    : `Wallet sync: ${settings.walletSync || "Turnkey server wallet"}. Press Start on Frog or Truenest.`;
+    : `Wallet sync: ${settings.walletSync || "Turnkey server wallet"}. Press Start on Frog or Truenest.`);
   setLog(state.activity?.length ? state.activity : ["Ready. Press Start Frog or Start Truenest."]);
 }
 
@@ -236,23 +219,26 @@ async function api(path, options = {}) {
 }
 
 function showBusinessMessage(text, error = false) {
+  const businessMessage = $("businessMessage");
+  if (!businessMessage) return;
   businessMessage.textContent = text || "";
   businessMessage.className = error ? "message-line error" : "message-line";
 }
 
 function setMode(role) {
   document.body.dataset.role = role || "guest";
-  authPanel.classList.toggle("hidden", Boolean(role));
-  ownerPanel.classList.toggle("hidden", role !== "owner");
-  customerPanel.classList.toggle("hidden", role !== "customer");
-  logoutButton.classList.toggle("hidden", !role);
+  setHidden("authPanel", Boolean(role));
+  setHidden("ownerPanel", role !== "owner");
+  setHidden("customerPanel", role !== "customer");
+  setHidden("logoutButton", !role);
   document.querySelectorAll(".owner-area").forEach((node) => {
     node.classList.toggle("hidden", role !== "owner");
   });
 }
 
 function renderAddresses(addresses = []) {
-  const wrap = document.getElementById("depositAddresses");
+  const wrap = $("depositAddresses");
+  if (!wrap) return;
   wrap.innerHTML = "";
   addresses.forEach((item) => {
     const row = document.createElement("div");
@@ -260,7 +246,7 @@ function renderAddresses(addresses = []) {
     row.innerHTML = `
       <span>${escapeHtml(item.label)}</span>
       <strong>${escapeHtml(item.address || "Wallet not connected yet")}</strong>
-      <button type="button" ${item.address ? "" : "disabled"}>Copy</button>
+      <button type="button" ${item.address ? "" : "disabled"}>Copy deposit wallet</button>
     `;
     row.querySelector("button").addEventListener("click", async () => {
       await navigator.clipboard.writeText(item.address);
@@ -272,23 +258,24 @@ function renderAddresses(addresses = []) {
 
 function renderCustomer(customer) {
   if (!customer) return;
-  document.getElementById("customerWelcome").textContent = `${customer.name || customer.email} account`;
-  document.getElementById("customerDeposited").textContent = money(customer.deposited);
-  document.getElementById("customerProfit").textContent = money(customer.profit);
-  document.getElementById("customerWithdrawable").textContent = money(customer.withdrawable);
-  document.getElementById("customerStatus").textContent = customer.status || "active";
-  document.getElementById("customerPlan").value = customer.plan || "frog";
+  setText("customerWelcome", `${customer.name || customer.email} account`);
+  setText("customerDeposited", money(customer.deposited));
+  setText("customerProfit", money(customer.profit));
+  setText("customerWithdrawable", money(customer.withdrawable));
+  setText("customerStatus", customer.status || "active");
+  if ($("customerPlan")) $("customerPlan").value = customer.plan || "frog";
   renderAddresses(customer.depositAddresses || []);
 }
 
 function renderOwner(data) {
-  document.getElementById("ownerIdentity").textContent = `Logged in as ${data.owner?.email || "owner"}.`;
-  document.getElementById("ownerCustomerCount").textContent = data.summary?.customers || 0;
-  document.getElementById("ownerTotalDeposits").textContent = money(data.summary?.deposited);
-  document.getElementById("ownerTotalProfit").textContent = money(data.summary?.profit);
-  document.getElementById("ownerPendingWithdrawals").textContent = data.summary?.pendingWithdrawals || 0;
+  setText("ownerIdentity", `Logged in as ${data.owner?.email || "owner"}.`);
+  setText("ownerCustomerCount", data.summary?.customers || 0);
+  setText("ownerTotalDeposits", money(data.summary?.deposited));
+  setText("ownerTotalProfit", money(data.summary?.profit));
+  setText("ownerPendingWithdrawals", data.summary?.pendingWithdrawals || 0);
 
-  const list = document.getElementById("customerList");
+  const list = $("customerList");
+  if (!list) return;
   list.innerHTML = "";
   if (!data.customers?.length) {
     list.innerHTML = '<p class="muted">No customer account yet.</p>';
@@ -343,28 +330,25 @@ async function loadBusiness() {
   try {
     const data = await api("/api/business");
     if (data.role === "owner") {
-      currentUser = { role: "owner" };
       setMode("owner");
       renderOwner(data);
+      if (page === "owner") await refresh();
     }
     if (data.role === "customer") {
-      currentUser = { role: "customer" };
       setMode("customer");
       renderCustomer(data.customer);
     }
   } catch {
-    currentUser = null;
     setMode(null);
   }
 }
 
 async function ownerLogin() {
   try {
-    const email = document.getElementById("ownerEmail").value.trim();
+    const email = value("ownerEmail");
     await api("/api/auth/owner", { method: "POST", body: JSON.stringify({ email }) });
     showBusinessMessage("Owner control panel opened.");
     await loadBusiness();
-    await refresh();
   } catch (error) {
     showBusinessMessage(error.message, true);
   }
@@ -375,8 +359,8 @@ async function customerLogin() {
     await api("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({
-        email: document.getElementById("customerLoginEmail").value,
-        password: document.getElementById("customerLoginPassword").value
+        email: value("customerLoginEmail"),
+        password: value("customerLoginPassword")
       })
     });
     showBusinessMessage("Customer account opened.");
@@ -391,12 +375,12 @@ async function customerSignup() {
     await api("/api/auth/signup", {
       method: "POST",
       body: JSON.stringify({
-        name: document.getElementById("signupName").value,
-        email: document.getElementById("signupEmail").value,
-        password: document.getElementById("signupPassword").value
+        name: value("signupName"),
+        email: value("signupEmail"),
+        password: value("signupPassword")
       })
     });
-    showBusinessMessage("Customer account created.");
+    showBusinessMessage("Customer account created. Your deposit wallet is below.");
     await loadBusiness();
   } catch (error) {
     showBusinessMessage(error.message, true);
@@ -408,14 +392,14 @@ async function ownerCreateCustomer() {
     const result = await api("/api/owner/customer", {
       method: "POST",
       body: JSON.stringify({
-        name: document.getElementById("ownerCustomerName").value,
-        email: document.getElementById("ownerCustomerEmail").value,
-        password: document.getElementById("ownerCustomerPassword").value,
-        plan: document.getElementById("ownerCustomerPlan").value,
-        deposited: document.getElementById("ownerCustomerDeposit").value
+        name: value("ownerCustomerName"),
+        email: value("ownerCustomerEmail"),
+        password: value("ownerCustomerPassword"),
+        plan: value("ownerCustomerPlan"),
+        deposited: value("ownerCustomerDeposit")
       })
     });
-    renderOwner({ owner: { email: document.getElementById("ownerEmail").value }, ...result });
+    renderOwner({ owner: { email: value("ownerEmail") }, ...result });
     showBusinessMessage("Customer saved in owner panel.");
   } catch (error) {
     showBusinessMessage(error.message, true);
@@ -426,7 +410,7 @@ async function saveCustomerPlan() {
   try {
     const result = await api("/api/customer/plan", {
       method: "POST",
-      body: JSON.stringify({ plan: document.getElementById("customerPlan").value })
+      body: JSON.stringify({ plan: value("customerPlan") })
     });
     renderCustomer(result.customer);
     showBusinessMessage("Trading wallet choice saved.");
@@ -440,8 +424,8 @@ async function requestWithdrawal() {
     const result = await api("/api/customer/withdraw", {
       method: "POST",
       body: JSON.stringify({
-        amount: document.getElementById("withdrawAmount").value,
-        wallet: document.getElementById("withdrawWallet").value
+        amount: value("withdrawAmount"),
+        wallet: value("withdrawWallet")
       })
     });
     renderCustomer(result.customer);
@@ -453,25 +437,23 @@ async function requestWithdrawal() {
 
 async function logout() {
   await api("/api/auth/logout", { method: "POST" });
-  currentUser = null;
   setMode(null);
   showBusinessMessage("Logged out.");
 }
 
 async function refresh() {
+  if (page !== "owner") return;
   try {
     const state = await api("/api/status");
-    if (state.auth?.role === "owner") {
-      renderState(state);
-    }
+    if (state.auth?.role === "owner") renderState(state);
   } catch {
-    engineStatus.textContent = "Backend not connected";
-    engineSubtext.textContent = "Render is not answering right now. The site cannot monitor until backend returns.";
-    frogStart.disabled = true;
-    truenestStart.disabled = true;
-    frogStop.disabled = true;
-    truenestStop.disabled = true;
-    liveEnvStatus.textContent = "Backend is not answering, so live trading cannot be checked.";
+    setText("engineStatus", "Backend not connected");
+    setText("engineSubtext", "Render is not answering right now. The site cannot monitor until backend returns.");
+    ["frogStart", "truenestStart", "frogStop", "truenestStop"].forEach((id) => {
+      const button = $(id);
+      if (button) button.disabled = true;
+    });
+    setText("liveEnvStatus", "Backend is not answering, so live trading cannot be checked.");
     setLog(["Backend is not answering yet. Check Render service status."]);
   }
 }
@@ -489,23 +471,26 @@ async function stopProfile(profile) {
   renderState(await api(`/api/stop/${profile}`, { method: "POST" }));
 }
 
-document.getElementById("saveSettings").addEventListener("click", saveSettings);
-document.getElementById("saveSettingsInline").addEventListener("click", saveSettings);
-document.getElementById("ownerLogin").addEventListener("click", ownerLogin);
-document.getElementById("customerLogin").addEventListener("click", customerLogin);
-document.getElementById("customerSignup").addEventListener("click", customerSignup);
-document.getElementById("ownerCreateCustomer").addEventListener("click", ownerCreateCustomer);
-document.getElementById("saveCustomerPlan").addEventListener("click", saveCustomerPlan);
-document.getElementById("requestWithdraw").addEventListener("click", requestWithdrawal);
-logoutButton.addEventListener("click", logout);
-fields.forEach((id) => document.getElementById(id).addEventListener("input", () => {
-  renderState({ settings: payload(), profiles: {}, activity: [] });
-}));
-frogStart.addEventListener("click", () => startProfile("frog"));
-frogStop.addEventListener("click", () => stopProfile("frog"));
-truenestStart.addEventListener("click", () => startProfile("truenest"));
-truenestStop.addEventListener("click", () => stopProfile("truenest"));
+function on(id, event, handler) {
+  const node = $(id);
+  if (node) node.addEventListener(event, handler);
+}
+
+on("saveSettings", "click", saveSettings);
+on("saveSettingsInline", "click", saveSettings);
+on("ownerLogin", "click", ownerLogin);
+on("customerLogin", "click", customerLogin);
+on("customerSignup", "click", customerSignup);
+on("ownerCreateCustomer", "click", ownerCreateCustomer);
+on("saveCustomerPlan", "click", saveCustomerPlan);
+on("requestWithdraw", "click", requestWithdrawal);
+on("logoutButton", "click", logout);
+fields.forEach((id) => on(id, "input", () => renderState({ settings: payload(), profiles: {}, activity: [] })));
+on("frogStart", "click", () => startProfile("frog"));
+on("frogStop", "click", () => stopProfile("frog"));
+on("truenestStart", "click", () => startProfile("truenest"));
+on("truenestStop", "click", () => stopProfile("truenest"));
 
 setMode(null);
-loadBusiness().then(refresh);
-setInterval(refresh, 5000);
+loadBusiness();
+if (page === "owner") setInterval(refresh, 5000);
