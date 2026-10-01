@@ -65,7 +65,7 @@ h1 {
   line-height: 1.65;
 }
 
-.system-card, .trader-card, .engine-room, .activity, .vault-panel {
+.system-card, .trader-card, .engine-room, .activity, .vault-panel, .easy-setup, .business-portal {
   border: 1px solid var(--line);
   background: linear-gradient(145deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
   box-shadow: 0 20px 50px rgba(0,0,0,.22);
@@ -233,10 +233,253 @@ dd {
   opacity: .48;
 }
 
-.engine-room, .activity, .vault-panel {
+.engine-room, .activity, .vault-panel, .easy-setup, .business-portal {
   padding: 22px;
   border-radius: 8px;
   margin-bottom: 18px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.business-portal {
+  background:
+    linear-gradient(145deg, rgba(46,230,166,.14), rgba(255,255,255,.04)),
+    rgba(0,0,0,.22);
+}
+
+.auth-grid, .owner-tools, .customer-tools {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.owner-tools, .customer-tools {
+  grid-template-columns: minmax(280px, .85fr) minmax(0, 1.35fr);
+}
+
+.login-card, .tool-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0,0,0,.2);
+}
+
+.login-card h3, .tool-card h4, .dashboard-head h3 {
+  margin: 0;
+}
+
+.login-card p, .dashboard-head p, .muted {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.login-badge {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #061118;
+  background: var(--green);
+  font-size: .78rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.owner-login {
+  border-color: rgba(46,230,166,.45);
+}
+
+.owner-dashboard, .customer-dashboard {
+  display: grid;
+  gap: 16px;
+}
+
+.dashboard-head {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0,0,0,.18);
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metric-grid article {
+  display: grid;
+  gap: 6px;
+  min-height: 112px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0,0,0,.18);
+}
+
+.metric-grid span {
+  color: var(--muted);
+  font-size: .85rem;
+  font-weight: 800;
+}
+
+.metric-grid strong {
+  font-size: 1.55rem;
+}
+
+.customer-list {
+  display: grid;
+  gap: 12px;
+  max-height: 560px;
+  overflow: auto;
+}
+
+.customer-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.2fr) repeat(4, minmax(110px, 1fr)) 90px;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255,255,255,.04);
+}
+
+.customer-row > div {
+  display: grid;
+  gap: 4px;
+}
+
+.customer-row span {
+  color: var(--muted);
+  font-size: .88rem;
+}
+
+.deposit-addresses {
+  display: grid;
+  gap: 10px;
+}
+
+.address-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255,255,255,.04);
+}
+
+.address-card span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.address-card strong {
+  overflow-wrap: anywhere;
+  font-size: .96rem;
+}
+
+.address-card button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--green);
+  color: #061118;
+  font-weight: 900;
+}
+
+.message-line {
+  min-height: 24px;
+  margin: 14px 0 0;
+  color: var(--green);
+  font-weight: 800;
+}
+
+.message-line.error {
+  color: var(--red);
+}
+
+.easy-setup {
+  background:
+    linear-gradient(145deg, rgba(46,230,166,.16), rgba(246,201,92,.1)),
+    rgba(0,0,0,.2);
+}
+
+.link-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: 8px;
+  color: #061118;
+  background: var(--green);
+  font-weight: 950;
+  text-decoration: none;
+}
+
+.simple-steps, .setup-map {
+  display: grid;
+  gap: 12px;
+}
+
+.simple-steps {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.simple-steps article, .setup-map div {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0,0,0,.22);
+}
+
+.simple-steps span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  margin-bottom: 10px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: #061118;
+  background: var(--gold);
+  font-size: .8rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.simple-steps .active-step {
+  border-color: rgba(46,230,166,.5);
+  box-shadow: inset 0 0 0 1px rgba(46,230,166,.24);
+}
+
+.simple-steps .active-step span {
+  background: var(--green);
+}
+
+.simple-steps strong, .setup-map strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 1.08rem;
+}
+
+.simple-steps p, .setup-map p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.setup-map {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .section-title {
@@ -431,6 +674,34 @@ input:focus, select:focus {
   box-shadow: 0 0 0 3px rgba(46,230,166,.14);
 }
 
+.inline-save-box {
+  display: grid;
+  gap: 8px;
+  align-content: center;
+  padding: 14px;
+  border: 1px solid rgba(46,230,166,.45);
+  border-radius: 8px;
+  background: rgba(46,230,166,.1);
+}
+
+.inline-save-box strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.inline-save-box span {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.inline-save-box .secondary-action {
+  width: 100%;
+  min-height: 52px;
+  background: var(--green);
+  color: #061118;
+  border: 0;
+}
+
 .profile-settings {
   margin-top: 16px;
 }
@@ -518,7 +789,7 @@ td {
 }
 
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide {
+  .topbar, .trader-grid, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row {
     grid-template-columns: 1fr;
   }
 
