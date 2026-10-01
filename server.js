@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createReadStream } from "node:fs";
+import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,6 +11,8 @@ const host = process.env.HOST || (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
 const dataDir = process.env.DATA_DIR || path.join(__dirname, ".data");
 const dataFile = path.join(dataDir, "signalpilot-state.json");
 const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 15000);
+const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
+const sessionMaxAge = 60 * 60 * 24 * 30;
 
 const defaultState = {
   settings: {
@@ -31,6 +34,13 @@ const defaultState = {
     frog: { running: false, profit: 0, lastAction: null, lastSignature: null },
     truenest: { running: false, profit: 0, lastAction: null, lastSignature: null }
   },
+  owner: {
+    email: ownerEmail
+  },
+  customers: [],
+  deposits: [],
+  withdrawals: [],
+  sessions: {},
   activity: ["Site engine created. Add API and wallet details, then press Save."],
   trades: []
 };
@@ -77,9 +87,9 @@ function line(text) {
 
 async function readState() {
   try {
-    return JSON.parse(await readFile(dataFile, "utf8"));
+    return normalizeState(JSON.parse(await readFile(dataFile, "utf8")));
   } catch {
-    return structuredClone(defaultState);
+    return normalizeState(structuredClone(defaultState));
   }
 }
 
@@ -94,9 +104,158 @@ async function readBody(request) {
   return raw ? JSON.parse(raw) : {};
 }
 
-function send(response, status, data) {
-  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+function send(response, status, data, headers = {}) {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...headers });
   response.end(JSON.stringify(data));
+}
+
+function normalizeState(state) {
+  state.settings = { ...defaultState.settings, ...(state.settings || {}) };
+  state.profiles = { ...structuredClone(defaultState.profiles), ...(state.profiles || {}) };
+  state.owner = { email: (state.owner?.email || ownerEmail).toLowerCase() };
+  state.customers = Array.isArray(state.customers) ? state.customers : [];
+  state.deposits = Array.isArray(state.deposits) ? state.deposits : [];
+  state.withdrawals = Array.isArray(state.withdrawals) ? state.withdrawals : [];
+  state.sessions = state.sessions && typeof state.sessions === "object" ? state.sessions : {};
+  state.activity = Array.isArray(state.activity) ? state.activity : [];
+  state.trades = Array.isArray(state.trades) ? state.trades : [];
+  return state;
+}
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function makePasswordHash(password) {
+  const salt = randomBytes(16).toString("hex");
+  const hash = pbkdf2Sync(String(password), salt, 120000, 32, "sha256").toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function checkPassword(password, stored) {
+  const [salt, hash] = String(stored || "").split(":");
+  if (!salt || !hash) return false;
+  const candidate = pbkdf2Sync(String(password), salt, 120000, 32, "sha256");
+  const known = Buffer.from(hash, "hex");
+  return known.length === candidate.length && timingSafeEqual(known, candidate);
+}
+
+function parseCookies(request) {
+  return Object.fromEntries(
+    String(request.headers.cookie || "")
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const index = part.indexOf("=");
+        return [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
+      })
+  );
+}
+
+function cookieFor(token) {
+  return `sp_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${sessionMaxAge}`;
+}
+
+function clearCookie() {
+  return "sp_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0";
+}
+
+function sessionFromRequest(request, state) {
+  const token = parseCookies(request).sp_session;
+  if (!token || !state.sessions?.[token]) return null;
+  return { token, ...state.sessions[token] };
+}
+
+function createSession(state, role, id) {
+  const token = randomUUID();
+  state.sessions[token] = {
+    role,
+    id,
+    createdAt: new Date().toISOString()
+  };
+  return token;
+}
+
+function publicSettings(settings = {}, includeSecrets = false) {
+  if (includeSecrets) return settings;
+  return {
+    frogTradeWallet: settings.frogTradeWallet || "",
+    truenestTradeWallet: settings.truenestTradeWallet || "",
+    frogWallet: settings.frogWallet || "",
+    truenestWallet: settings.truenestWallet || "",
+    frogMax: settings.frogMax || "",
+    truenestMax: settings.truenestMax || "",
+    walletSync: settings.walletSync || "Turnkey server wallet",
+    riskControl: settings.riskControl || "on",
+    liveTradingSwitch: settings.liveTradingSwitch || "on",
+    vaultMode: settings.vaultMode || "private",
+    vaultFeePercent: settings.vaultFeePercent || "0",
+    vaultNote: settings.vaultNote || ""
+  };
+}
+
+function depositAddresses(state, plan = "frog") {
+  const frog = state.settings.frogTradeWallet || "";
+  const truenest = state.settings.truenestTradeWallet || "";
+  if (plan === "truenest") return [{ label: "Truenest Big Win", address: truenest }];
+  if (plan === "both") return [
+    { label: "Frog Beginner", address: frog },
+    { label: "Truenest Big Win", address: truenest }
+  ];
+  return [{ label: "Frog Beginner", address: frog }];
+}
+
+function customerPublic(customer, state) {
+  const deposited = Number(customer.deposited || 0);
+  const profit = Number(customer.profit || 0);
+  const withdrawable = deposited + profit - Number(customer.withdrawn || 0);
+  return {
+    id: customer.id,
+    name: customer.name,
+    email: customer.email,
+    plan: customer.plan || "frog",
+    status: customer.status || "active",
+    deposited,
+    profit,
+    withdrawn: Number(customer.withdrawn || 0),
+    withdrawable,
+    depositAddresses: depositAddresses(state, customer.plan)
+  };
+}
+
+function businessSummary(state) {
+  const customers = state.customers || [];
+  const deposited = customers.reduce((sum, customer) => sum + Number(customer.deposited || 0), 0);
+  const profit = customers.reduce((sum, customer) => sum + Number(customer.profit || 0), 0);
+  const pendingWithdrawals = (state.withdrawals || []).filter((item) => item.status === "pending").length;
+  return {
+    customers: customers.length,
+    deposited,
+    profit,
+    pendingWithdrawals
+  };
+}
+
+function statusPayload(state, session) {
+  const isOwner = session?.role === "owner";
+  return {
+    ...state,
+    settings: publicSettings(state.settings, isOwner),
+    sessions: undefined,
+    customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
+    backend: {
+      liveTrading: process.env.ENABLE_LIVE_TRADING === "true",
+      workerIntervalMs
+    },
+    auth: session ? { role: session.role, id: session.id } : null
+  };
+}
+
+function requireOwner(response, session) {
+  if (session?.role === "owner") return false;
+  send(response, 401, { error: "Owner login required." });
+  return true;
 }
 
 function clean(input) {
@@ -263,30 +422,243 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/auth/me") {
+    const state = await readState();
+    const session = sessionFromRequest(request, state);
+    if (!session) {
+      send(response, 200, { user: null, ownerEmail: state.owner.email });
+      return true;
+    }
+    if (session.role === "owner") {
+      send(response, 200, { user: { role: "owner", email: state.owner.email }, ownerEmail: state.owner.email });
+      return true;
+    }
+    const customer = state.customers.find((item) => item.id === session.id);
+    send(response, 200, { user: customer ? { role: "customer", ...customerPublic(customer, state) } : null, ownerEmail: state.owner.email });
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/owner") {
+    const state = await readState();
+    const body = await readBody(request);
+    const email = normalizeEmail(body.email);
+    if (email !== state.owner.email) {
+      send(response, 403, { error: "That email is not the owner email." });
+      return true;
+    }
+    const token = createSession(state, "owner", "owner");
+    state.activity = [line("Owner logged into the business control panel."), ...(state.activity || [])].slice(0, 20);
+    await saveState(state);
+    send(response, 200, { user: { role: "owner", email: state.owner.email } }, { "Set-Cookie": cookieFor(token) });
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/signup") {
+    const state = await readState();
+    const body = await readBody(request);
+    const email = normalizeEmail(body.email);
+    const password = String(body.password || "");
+    if (!email.includes("@") || password.length < 6) {
+      send(response, 400, { error: "Use a valid email and a password with at least 6 characters." });
+      return true;
+    }
+    const existingCustomer = state.customers.find((customer) => customer.email === email);
+    if (email === state.owner.email || (existingCustomer && existingCustomer.passwordHash)) {
+      send(response, 409, { error: "This email already has an account." });
+      return true;
+    }
+    const customer = existingCustomer || {
+      id: randomUUID(),
+      email,
+      plan: "frog",
+      status: "active",
+      deposited: 0,
+      profit: 0,
+      withdrawn: 0,
+      createdAt: new Date().toISOString()
+    };
+    customer.name = String(body.name || customer.name || email.split("@")[0]).trim().slice(0, 80);
+    customer.passwordHash = makePasswordHash(password);
+    if (!existingCustomer) state.customers.push(customer);
+    const token = createSession(state, "customer", customer.id);
+    state.activity = [line(`Customer account created for ${email}.`), ...(state.activity || [])].slice(0, 20);
+    await saveState(state);
+    send(response, 200, { user: { role: "customer", ...customerPublic(customer, state) } }, { "Set-Cookie": cookieFor(token) });
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/login") {
+    const state = await readState();
+    const body = await readBody(request);
+    const email = normalizeEmail(body.email);
+    const customer = state.customers.find((item) => item.email === email);
+    if (!customer || !checkPassword(body.password || "", customer.passwordHash)) {
+      send(response, 403, { error: "Email or password is not correct." });
+      return true;
+    }
+    const token = createSession(state, "customer", customer.id);
+    await saveState(state);
+    send(response, 200, { user: { role: "customer", ...customerPublic(customer, state) } }, { "Set-Cookie": cookieFor(token) });
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/logout") {
+    const state = await readState();
+    const session = sessionFromRequest(request, state);
+    if (session?.token) delete state.sessions[session.token];
+    await saveState(state);
+    send(response, 200, { ok: true }, { "Set-Cookie": clearCookie() });
+    return true;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/status") {
     const state = await readState();
-    send(response, 200, {
-      ...state,
-      backend: {
-        liveTrading: process.env.ENABLE_LIVE_TRADING === "true",
-        workerIntervalMs
-      }
-    });
+    send(response, 200, statusPayload(state, sessionFromRequest(request, state)));
+    return true;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/business") {
+    const state = await readState();
+    const session = sessionFromRequest(request, state);
+    if (session?.role === "owner") {
+      send(response, 200, {
+        role: "owner",
+        owner: state.owner,
+        summary: businessSummary(state),
+        customers: state.customers.map((customer) => customerPublic(customer, state)),
+        deposits: state.deposits,
+        withdrawals: state.withdrawals
+      });
+      return true;
+    }
+    if (session?.role === "customer") {
+      const customer = state.customers.find((item) => item.id === session.id);
+      send(response, 200, { role: "customer", customer: customer ? customerPublic(customer, state) : null });
+      return true;
+    }
+    send(response, 401, { error: "Login required." });
     return true;
   }
 
   if (request.method === "POST" && url.pathname === "/api/settings") {
     const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
     state.settings = { ...state.settings, ...clean(await readBody(request)) };
     state.activity = [line("Engine Room saved."), ...(state.activity || [])].slice(0, 20);
     await saveState(state);
-    send(response, 200, state);
+    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/owner/customer") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    const body = await readBody(request);
+    const email = normalizeEmail(body.email);
+    if (!email.includes("@")) {
+      send(response, 400, { error: "Customer email is required." });
+      return true;
+    }
+    let customer = state.customers.find((item) => item.email === email);
+    if (!customer) {
+      customer = {
+        id: randomUUID(),
+        name: String(body.name || email.split("@")[0]).trim().slice(0, 80),
+        email,
+        passwordHash: body.password ? makePasswordHash(body.password) : "",
+        plan: body.plan === "truenest" || body.plan === "both" ? body.plan : "frog",
+        status: "active",
+        deposited: Number(body.deposited || 0),
+        profit: Number(body.profit || 0),
+        withdrawn: 0,
+        createdAt: new Date().toISOString()
+      };
+      state.customers.push(customer);
+    } else {
+      customer.name = String(body.name || customer.name).trim().slice(0, 80);
+      customer.plan = body.plan === "truenest" || body.plan === "both" ? body.plan : "frog";
+      customer.deposited = Number(body.deposited || customer.deposited || 0);
+      customer.profit = Number(body.profit || customer.profit || 0);
+    }
+    state.activity = [line(`Owner saved customer ${email}.`), ...(state.activity || [])].slice(0, 20);
+    await saveState(state);
+    send(response, 200, { summary: businessSummary(state), customers: state.customers.map((item) => customerPublic(item, state)) });
+    return true;
+  }
+
+  const ownerCustomerMatch = url.pathname.match(/^\/api\/owner\/customer\/([^/]+)$/);
+  if (request.method === "POST" && ownerCustomerMatch) {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    const customer = state.customers.find((item) => item.id === ownerCustomerMatch[1]);
+    if (!customer) {
+      send(response, 404, { error: "Customer not found." });
+      return true;
+    }
+    const body = await readBody(request);
+    if (body.plan === "frog" || body.plan === "truenest" || body.plan === "both") customer.plan = body.plan;
+    if (body.status === "active" || body.status === "paused") customer.status = body.status;
+    if (body.deposited !== undefined) customer.deposited = Number(body.deposited || 0);
+    if (body.profit !== undefined) customer.profit = Number(body.profit || 0);
+    if (body.withdrawn !== undefined) customer.withdrawn = Number(body.withdrawn || 0);
+    await saveState(state);
+    send(response, 200, { summary: businessSummary(state), customers: state.customers.map((item) => customerPublic(item, state)) });
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/customer/plan") {
+    const state = await readState();
+    const session = sessionFromRequest(request, state);
+    if (session?.role !== "customer") {
+      send(response, 401, { error: "Customer login required." });
+      return true;
+    }
+    const customer = state.customers.find((item) => item.id === session.id);
+    const body = await readBody(request);
+    if (customer && (body.plan === "frog" || body.plan === "truenest" || body.plan === "both")) customer.plan = body.plan;
+    await saveState(state);
+    send(response, 200, { customer: customer ? customerPublic(customer, state) : null });
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/customer/withdraw") {
+    const state = await readState();
+    const session = sessionFromRequest(request, state);
+    if (session?.role !== "customer") {
+      send(response, 401, { error: "Customer login required." });
+      return true;
+    }
+    const customer = state.customers.find((item) => item.id === session.id);
+    if (!customer) {
+      send(response, 404, { error: "Customer not found." });
+      return true;
+    }
+    const body = await readBody(request);
+    const amount = Number(body.amount || 0);
+    const wallet = String(body.wallet || "").trim();
+    const available = customerPublic(customer, state).withdrawable;
+    if (!amount || amount <= 0 || amount > available || !wallet) {
+      send(response, 400, { error: "Enter a wallet and an amount inside your withdrawable balance." });
+      return true;
+    }
+    state.withdrawals.push({
+      id: randomUUID(),
+      customerId: customer.id,
+      customerEmail: customer.email,
+      amount,
+      wallet,
+      status: "pending",
+      createdAt: new Date().toISOString()
+    });
+    await saveState(state);
+    send(response, 200, { customer: customerPublic(customer, state), withdrawals: state.withdrawals.filter((item) => item.customerId === customer.id) });
     return true;
   }
 
   const startMatch = url.pathname.match(/^\/api\/start\/(frog|truenest)$/);
   if (request.method === "POST" && startMatch) {
     const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
     if (!ready(state)) {
       send(response, 400, { error: "Engine Room is not complete yet." });
       return true;
@@ -302,13 +674,14 @@ async function handleApi(request, response, url) {
       ...(state.activity || [])
     ].slice(0, 20);
     await saveState(state);
-    send(response, 200, state);
+    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
     return true;
   }
 
   const stopMatch = url.pathname.match(/^\/api\/stop\/(frog|truenest)$/);
   if (request.method === "POST" && stopMatch) {
     const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
     const profile = stopMatch[1];
     state.profiles[profile].running = false;
     state.profiles[profile].lastAction = new Date().toISOString();
@@ -317,7 +690,7 @@ async function handleApi(request, response, url) {
       ...(state.activity || [])
     ].slice(0, 20);
     await saveState(state);
-    send(response, 200, state);
+    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
     return true;
   }
 
