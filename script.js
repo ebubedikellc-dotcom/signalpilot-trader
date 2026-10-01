@@ -44,6 +44,7 @@ const vaultProfit = document.getElementById("vaultProfit");
 const vaultFee = document.getElementById("vaultFee");
 const vaultFeeNote = document.getElementById("vaultFeeNote");
 const vaultWithdrawable = document.getElementById("vaultWithdrawable");
+const liveEnvStatus = document.getElementById("liveEnvStatus");
 
 function money(value) {
   const amount = Number(value || 0);
@@ -135,6 +136,7 @@ function localReady(data = payload()) {
 function renderState(state) {
   const settings = state.settings || {};
   const profiles = state.profiles || {};
+  const liveTradingUnlocked = state.backend?.liveTrading === true;
 
   fields.forEach((id) => {
     if (settings[id] && document.activeElement !== document.getElementById(id)) {
@@ -154,10 +156,13 @@ function renderState(state) {
   truenestBalance.textContent = `Deposit: ${money(settings.truenestDeposit)}`;
   renderVault(settings, profiles);
   renderTrades(state.trades || []);
+  liveEnvStatus.textContent = liveTradingUnlocked
+    ? "Render live trading is unlocked. If the site switch is ON, SignalPilot can move from monitoring into execution."
+    : "Render live trading is locked. To unlock it, open Render > Environment, set ENABLE_LIVE_TRADING to true, save, then Manual Deploy latest commit.";
 
   if (!ready) {
-    engineStatus.textContent = "Engine Room needs keys";
-    engineSubtext.textContent = "Add the boxes below, then Save.";
+    engineStatus.textContent = "Trading locked - keys missing";
+    engineSubtext.textContent = "Backend is alive. Add the missing keys and wallet IDs below, then Save.";
     const missing = [];
     if (!settings.heliusKey) missing.push("Waiting for Helius API key.");
     if (!settings.routeApi) missing.push("Waiting for Jupiter / trading route API.");
@@ -171,7 +176,8 @@ function renderState(state) {
     missing.push(`Wallet sync: ${settings.walletSync || "Turnkey server wallet"}.`);
     missing.push(`Vault: ${settings.vaultMode === "business" ? "Business mode later" : "Private owner mode now"}.`);
     missing.push(`Risk control: ${settings.riskControl === "off" ? "OFF - exact copy only" : "ON - protect me"}.`);
-    missing.push(`Live trading switch: ${settings.liveTradingSwitch === "off" ? "OFF - monitor only" : "ON - allow live trading"}.`);
+    missing.push(`Site live trading switch: ${settings.liveTradingSwitch === "off" ? "OFF - monitor only" : "ON - allow live trading"}.`);
+    missing.push(liveTradingUnlocked ? "Render unlock: ON." : "Render unlock: OFF - real trading stays locked.");
     setLog(missing);
     return;
   }
@@ -180,10 +186,19 @@ function renderState(state) {
   if (profiles.frog?.running) running.push("Frog beginner is running.");
   if (profiles.truenest?.running) running.push("Truenest Big Win is running.");
 
-  engineStatus.textContent = running.length ? "Copy engine running" : "Engine ready";
+  if (!liveTradingUnlocked) {
+    engineStatus.textContent = running.length ? "Monitoring running" : "Ready to monitor";
+    engineSubtext.textContent = running.length
+      ? "SignalPilot is watching the trader wallet. Real trading is still locked in Render."
+      : "Keys are saved. To allow real trades, set ENABLE_LIVE_TRADING=true in Render Environment.";
+    setLog(state.activity?.length ? state.activity : ["Keys are ready. Render live trading is still locked."]);
+    return;
+  }
+
+  engineStatus.textContent = running.length ? "Live copy engine running" : "Live trading unlocked";
   engineSubtext.textContent = running.length
-    ? `${settings.walletSync || "Turnkey server wallet"} is selected. Render is watching the selected trader wallets.`
-    : `Wallet sync: ${settings.walletSync || "Turnkey server wallet"}. Press Start on the account you want to run.`;
+    ? `${settings.walletSync || "Turnkey server wallet"} is selected. Render is watching the trader and live execution is unlocked.`
+    : `Wallet sync: ${settings.walletSync || "Turnkey server wallet"}. Press Start on Frog or Truenest.`;
   setLog(state.activity?.length ? state.activity : ["Ready. Press Start Frog or Start Truenest."]);
 }
 
@@ -201,12 +216,13 @@ async function refresh() {
     renderState(await api("/api/status"));
   } catch {
     engineStatus.textContent = "Backend not connected";
-    engineSubtext.textContent = "Run this on Render to make the buttons live.";
+    engineSubtext.textContent = "Render is not answering right now. The site cannot monitor until backend returns.";
     frogStart.disabled = true;
     truenestStart.disabled = true;
     frogStop.disabled = true;
     truenestStop.disabled = true;
-    setLog(["This page is open, but the Render backend is not running yet."]);
+    liveEnvStatus.textContent = "Backend is not answering, so live trading cannot be checked.";
+    setLog(["Backend is not answering yet. Check Render service status."]);
   }
 }
 
