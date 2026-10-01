@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SignalPilot Trader</title>
+  <meta name="description" content="Private Solana copy-trading control panel for beginner and big-win profiles.">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">SignalPilot Trader</p>
+        <h1>One clean control room for Frog and Truenest.</h1>
+        <p>Frog is the beginner slot. Truenest is the Big Win slot. Each has its own wallet, money, start button, stop button, and profit view.</p>
+      </div>
+      <aside class="status"><span>Engine Status</span><strong id="engineStatus">Checking</strong><small id="engineSubtext">Render backend keeps it online.</small></aside>
+    </header>
+    <section class="cards">
+      <article class="card frog"><div class="head"><b>F</b><div><span>Beginner Slot</span><h2>Frog</h2></div></div><p>Small account profile for beginner copying.</p><dl><div><dt>Buy size</dt><dd>$350-$420</dd></div><div><dt>Rule</dt><dd>Strict limit first</dd></div></dl><div class="profit"><span>My Frog profit</span><strong id="frogProfit">$0.00</strong><small id="frogBalance">Deposit: $0.00</small></div><div class="actions"><button id="frogStart" disabled>Start Frog</button><button id="frogStop" class="stop" disabled>Stop</button></div></article>
+      <article class="card truenest"><div class="head"><b>T</b><div><span>Big Win Slot</span><h2>Truenest</h2></div></div><p>Higher-risk profile for bigger trades.</p><dl><div><dt>Buy size</dt><dd>$500+</dd></div><div><dt>Rule</dt><dd>Automation only</dd></div></dl><div class="profit"><span>My Truenest profit</span><strong id="truenestProfit">$0.00</strong><small id="truenestBalance">Deposit: $0.00</small></div><div class="actions"><button id="truenestStart" disabled>Start Truenest</button><button id="truenestStop" class="stop" disabled>Stop</button></div></article>
+    </section>
+    <section class="panel"><div class="panel-head"><div><p class="eyebrow">Control Panel</p><h2>Engine Room</h2></div><button id="saveSettings" class="save">Save engine settings</button></div>
+      <div class="grid">
+        <label>Helius API key<input id="heliusKey" type="password" placeholder="Paste Helius key"></label>
+        <label>Jupiter route API<input id="routeApi" type="password" placeholder="Paste Jupiter key"></label>
+        <label>Frog copy wallet<input id="frogTradeWallet" placeholder="Beginner wallet address"></label>
+        <label>Truenest copy wallet<input id="truenestTradeWallet" placeholder="Big Win wallet address"></label>
+        <label>Frog signer token<input id="frogSignerToken" type="password" placeholder="Signer token, not seed phrase"></label>
+        <label>Truenest signer token<input id="truenestSignerToken" type="password" placeholder="Signer token, not seed phrase"></label>
+        <label>Frog deposit<input id="frogDeposit" inputmode="decimal" placeholder="Example: 395"></label>
+        <label>Truenest deposit<input id="truenestDeposit" inputmode="decimal" placeholder="Big Win money"></label>
+      </div>
+      <div class="grid settings">
+        <label>Frog trader wallet<input id="frogWallet" value="4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh"></label>
+        <label>Frog max buy<input id="frogMax" value="420"></label>
+        <label>Frog mode<select id="frogMode"><option>Copy exact amount</option><option>Copy smaller percentage</option></select></label>
+        <label>Truenest trader wallet<input id="truenestWallet" value="ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT"></label>
+        <label>Truenest max buy<input id="truenestMax" value="750"></label>
+        <label>Truenest mode<select id="truenestMode"><option>Copy exact amount</option><option>Copy smaller percentage</option></select></label>
+      </div>
+    </section>
+    <section class="panel"><p class="eyebrow">Live View</p><h2>Trading activity</h2><ul id="activityLog"><li>Waiting for engine.</li></ul></section>
+  </main>
+  <script src="./script.js"></script>
+</body>
+</html>
