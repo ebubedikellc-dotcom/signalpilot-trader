@@ -264,7 +264,14 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/status") {
-    send(response, 200, await readState());
+    const state = await readState();
+    send(response, 200, {
+      ...state,
+      backend: {
+        liveTrading: process.env.ENABLE_LIVE_TRADING === "true",
+        workerIntervalMs
+      }
+    });
     return true;
   }
 
