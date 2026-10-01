@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: signalpilot-trader
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ENABLE_LIVE_TRADING
+        value: "false"
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: signalpilot-data
+      mountPath: /var/data
+      sizeGB: 1
