@@ -325,7 +325,7 @@ function localReady(data = payload()) {
 }
 
 function profileName(profile) {
-  return profile === "frog" ? "Smart Win" : "Risk Win";
+  return profile === "frog" ? "Decu Win" : "Risk Win";
 }
 
 function profileStatusName(profile) {
@@ -449,7 +449,7 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
   const lastTraderResult = latestTraderClosedResult(trades, profile);
   const todayTraderPnl = traderTodayPnlFromTrades(trades, profile);
-  const traderName = profile === "frog" ? "Frog" : "Risk guy";
+  const traderName = profile === "frog" ? "Decu" : "Risk guy";
 
   setText(`${profile}Wins`, String(wins));
   setText(`${profile}Signals`, String(roomTrades.length));
@@ -526,7 +526,7 @@ function renderWatchTape(profile, trades = []) {
   const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade)).slice(0, 8);
   if (!roomTrades.length) {
     const li = document.createElement("li");
-    li.textContent = `Waiting for Frog / ${label} to make a trade.`;
+    li.textContent = `Waiting for Decu / ${label} to make a trade.`;
     tape.appendChild(li);
     return;
   }
@@ -565,7 +565,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   const lastTrade = roomTrades[0];
 
   setText("watchProfileName", label);
-  setText("watchProfileStatus", running ? `${label} is watching and ready to copy.` : `${label} is ready. Press Start when you want it to watch Frog.`);
+  setText("watchProfileStatus", running ? `${label} is watching and ready to copy.` : `${label} is ready. Press Start when you want it to watch Decu.`);
   setText("watchDeposit", money(deposit));
   setText("watchWallet", wallet ? `Wallet ${wallet} | ${gasText}` : "Wallet not connected yet");
   setText("watchProfit", money(profit));
@@ -573,9 +573,9 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   setText("watchUsdcNow", money(usdcNow));
   setText("watchLossNow", `Loss from deposit: ${money(lossNow)}`);
   setText("watchTraderPnl", signedMoney(traderPnl));
-  setText("watchTraderNote", `${label === "Smart Win" ? "Frog" : "Copied trader"} total visible made/lost from buy and sell signals.`);
+  setText("watchTraderNote", `${label === "Decu Win" ? "Decu" : "Copied trader"} total visible made/lost from buy and sell signals.`);
   setText("watchTraderToday", signedMoney(traderTodayPnl));
-  setText("watchTraderTodayNote", todayPnlLabel(traderTodayPnl, label === "Smart Win" ? "Frog" : "Risk guy"));
+  setText("watchTraderTodayNote", todayPnlLabel(traderTodayPnl, label === "Decu Win" ? "Decu" : "Risk guy"));
   setText("watchTraderLast", lastTraderResult.label);
   setText("watchLastAction", lastTrade?.action || "Waiting");
   setText("watchLastToken", lastTrade ? `${lastTrade.token || "-"} - ${lastTrade.status || "Observed"}` : "No buy or sell shown yet.");
@@ -663,9 +663,9 @@ function renderState(state) {
     if (!settings.turnkeyOrgId) missing.push("Waiting for Turnkey organization ID.");
     if (!settings.turnkeyApiPublicKey) missing.push("Waiting for Turnkey API public key.");
     if (!settings.turnkeyApiPrivateKey) missing.push("Waiting for Turnkey API private key.");
-    if (!settings.frogTradeWallet) missing.push("Waiting for Smart Win wallet.");
+    if (!settings.frogTradeWallet) missing.push("Waiting for Decu Win wallet.");
     if (!settings.truenestTradeWallet) missing.push("Waiting for Risk Win wallet.");
-    if (!settings.frogSignerToken) missing.push("Waiting for Smart Win Turnkey wallet ID.");
+    if (!settings.frogSignerToken) missing.push("Waiting for Decu Win Turnkey wallet ID.");
     if (!settings.truenestSignerToken) missing.push("Waiting for Risk Win Turnkey wallet ID.");
     missing.push(productionExecution ? "Production execution: ON." : "Production execution: OFF - real trading stays locked.");
     setLog(missing);
@@ -673,7 +673,7 @@ function renderState(state) {
   }
 
   const running = [];
-  if (profiles.frog?.running) running.push("Smart Win is running.");
+  if (profiles.frog?.running) running.push("Decu Win is running.");
   if (profiles.truenest?.running) running.push("Risk Win is running.");
 
   if (!productionExecution) {
@@ -688,8 +688,8 @@ function renderState(state) {
   setText("engineStatus", running.length ? "Production copy engine running" : "Production execution enabled");
   setText("engineSubtext", running.length
     ? "Each room uses its own wallet engine and safety switch. Render is watching the trader and execution is enabled."
-    : "Press Start inside Smart Win or Risk Win. Each room has its own safety and live trading switch.");
-  setLog(state.activity?.length ? state.activity : ["Ready. Press Start Smart Win or Start Risk Win."]);
+    : "Press Start inside Decu Win or Risk Win. Each room has its own safety and live trading switch.");
+  setLog(state.activity?.length ? state.activity : ["Ready. Press Start Decu Win or Start Risk Win."]);
 }
 
 function renderManualDeposit(settings = {}) {
@@ -700,18 +700,18 @@ function renderManualDeposit(settings = {}) {
   const frogBalance = walletBalance("frog");
   const truenestBalance = walletBalance("truenest");
 
-  setText("manualFrogWallet", frogWallet || "Wallet not connected yet");
+  setText("manualDecuWallet", frogWallet || "Wallet not connected yet");
   setText("manualTruenestWallet", truenestWallet || "Wallet not connected yet");
-  setText("manualFrogGas", frogBalance.error ? `SOL gas: ${frogBalance.error}` : `SOL gas: ${solAmount(frogBalance.sol)}`);
+  setText("manualDecuGas", frogBalance.error ? `SOL gas: ${frogBalance.error}` : `SOL gas: ${solAmount(frogBalance.sol)}`);
   setText("manualTruenestGas", truenestBalance.error ? `SOL gas: ${truenestBalance.error}` : `SOL gas: ${solAmount(truenestBalance.sol)}`);
-  setText("manualFrogUsdc", `USDC balance: ${money(frogBalance.usdc)}`);
+  setText("manualDecuUsdc", `USDC balance: ${money(frogBalance.usdc)}`);
   setText("manualTruenestUsdc", `USDC balance: ${money(truenestBalance.usdc)}`);
   setText("manualDepositTotal", money(frogDeposit + truenestDeposit));
-  if ($("manualFrogDeposit") && document.activeElement !== $("manualFrogDeposit")) $("manualFrogDeposit").value = settings.frogDeposit || "";
+  if ($("manualDecuDeposit") && document.activeElement !== $("manualDecuDeposit")) $("manualDecuDeposit").value = settings.frogDeposit || "";
   if ($("manualTruenestDeposit") && document.activeElement !== $("manualTruenestDeposit")) $("manualTruenestDeposit").value = settings.truenestDeposit || "";
-  if ($("manualFrogUseProfit") && document.activeElement !== $("manualFrogUseProfit")) $("manualFrogUseProfit").value = settings.frogUseProfit || "off";
+  if ($("manualDecuUseProfit") && document.activeElement !== $("manualDecuUseProfit")) $("manualDecuUseProfit").value = settings.frogUseProfit || "off";
   if ($("manualTruenestUseProfit") && document.activeElement !== $("manualTruenestUseProfit")) $("manualTruenestUseProfit").value = settings.truenestUseProfit || "off";
-  if ($("copyManualFrogWallet")) $("copyManualFrogWallet").disabled = !frogWallet;
+  if ($("copyManualDecuWallet")) $("copyManualDecuWallet").disabled = !frogWallet;
   if ($("copyManualTruenestWallet")) $("copyManualTruenestWallet").disabled = !truenestWallet;
 }
 
@@ -826,7 +826,7 @@ function renderOwner(data) {
       </div>
       <label>Plan
         <select data-field="plan">
-          <option value="frog">Smart Win</option>
+          <option value="frog">Decu Win</option>
           <option value="truenest">Risk Win</option>
           <option value="both">Both</option>
         </select>
@@ -1063,9 +1063,9 @@ async function saveSettings() {
 async function saveManualDeposit() {
   const data = {
     ...currentPayload(),
-    frogDeposit: value("manualFrogDeposit"),
+    frogDeposit: value("manualDecuDeposit"),
     truenestDeposit: value("manualTruenestDeposit"),
-    frogUseProfit: value("manualFrogUseProfit"),
+    frogUseProfit: value("manualDecuUseProfit"),
     truenestUseProfit: value("manualTruenestUseProfit")
   };
   renderState({ settings: data, profiles: {}, activity: ["Saving manual deposit..."] });
@@ -1172,9 +1172,9 @@ on("saveSettings", "click", saveSettings);
 on("saveSettingsInline", "click", saveSettings);
 on("saveProfitShare", "click", saveSettings);
 on("saveManualDeposit", "click", saveManualDeposit);
-on("saveFrogDeposit", "click", saveManualDeposit);
+on("saveDecuDeposit", "click", saveManualDeposit);
 on("saveTruenestDeposit", "click", saveManualDeposit);
-on("saveFrogSafety", "click", saveSettings);
+on("saveDecuSafety", "click", saveSettings);
 on("saveTruenestSafety", "click", saveSettings);
 on("ownerWithdrawButton", "click", () => ownerWithdraw(value("ownerWithdrawProfile") || "frog"));
 on("frogWithdrawButton", "click", () => ownerWithdraw("frog"));
@@ -1183,7 +1183,7 @@ on("frogProfitWithdrawButton", "click", () => ownerWithdraw("frog", { profitOnly
 on("truenestProfitWithdrawButton", "click", () => ownerWithdraw("truenest", { profitOnly: true }));
 on("frogSellTokenButton", "click", () => ownerSellToken("frog"));
 on("truenestSellTokenButton", "click", () => ownerSellToken("truenest"));
-on("copyManualFrogWallet", "click", () => copyTextFromNode("manualFrogWallet", "Smart Win wallet"));
+on("copyManualDecuWallet", "click", () => copyTextFromNode("manualDecuWallet", "Decu Win wallet"));
 on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "Risk Win wallet"));
 on("ownerLogin", "click", ownerLogin);
 on("customerLogin", "click", customerLogin);
