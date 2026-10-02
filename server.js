@@ -22,6 +22,9 @@ const dataFile = path.join(dataDir, "signalpilot-state.json");
 const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 15000);
 const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
 const sessionMaxAge = 60 * 60 * 24 * 30;
+const solMint = "So11111111111111111111111111111111111111112";
+const usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const usdtMint = "Es9vMFrzaCERmJfrF4H2FYD4AWuEJ1hDPPpQdjCXg82h";
 
 const defaultState = {
   settings: {
@@ -445,6 +448,10 @@ function looksLikeSwap(transaction) {
   return type.includes("SWAP") || source.includes("JUPITER") || source.includes("RAYDIUM") || source.includes("METEORA");
 }
 
+function copyableSignal(profile, transaction, state) {
+  return looksLikeSwap(transaction) || Boolean(extractCopySignal(profile, transaction, state));
+}
+
 function movementSummary(transaction = {}) {
   const type = `${transaction.type || transaction.transactionType || "movement"}`;
   const source = `${transaction.source || "unknown source"}`;
@@ -476,7 +483,176 @@ function transferAmount(transfer = {}) {
   return String(Math.round(tokenAmount * (10 ** decimals)));
 }
 
-function primarySwapLeg(transaction) {
+function rawAmountToNumber(rawAmount = {}) {
+  const tokenAmount = Number(rawAmount.tokenAmount ?? rawAmount.amount ?? 0);
+  const decimals = Number(rawAmount.decimals ?? 0);
+  if (!Number.isFinite(tokenAmount) || !Number.isFinite(decimals)) return 0;
+  return tokenAmount / (10 ** decimals);
+}
+
+function isQuoteMint(mint = "") {
+  return [solMint, usdcMint, usdtMint].includes(String(mint));
+}
+
+function sameAddress(left = "", right = "") {
+  return String(left || "").trim() && String(left || "").trim() === String(right || "").trim();
+}
+
+function transferLeavesWallet(transfer = {}, wallet = "") {
+  return sameAddress(transfer.fromUserAccount, wallet);
+}
+
+function transferEntersWallet(transfer = {}, wallet = "") {
+  return sameAddress(transfer.toUserAccount, wallet);
+}
+
+function accountTokenChanges(transaction = {}, wallet = "") {
+  const account = (transaction.accountData || []).find((item) => sameAddress(item.account, wallet));
+  const changes = Array.isArray(account?.tokenBalanceChanges) ? account.tokenBalanceChanges : [];
+  return changes
+    .map((change) => ({
+      mint: transferMint(change),
+      amount: rawAmountToNumber(change.rawTokenAmount || change),
+      rawAmount: change.rawTokenAmount?.tokenAmount || ""
+    }))
+    .filter((change) => change.mint && change.amount);
+}
+
+function nativeChange(transaction = {}, wallet = "") {
+  const account = (transaction.accountData || []).find((item) => sameAddress(item.account, wallet));
+  if (account?.nativeBalanceChange) return Number(account.nativeBalanceChange || 0) / LAMPORTS_PER_SOL;
+  const transfers = Array.isArray(transaction.nativeTransfers) ? transaction.nativeTransfers : [];
+  return transfers.reduce((sum, transfer) => {
+    if (sameAddress(transfer.fromUserAccount, wallet)) return sum - (Number(transfer.amount || 0) / LAMPORTS_PER_SOL);
+    if (sameAddress(transfer.toUserAccount, wallet)) return sum + (Number(transfer.amount || 0) / LAMPORTS_PER_SOL);
+    return sum;
+  }, 0);
+}
+
+function usdcRawFromUsd(value) {
+  const usd = Number(value || 0);
+  if (!Number.isFinite(usd) || usd <= 0) return "";
+  return String(Math.max(1, Math.floor(usd * 1_000_000)));
+}
+
+function buyUsdAmount(state, profile, sourceUsd = 0) {
+  const deposit = profileDepositUsd(state, profile);
+  const maxUsd = profileMaxUsd(state, profile);
+  const traderBankroll = profileTraderBankrollUsd(state, profile);
+  let usd = Number(sourceUsd || 0);
+
+  if (profileCopySizing(state, profile) === "Copy by percentage" && sourceUsd && traderBankroll && deposit) {
+    usd = (Number(sourceUsd) / traderBankroll) * deposit;
+  } else if (!usd) {
+    usd = maxUsd || Math.min(deposit || 0, 50);
+  }
+
+  if (profileProtectionEnabled(state, profile) && maxUsd) usd = Math.min(usd, maxUsd);
+  if (deposit) usd = Math.min(usd, deposit);
+  return Number.isFinite(usd) && usd > 0 ? usd : 0;
+}
+
+function sourceUsdFromSignal(transaction = {}, wallet = "") {
+  const transfers = Array.isArray(transaction.tokenTransfers) ? transaction.tokenTransfers : [];
+  const quoteTransfer = transfers.find((item) => transferLeavesWallet(item, wallet) && [usdcMint, usdtMint].includes(transferMint(item)));
+  if (quoteTransfer) return Number(quoteTransfer.tokenAmount || quoteTransfer.amount || 0);
+
+  const changes = accountTokenChanges(transaction, wallet);
+  const quoteChange = changes.find((item) => [usdcMint, usdtMint].includes(item.mint) && item.amount < 0);
+  if (quoteChange) return Math.abs(quoteChange.amount);
+
+  const swap = transaction.events?.swap || {};
+  const tokenInput = (swap.tokenInputs || []).find((item) => [usdcMint, usdtMint].includes(transferMint(item)));
+  if (tokenInput) return Number(tokenInput.tokenAmount || tokenInput.amount || 0);
+  return 0;
+}
+
+function extractCopySignal(profile, transaction, state) {
+  const wallet = targetWallet(state, profile);
+  if (!wallet) return null;
+
+  const swap = transaction.events?.swap || {};
+  const eventInput = (swap.tokenInputs || []).find((item) => transferMint(item) && transferAmount(item));
+  const eventOutput = (swap.tokenOutputs || []).find((item) => transferMint(item));
+  if (eventInput && eventOutput) {
+    const inputMint = transferMint(eventInput);
+    const outputMint = transferMint(eventOutput);
+    return {
+      action: isQuoteMint(inputMint) && !isQuoteMint(outputMint) ? "buy" : "sell",
+      inputMint,
+      outputMint,
+      amount: transferAmount(eventInput),
+      inputSymbol: eventInput.symbol || inputMint,
+      outputSymbol: eventOutput.symbol || outputMint,
+      sourceUsd: sourceUsdFromSignal(transaction, wallet)
+    };
+  }
+
+  const transfers = Array.isArray(transaction.tokenTransfers) ? transaction.tokenTransfers : [];
+  const outgoingToken = transfers.find((item) => transferLeavesWallet(item, wallet) && transferMint(item) && !isQuoteMint(transferMint(item)) && transferAmount(item));
+  const incomingToken = transfers.find((item) => transferEntersWallet(item, wallet) && transferMint(item) && !isQuoteMint(transferMint(item)));
+  const outgoingQuote = transfers.find((item) => transferLeavesWallet(item, wallet) && isQuoteMint(transferMint(item)) && transferAmount(item));
+  const incomingQuote = transfers.find((item) => transferEntersWallet(item, wallet) && isQuoteMint(transferMint(item)));
+  const native = nativeChange(transaction, wallet);
+
+  if (incomingToken && (outgoingQuote || native < 0)) {
+    return {
+      action: "buy",
+      inputMint: outgoingQuote ? transferMint(outgoingQuote) : solMint,
+      outputMint: transferMint(incomingToken),
+      amount: outgoingQuote ? transferAmount(outgoingQuote) : String(Math.round(Math.abs(native) * LAMPORTS_PER_SOL)),
+      inputSymbol: outgoingQuote?.symbol || "SOL",
+      outputSymbol: incomingToken.symbol || transferMint(incomingToken),
+      sourceUsd: sourceUsdFromSignal(transaction, wallet)
+    };
+  }
+
+  if (outgoingToken && (incomingQuote || native > 0)) {
+    return {
+      action: "sell",
+      inputMint: transferMint(outgoingToken),
+      outputMint: incomingQuote ? transferMint(incomingQuote) : solMint,
+      amount: transferAmount(outgoingToken),
+      inputSymbol: outgoingToken.symbol || transferMint(outgoingToken),
+      outputSymbol: incomingQuote?.symbol || "SOL",
+      sourceUsd: 0
+    };
+  }
+
+  const changes = accountTokenChanges(transaction, wallet);
+  const gainedToken = changes.find((item) => item.amount > 0 && !isQuoteMint(item.mint));
+  const lostToken = changes.find((item) => item.amount < 0 && !isQuoteMint(item.mint));
+  const lostQuote = changes.find((item) => item.amount < 0 && isQuoteMint(item.mint));
+  const gainedQuote = changes.find((item) => item.amount > 0 && isQuoteMint(item.mint));
+  if (gainedToken && (lostQuote || native < 0)) {
+    return {
+      action: "buy",
+      inputMint: lostQuote?.mint || solMint,
+      outputMint: gainedToken.mint,
+      amount: lostQuote?.rawAmount || String(Math.round(Math.abs(native) * LAMPORTS_PER_SOL)),
+      inputSymbol: lostQuote?.mint || "SOL",
+      outputSymbol: gainedToken.mint,
+      sourceUsd: sourceUsdFromSignal(transaction, wallet)
+    };
+  }
+  if (lostToken && (gainedQuote || native > 0)) {
+    return {
+      action: "sell",
+      inputMint: lostToken.mint,
+      outputMint: gainedQuote?.mint || solMint,
+      amount: String(Math.abs(Number(lostToken.rawAmount || 0))),
+      inputSymbol: lostToken.mint,
+      outputSymbol: gainedQuote?.mint || "SOL",
+      sourceUsd: 0
+    };
+  }
+
+  return null;
+}
+
+function primarySwapLeg(transaction, profile, state) {
+  if (profile && state) return extractCopySignal(profile, transaction, state);
+
   const swap = transaction.events?.swap || {};
   const input = (swap.tokenInputs || []).find((item) => transferMint(item) && transferAmount(item));
   const output = (swap.tokenOutputs || []).find((item) => transferMint(item));
@@ -649,8 +825,21 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {
   return payload;
 }
 
+async function tokenBalanceRaw(connection, owner, mint) {
+  const ownerKey = solanaAddress(owner);
+  const mintKey = solanaAddress(mint);
+  if (!ownerKey || !mintKey) return "";
+  const accounts = await connection.getParsedTokenAccountsByOwner(ownerKey, { mint: mintKey }, "confirmed");
+  let total = 0n;
+  for (const item of accounts.value || []) {
+    const amount = item.account?.data?.parsed?.info?.tokenAmount?.amount;
+    if (amount) total += BigInt(amount);
+  }
+  return total > 0n ? String(total) : "";
+}
+
 async function executeCopiedSwap(profile, transaction, state) {
-  const leg = primarySwapLeg(transaction);
+  const leg = primarySwapLeg(transaction, profile, state);
   if (!leg?.inputMint || !leg?.outputMint || !leg?.amount) {
     return { status: "Skipped - unsupported swap format" };
   }
@@ -659,13 +848,38 @@ async function executeCopiedSwap(profile, transaction, state) {
   const signer = signerId(state, profile) || wallet;
   const apiKey = jupiterApiKey(state.settings);
   if (!wallet || !signer) return { status: "Skipped - trading wallet or signer missing" };
-  const copyAmount = scaledCopyAmount(leg.amount, state, profile);
+  const connection = solanaConnection(state.settings);
+  let inputMint = leg.inputMint;
+  let outputMint = leg.outputMint;
+  let copyAmount = scaledCopyAmount(leg.amount, state, profile);
+
+  if (leg.action === "buy") {
+    const buyUsd = buyUsdAmount(state, profile, leg.sourceUsd);
+    if (!buyUsd) return { status: "Skipped - no deposit amount available for USDC buy" };
+    inputMint = usdcMint;
+    outputMint = leg.outputMint;
+    copyAmount = {
+      amount: usdcRawFromUsd(buyUsd),
+      note: `USDC buy ${buyUsd.toFixed(2)}${leg.sourceUsd ? " from source trade size" : " fallback/protected size"}`
+    };
+  }
+
+  if (leg.action === "sell") {
+    const heldAmount = await tokenBalanceRaw(connection, wallet, leg.inputMint);
+    if (!heldAmount) return { status: `Skipped - no ${leg.inputSymbol || "token"} balance to sell` };
+    inputMint = leg.inputMint;
+    outputMint = usdcMint;
+    copyAmount = {
+      amount: heldAmount,
+      note: "Sell current copied token balance back to USDC"
+    };
+  }
 
   const order = await jupiterJson("/swap/v2/order", {
     apiKey,
     query: {
-      inputMint: leg.inputMint,
-      outputMint: leg.outputMint,
+      inputMint,
+      outputMint,
       amount: copyAmount.amount,
       taker: wallet,
       swapMode: "ExactIn",
@@ -678,7 +892,7 @@ async function executeCopiedSwap(profile, transaction, state) {
   }
 
   const maxUsd = profileMaxUsd(state, profile);
-  if (maxUsd && Number(order.inUsdValue || 0) > maxUsd) {
+  if (leg.action !== "sell" && maxUsd && Number(order.inUsdValue || 0) > maxUsd) {
     if (profileProtectionEnabled(state, profile)) {
       return { status: `Skipped - signal value $${Number(order.inUsdValue).toFixed(2)} is over ${profileLabel(profile)} max $${maxUsd}` };
     }
@@ -703,8 +917,9 @@ async function executeCopiedSwap(profile, transaction, state) {
 
   return {
     status: "Executed",
-    inputMint: leg.inputMint,
-    outputMint: leg.outputMint,
+    action: leg.action,
+    inputMint,
+    outputMint,
     inputSymbol: leg.inputSymbol,
     outputSymbol: leg.outputSymbol,
     copySizing: profileCopySizing(state, profile),
@@ -722,13 +937,13 @@ function tradeFromTransaction(profile, transaction, state) {
   const status = liveTradingAllowed(state, profile)
     ? "Observed - execution pending"
     : "Observed - live trading locked";
-  const leg = primarySwapLeg(transaction);
+  const leg = primarySwapLeg(transaction, profile, state);
   return {
     id: transaction.signature,
     signature: transaction.signature,
     time: transaction.timestamp ? new Date(transaction.timestamp * 1000).toLocaleString("en-US", { hour12: false }) : new Date().toLocaleString("en-US", { hour12: false }),
     profile: profileLabel(profile),
-    action: "Copied signal",
+    action: leg?.action === "sell" ? "Sell signal" : "Buy signal",
     token: leg?.outputSymbol || tokenName(transaction),
     amount: tradeAmount(transaction),
     pnl: 0,
@@ -781,7 +996,7 @@ async function runCopyWorkerOnce() {
     const existing = new Set((state.trades || []).map((trade) => trade.signature || trade.id));
     const signalTransactions = unseen
       .reverse()
-      .filter((transaction) => !existing.has(transaction.signature) && looksLikeSwap(transaction))
+      .filter((transaction) => !existing.has(transaction.signature) && copyableSignal(profile, transaction, state))
     const newTrades = [];
 
     if (!signalTransactions.length) {
