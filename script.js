@@ -285,6 +285,16 @@ function setMode(role) {
   document.querySelectorAll(".customer-only").forEach((node) => {
     node.classList.toggle("hidden", role !== "customer");
   });
+  if (role === "owner") showOwnerPage("trade");
+}
+
+function showOwnerPage(pageName = "trade") {
+  document.querySelectorAll("[data-owner-page]").forEach((node) => {
+    node.classList.toggle("hidden", node.dataset.ownerPage !== pageName);
+  });
+  document.querySelectorAll("[data-owner-tab]").forEach((node) => {
+    node.classList.toggle("active", node.dataset.ownerTab === pageName);
+  });
 }
 
 function renderAddresses(addresses = []) {
@@ -595,16 +605,17 @@ async function saveManualDeposit() {
   showBusinessMessage("Manual deposit saved.");
 }
 
-async function ownerWithdraw() {
-  const resultNode = $("ownerWithdrawResult");
+async function ownerWithdraw(profile = "frog") {
+  const prefix = profile === "truenest" ? "truenest" : "frog";
+  const resultNode = $(`${prefix}WithdrawResult`) || $("ownerWithdrawResult");
   if (resultNode) resultNode.textContent = "Sending withdrawal...";
   try {
     const result = await api("/api/owner/withdraw", {
       method: "POST",
       body: JSON.stringify({
-        profile: value("ownerWithdrawProfile"),
-        wallet: value("ownerWithdrawWallet"),
-        amountSol: value("ownerWithdrawAmount")
+        profile,
+        wallet: value(`${prefix}WithdrawWallet`) || value("ownerWithdrawWallet"),
+        amountSol: value(`${prefix}WithdrawAmount`) || value("ownerWithdrawAmount")
       })
     });
     renderState(result.status);
@@ -645,9 +656,13 @@ on("saveSettings", "click", saveSettings);
 on("saveSettingsInline", "click", saveSettings);
 on("saveProfitShare", "click", saveSettings);
 on("saveManualDeposit", "click", saveManualDeposit);
-on("ownerWithdrawButton", "click", ownerWithdraw);
+on("saveFrogDeposit", "click", saveManualDeposit);
+on("saveTruenestDeposit", "click", saveManualDeposit);
+on("ownerWithdrawButton", "click", () => ownerWithdraw(value("ownerWithdrawProfile") || "frog"));
+on("frogWithdrawButton", "click", () => ownerWithdraw("frog"));
+on("truenestWithdrawButton", "click", () => ownerWithdraw("truenest"));
 on("copyManualFrogWallet", "click", () => copyTextFromNode("manualFrogWallet", "Frog wallet"));
-on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "Truenest wallet"));
+on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "Big Win wallet"));
 on("ownerLogin", "click", ownerLogin);
 on("customerLogin", "click", customerLogin);
 on("customerSignup", "click", customerSignup);
@@ -661,6 +676,9 @@ on("frogStart", "click", () => startProfile("frog"));
 on("frogStop", "click", () => stopProfile("frog"));
 on("truenestStart", "click", () => startProfile("truenest"));
 on("truenestStop", "click", () => stopProfile("truenest"));
+document.querySelectorAll("[data-owner-tab]").forEach((button) => {
+  button.addEventListener("click", () => showOwnerPage(button.dataset.ownerTab));
+});
 
 setMode(null);
 loadBusiness();
