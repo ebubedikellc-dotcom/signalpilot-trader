@@ -38,11 +38,13 @@ const defaultState = {
     frogMode: "Copy exact amount",
     frogCopySizing: "Copy by percentage",
     frogTraderBankroll: "350",
+    frogUseProfit: "off",
     truenestWallet: "ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT",
     truenestMax: "750",
     truenestMode: "Copy exact amount",
     truenestCopySizing: "Copy by percentage",
     truenestTraderBankroll: "350",
+    truenestUseProfit: "off",
     walletSync: "Turnkey server wallet",
     riskControl: "on",
     liveTradingSwitch: "on",
@@ -91,11 +93,13 @@ const fields = [
   "frogMode",
   "frogCopySizing",
   "frogTraderBankroll",
+  "frogUseProfit",
   "truenestWallet",
   "truenestMax",
   "truenestMode",
   "truenestCopySizing",
   "truenestTraderBankroll",
+  "truenestUseProfit",
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
@@ -257,6 +261,8 @@ function publicSettings(settings = {}, includeSecrets = false) {
     truenestCopySizing: normalizeCopySizing(settings.truenestCopySizing),
     frogTraderBankroll: settings.frogTraderBankroll || "",
     truenestTraderBankroll: settings.truenestTraderBankroll || "",
+    frogUseProfit: settings.frogUseProfit === "on" ? "on" : "off",
+    truenestUseProfit: settings.truenestUseProfit === "on" ? "on" : "off",
     walletSync: settings.walletSync || "Turnkey server wallet",
     riskControl: settings.riskControl || "on",
     liveTradingSwitch: settings.liveTradingSwitch || "on",
@@ -941,6 +947,8 @@ function profileDepositUsd(state, profile) {
 async function profileTradeableUsdc(connection, state, profile, wallet) {
   const principal = profileDepositUsd(state, profile);
   const currentUsdc = await tokenUiBalance(connection, wallet, usdcMint);
+  const useProfit = (profile === "frog" ? state.settings.frogUseProfit : state.settings.truenestUseProfit) === "on";
+  if (useProfit) return currentUsdc;
   if (!principal) return currentUsdc;
   return Math.max(0, Math.min(currentUsdc, principal));
 }
