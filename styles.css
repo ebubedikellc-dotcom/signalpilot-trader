@@ -185,12 +185,18 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .customer-profit-line span { padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: rgba(0,0,0,.16); }
 .customer-profit-line strong { color: var(--text); }
 .customer-list { display: grid; gap: 12px; max-height: 560px; overflow: auto; }
-.customer-row { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(120px, .7fr)) 120px; gap: 10px; align-items: end; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.04); }
+.customer-row { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(120px, .7fr)) 120px 110px 90px; gap: 10px; align-items: end; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.04); }
 .customer-row > div { display: grid; gap: 4px; }
 .share-control-card { border-color: rgba(246,201,92,.45); background: linear-gradient(145deg, rgba(246,201,92,.14), rgba(0,0,0,.2)); }
+.deposit-control-card { order: 1; border-color: rgba(46,230,166,.5); background: linear-gradient(145deg, rgba(46,230,166,.18), rgba(0,0,0,.2)); }
+.customer-balance-card { order: 2; }
+.share-control-card { order: 3; }
 .share-mini { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.04); }
 .share-mini span, .share-mini small { color: var(--muted); font-size: .82rem; }
 .share-mini strong { color: var(--gold); }
+.mini-link { color: var(--green); font-size: .88rem; font-weight: 850; text-decoration: none; }
+.printed-link-box { display: grid; gap: 8px; padding: 12px; border: 1px solid rgba(46,230,166,.34); border-radius: 8px; background: rgba(46,230,166,.1); }
+.printed-link-box span { color: var(--text); overflow-wrap: anywhere; font-size: .92rem; }
 .deposit-addresses { display: grid; gap: 10px; }
 .address-card { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.04); }
 .address-card span { color: var(--muted); font-weight: 800; }
