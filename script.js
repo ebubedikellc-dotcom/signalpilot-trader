@@ -76,6 +76,14 @@ function profileLoss(settings = {}, profile = "frog") {
   return Math.max(0, -profileNet(settings, profile));
 }
 
+function profileLockedProfit(settings = {}, profile = "frog") {
+  return Math.max(0, profileNet(settings, profile));
+}
+
+function profileTradeableUsdc(settings = {}, profile = "frog") {
+  return Math.max(0, Math.min(balanceUsdc(profile), profileDeposit(settings, profile)));
+}
+
 function signedMoney(value) {
   const amount = Number(value || 0);
   const sign = amount > 0 ? "+" : "";
@@ -355,6 +363,8 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   setText(`${profile}Wins`, String(wins));
   setText(`${profile}Signals`, String(roomTrades.length));
   setText(`${profile}RoomUsdc`, money(balanceUsdc(profile)));
+  setText(`${profile}RoomLockedProfit`, money(profileLockedProfit(settings, profile)));
+  setText(`${profile}RoomTradeable`, money(profileTradeableUsdc(settings, profile)));
   setText(`${profile}RoomLoss`, money(profileLoss(settings, profile)));
   setText(`${profile}RoomTraderPnl`, signedMoney(traderPnlFromTrades(trades, profile)));
   renderRoomThread(profile, roomTrades);
@@ -953,17 +963,25 @@ async function saveManualDeposit() {
   showBusinessMessage("Manual deposit saved.");
 }
 
-async function ownerWithdraw(profile = "frog") {
+async function ownerWithdraw(profile = "frog", options = {}) {
   const prefix = profile === "truenest" ? "truenest" : "frog";
-  const resultNode = $(`${prefix}WithdrawResult`) || $("ownerWithdrawResult");
+  const profitOnly = options.profitOnly === true;
+  const resultNode = profitOnly
+    ? $(`${prefix}ProfitWithdrawResult`)
+    : ($(`${prefix}WithdrawResult`) || $("ownerWithdrawResult"));
   if (resultNode) resultNode.textContent = "Sending withdrawal...";
   try {
+    const walletId = profitOnly ? `${prefix}ProfitWithdrawWallet` : `${prefix}WithdrawWallet`;
+    const amountId = profitOnly ? `${prefix}ProfitWithdrawAmount` : `${prefix}WithdrawAmount`;
     const result = await api("/api/owner/withdraw", {
       method: "POST",
       body: JSON.stringify({
         profile,
-        wallet: value(`${prefix}WithdrawWallet`) || value("ownerWithdrawWallet"),
-        amountSol: value(`${prefix}WithdrawAmount`) || value("ownerWithdrawAmount")
+        wallet: value(walletId) || value("ownerWithdrawWallet"),
+        amountSol: profitOnly ? "" : (value(amountId) || value("ownerWithdrawAmount")),
+        amountUsd: profitOnly ? value(amountId) : "",
+        asset: profitOnly ? "USDC" : "SOL",
+        profitOnly
       })
     });
     renderState(result.status);
@@ -1011,6 +1029,8 @@ on("saveTruenestSafety", "click", saveSettings);
 on("ownerWithdrawButton", "click", () => ownerWithdraw(value("ownerWithdrawProfile") || "frog"));
 on("frogWithdrawButton", "click", () => ownerWithdraw("frog"));
 on("truenestWithdrawButton", "click", () => ownerWithdraw("truenest"));
+on("frogProfitWithdrawButton", "click", () => ownerWithdraw("frog", { profitOnly: true }));
+on("truenestProfitWithdrawButton", "click", () => ownerWithdraw("truenest", { profitOnly: true }));
 on("copyManualFrogWallet", "click", () => copyTextFromNode("manualFrogWallet", "Smart Win wallet"));
 on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "Risk Win wallet"));
 on("ownerLogin", "click", ownerLogin);
