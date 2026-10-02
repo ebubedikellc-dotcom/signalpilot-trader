@@ -226,6 +226,15 @@ function syncRoomModeFromProtection(profile) {
   modeNode.value = riskNode.value === "on" ? "Copy exact amount after safety check" : "Copy exact amount";
 }
 
+function syncAllRoomControlsFromProtection() {
+  ["frog", "truenest"].forEach(syncRoomModeFromProtection);
+}
+
+function currentPayload() {
+  syncAllRoomControlsFromProtection();
+  return payload();
+}
+
 async function saveRoomSettings(profile) {
   try {
     await saveSettings();
@@ -319,6 +328,8 @@ function renderState(state) {
 
   setText("frogProfit", money(profiles.frog?.profit));
   setText("truenestProfit", money(profiles.truenest?.profit));
+  setText("frogRoomProfit", money(profiles.frog?.profit));
+  setText("truenestRoomProfit", money(profiles.truenest?.profit));
   setText("frogBalance", `Deposit: ${money(settings.frogDeposit)}`);
   setText("truenestBalance", `Deposit: ${money(settings.truenestDeposit)}`);
   renderRoomStatus("frog", settings, trades, backend);
@@ -725,13 +736,14 @@ async function refresh() {
 }
 
 async function saveSettings() {
-  renderState({ settings: payload(), profiles: {}, activity: ["Saving Engine Room..."] });
-  renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(payload()) }));
+  const data = currentPayload();
+  renderState({ settings: data, profiles: {}, activity: ["Saving Engine Room..."] });
+  renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
 }
 
 async function saveManualDeposit() {
   const data = {
-    ...payload(),
+    ...currentPayload(),
     frogDeposit: value("manualFrogDeposit"),
     truenestDeposit: value("manualTruenestDeposit")
   };
@@ -827,8 +839,8 @@ on("truenestStop", "click", () => stopProfile("truenest"));
   });
 });
 fields.forEach((id) => {
-  on(id, "input", () => renderState({ settings: payload(), profiles: {}, activity: [] }));
-  on(id, "change", () => renderState({ settings: payload(), profiles: {}, activity: [] }));
+  on(id, "input", () => renderState({ settings: currentPayload(), profiles: {}, activity: [] }));
+  on(id, "change", () => renderState({ settings: currentPayload(), profiles: {}, activity: [] }));
 });
 document.querySelectorAll("[data-owner-tab]").forEach((button) => {
   button.addEventListener("click", () => showOwnerPage(button.dataset.ownerTab));
