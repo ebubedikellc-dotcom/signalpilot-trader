@@ -19,7 +19,8 @@ const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
 const dataDir = process.env.DATA_DIR || path.join(__dirname, ".data");
 const dataFile = path.join(dataDir, "signalpilot-state.json");
-const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 15000);
+const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 3000);
+const maxSignalAgeMs = Number(process.env.MAX_SIGNAL_AGE_MS || 12000);
 const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
 const sessionMaxAge = 60 * 60 * 24 * 30;
 const solMint = "So11111111111111111111111111111111111111112";
@@ -346,7 +347,8 @@ function statusPayload(state, session) {
       liveTrading: productionExecution,
       liveTradingEnv,
       productionExecution,
-      workerIntervalMs
+      workerIntervalMs,
+      maxSignalAgeMs
     },
     auth: session ? { role: session.role, id: session.id } : null
   };
@@ -1043,12 +1045,22 @@ function tradeFromTransaction(profile, transaction, state) {
 async function fetchTransactionsForAddress(apiKey, address) {
   const url = new URL(`https://api.helius.xyz/v0/addresses/${encodeURIComponent(address)}/transactions`);
   url.searchParams.set("api-key", apiKey);
-  url.searchParams.set("limit", "10");
+  url.searchParams.set("limit", "25");
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Helius returned ${response.status}`);
   const payload = await response.json();
   if (payload.error) throw new Error(payload.error.message || payload.error || "Helius transaction lookup failed");
   return Array.isArray(payload) ? payload : [];
+}
+
+function signalAgeMs(transaction = {}) {
+  if (!transaction.timestamp) return 0;
+  return Math.max(0, Date.now() - (Number(transaction.timestamp) * 1000));
+}
+
+function freshEnoughToCopy(transaction = {}) {
+  const age = signalAgeMs(transaction);
+  return !age || age <= maxSignalAgeMs;
 }
 
 async function runCopyWorkerOnce() {
@@ -1099,7 +1111,10 @@ async function runCopyWorkerOnce() {
     for (const transaction of signalTransactions) {
       const trade = tradeFromTransaction(profile, transaction, state);
       if (liveTradingAllowed(state, profile)) {
-        try {
+        if (!freshEnoughToCopy(transaction)) {
+          const seconds = Math.round(signalAgeMs(transaction) / 1000);
+          trade.status = `Skipped - signal was ${seconds}s old`;
+        } else try {
           const execution = await executeCopiedSwap(profile, transaction, state);
           trade.status = execution.status;
           trade.execution = execution;
