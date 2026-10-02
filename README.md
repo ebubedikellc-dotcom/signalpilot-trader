@@ -1,3 +1,3 @@
 # SignalPilot Trader
 
-Private trading control panel for Frog beginner and Truenest Big Win profiles.
+Private trading control panel for Smart Win and Risk Win profiles.
