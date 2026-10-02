@@ -281,12 +281,20 @@
                     </select>
                   </label>
                   <label>Trader copied wallet <input id="frogWallet" value="4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh"></label>
+                  <label>Copy amount style
+                    <select id="frogCopySizing">
+                      <option>Copy by percentage</option>
+                      <option>Copy exact amount</option>
+                    </select>
+                  </label>
+                  <label>Copied trader starting money <input id="frogTraderBankroll" inputmode="decimal" value="350"></label>
                   <label id="frogMaxLabel">Protect me max buy <input id="frogMax" value="420"></label>
                   <input id="frogMode" type="hidden" value="Copy exact amount after safety check">
                   <button id="saveFrogSafety" class="secondary-action" type="button">Save Smart Win settings</button>
                   <div class="room-help">
                     <strong id="frogWalletStatus">Turnkey server wallet selected.</strong>
                     <span>Turnkey signs automatic buys, sells, and withdrawals from this Smart Win wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
+                    <span>Copy by percentage is best for testing with smaller money. Example: trader uses 10% of $350, your wallet uses 10% of your saved Smart Win deposit.</span>
                     <span id="frogLiveStatus">Live trading follows this Smart Win switch plus Render production lock.</span>
                     <span id="frogSafeStatus">Protect me ON</span>
                   </div>
@@ -313,12 +321,20 @@
                     </select>
                   </label>
                   <label>Trader copied wallet <input id="truenestWallet" value="ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT"></label>
+                  <label>Copy amount style
+                    <select id="truenestCopySizing">
+                      <option>Copy by percentage</option>
+                      <option>Copy exact amount</option>
+                    </select>
+                  </label>
+                  <label>Copied trader starting money <input id="truenestTraderBankroll" inputmode="decimal" value="350"></label>
                   <label id="truenestMaxLabel">Protect me max buy <input id="truenestMax" value="750"></label>
                   <input id="truenestMode" type="hidden" value="Copy exact amount after safety check">
                   <button id="saveTruenestSafety" class="secondary-action" type="button">Save Risk Win settings</button>
                   <div class="room-help">
                     <strong id="truenestWalletStatus">Turnkey server wallet selected.</strong>
                     <span>Turnkey signs automatic buys, sells, and withdrawals from this Risk Win wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
+                    <span>Copy by percentage is best for testing with smaller money. Example: trader uses 10% of $350, your wallet uses 10% of your saved Risk Win deposit.</span>
                     <span id="truenestLiveStatus">Live trading follows this Risk Win switch plus Render production lock.</span>
                     <span id="truenestSafeStatus">Protect me ON</span>
                   </div>
