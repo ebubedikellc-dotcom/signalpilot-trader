@@ -8,6 +8,7 @@
     "check": "node --check server.js"
   },
   "dependencies": {
+    "@solana/web3.js": "^1.99.0",
     "@turnkey/sdk-server": "^8.6.0"
   },
   "engines": {
