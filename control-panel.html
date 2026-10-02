@@ -200,6 +200,7 @@
                 </div>
 
                 <label>Smart Win trading budget <input id="manualFrogDeposit" inputmode="decimal" placeholder="0"></label>
+                <input id="frogTradeMode" type="hidden" value="both">
                 <label>Use locked profit to trade
                   <select id="manualFrogUseProfit">
                     <option value="off">OFF - protect profit</option>
@@ -210,8 +211,11 @@
 
                 <div class="button-row">
                   <button class="primary-action" id="frogStart" disabled>Start Smart Win</button>
+                  <button class="secondary-action" id="frogSellOnly" type="button">Stop buying, sell only</button>
+                  <button class="secondary-action" id="frogResumeBuying" type="button">Resume buying</button>
                   <button class="stop-action" id="frogStop" disabled>Stop</button>
                 </div>
+                <small id="frogTradeModeStatus">Smart Win can buy and sell.</small>
 
                 <div class="withdraw-inline danger-box">
                   <h4>Manual sell from Smart Win</h4>
@@ -274,6 +278,7 @@
                 </div>
 
                 <label>Risk Win trading budget <input id="manualTruenestDeposit" inputmode="decimal" placeholder="0"></label>
+                <input id="truenestTradeMode" type="hidden" value="both">
                 <label>Use locked profit to trade
                   <select id="manualTruenestUseProfit">
                     <option value="off">OFF - protect profit</option>
@@ -284,8 +289,11 @@
 
                 <div class="button-row">
                   <button class="primary-action" id="truenestStart" disabled>Start Risk Win</button>
+                  <button class="secondary-action" id="truenestSellOnly" type="button">Stop buying, sell only</button>
+                  <button class="secondary-action" id="truenestResumeBuying" type="button">Resume buying</button>
                   <button class="stop-action" id="truenestStop" disabled>Stop</button>
                 </div>
+                <small id="truenestTradeModeStatus">Risk Win can buy and sell.</small>
 
                 <div class="withdraw-inline">
                   <h4>Withdraw from Risk Win</h4>
