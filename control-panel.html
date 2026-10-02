@@ -185,8 +185,14 @@
                   <button id="copyManualFrogWallet" type="button" disabled>Copy Smart Win wallet</button>
                 </div>
 
-                <label>Smart Win deposit confirmed <input id="manualFrogDeposit" inputmode="decimal" placeholder="0"></label>
-                <button id="saveFrogDeposit" class="primary-action" type="button">Save Smart Win deposit</button>
+                <label>Smart Win trading budget <input id="manualFrogDeposit" inputmode="decimal" placeholder="0"></label>
+                <label>Use locked profit to trade
+                  <select id="manualFrogUseProfit">
+                    <option value="off">OFF - protect profit</option>
+                    <option value="on">ON - allow profit trade</option>
+                  </select>
+                </label>
+                <button id="saveFrogDeposit" class="primary-action" type="button">Save Smart Win budget</button>
 
                 <div class="button-row">
                   <button class="primary-action" id="frogStart" disabled>Start Smart Win</button>
@@ -242,8 +248,14 @@
                   <button id="copyManualTruenestWallet" type="button" disabled>Copy Risk Win wallet</button>
                 </div>
 
-                <label>Risk Win deposit confirmed <input id="manualTruenestDeposit" inputmode="decimal" placeholder="0"></label>
-                <button id="saveTruenestDeposit" class="primary-action" type="button">Save Risk Win deposit</button>
+                <label>Risk Win trading budget <input id="manualTruenestDeposit" inputmode="decimal" placeholder="0"></label>
+                <label>Use locked profit to trade
+                  <select id="manualTruenestUseProfit">
+                    <option value="off">OFF - protect profit</option>
+                    <option value="on">ON - allow profit trade</option>
+                  </select>
+                </label>
+                <button id="saveTruenestDeposit" class="primary-action" type="button">Save Risk Win budget</button>
 
                 <div class="button-row">
                   <button class="primary-action" id="truenestStart" disabled>Start Risk Win</button>
@@ -455,8 +467,10 @@
                 <label>Risk Win wallet address <input id="truenestTradeWallet" autocomplete="off" placeholder="Risk Win deposit/copy wallet"></label>
                 <label>Smart Win Turnkey wallet ID <input id="frogSignerToken" type="password" autocomplete="off" placeholder="Smart Win wallet ID from Turnkey, not seed phrase"></label>
                 <label>Risk Win Turnkey wallet ID <input id="truenestSignerToken" type="password" autocomplete="off" placeholder="Risk Win wallet ID from Turnkey, not seed phrase"></label>
-                <label>Smart Win deposit amount <input id="frogDeposit" inputmode="decimal" placeholder="Money for Smart Win account, e.g. 395"></label>
-                <label>Risk Win deposit amount <input id="truenestDeposit" inputmode="decimal" placeholder="Money for Risk Win account"></label>
+                <label>Smart Win trading budget <input id="frogDeposit" inputmode="decimal" placeholder="Money allowed for Smart Win trades, e.g. 100"></label>
+                <label>Risk Win trading budget <input id="truenestDeposit" inputmode="decimal" placeholder="Money allowed for Risk Win trades"></label>
+                <label>Smart Win use profit <select id="frogUseProfit"><option value="off">OFF - protect profit</option><option value="on">ON - allow profit trade</option></select></label>
+                <label>Risk Win use profit <select id="truenestUseProfit"><option value="off">OFF - protect profit</option><option value="on">ON - allow profit trade</option></select></label>
               </div>
             </section>
           </section>
