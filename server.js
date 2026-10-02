@@ -163,6 +163,10 @@ function normalizeCopyMode(mode) {
   return "Copy exact amount";
 }
 
+function copyModeFromProtection(value) {
+  return value === "on" ? "Copy exact amount after safety check" : "Copy exact amount";
+}
+
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
@@ -227,6 +231,8 @@ function publicSettings(settings = {}, includeSecrets = false) {
     truenestWallet: settings.truenestWallet || "",
     frogMax: settings.frogMax || "",
     truenestMax: settings.truenestMax || "",
+    frogMode: normalizeCopyMode(settings.frogMode),
+    truenestMode: normalizeCopyMode(settings.truenestMode),
     walletSync: settings.walletSync || "Turnkey server wallet",
     riskControl: settings.riskControl || "on",
     liveTradingSwitch: settings.liveTradingSwitch || "on",
@@ -340,6 +346,8 @@ function clean(input) {
   }
   if (out.frogMode) out.frogMode = normalizeCopyMode(out.frogMode);
   if (out.truenestMode) out.truenestMode = normalizeCopyMode(out.truenestMode);
+  if (out.frogRiskControl === "on" || out.frogRiskControl === "off") out.frogMode = copyModeFromProtection(out.frogRiskControl);
+  if (out.truenestRiskControl === "on" || out.truenestRiskControl === "off") out.truenestMode = copyModeFromProtection(out.truenestRiskControl);
   return out;
 }
 
