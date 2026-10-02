@@ -66,11 +66,17 @@
           <section id="tradePage" class="owner-page" data-owner-page="trade" aria-label="Trade page">
             <div class="metric-grid trading-summary">
               <article><span>Smart Win deposit</span><strong id="frogBalance">Deposit: $0.00</strong></article>
+              <article><span>Smart Win USDC now</span><strong id="frogUsdcNow">$0.00</strong></article>
+              <article><span>Smart Win loss</span><strong id="frogLoss">$0.00</strong></article>
               <article><span>Smart Win SOL gas</span><strong id="frogSolBalance">Checking...</strong></article>
               <article><span>Smart Win profit</span><strong id="frogProfit">$0.00</strong></article>
+              <article><span>Frog made / lost</span><strong id="frogTraderPnl">$0.00</strong></article>
               <article><span>Risk Win deposit</span><strong id="truenestBalance">Deposit: $0.00</strong></article>
+              <article><span>Risk Win USDC now</span><strong id="truenestUsdcNow">$0.00</strong></article>
+              <article><span>Risk Win loss</span><strong id="truenestLoss">$0.00</strong></article>
               <article><span>Risk Win SOL gas</span><strong id="truenestSolBalance">Checking...</strong></article>
               <article><span>Risk Win profit</span><strong id="truenestProfit">$0.00</strong></article>
+              <article><span>Other guy made / lost</span><strong id="truenestTraderPnl">$0.00</strong></article>
               <article><span>Total saved deposit</span><strong id="manualDepositTotal">$0.00</strong></article>
             </div>
 
@@ -99,6 +105,16 @@
                   <span>Profit</span>
                   <strong id="watchProfit">$0.00</strong>
                   <small id="watchProfitNote">No profit recorded yet.</small>
+                </article>
+                <article>
+                  <span>USDC now</span>
+                  <strong id="watchUsdcNow">$0.00</strong>
+                  <small id="watchLossNow">Loss from deposit: $0.00</small>
+                </article>
+                <article>
+                  <span>Copied trader</span>
+                  <strong id="watchTraderPnl">$0.00</strong>
+                  <small id="watchTraderNote">Trader made/lost from visible signals.</small>
                 </article>
                 <article>
                   <span>Last action</span>
@@ -147,6 +163,9 @@
                   <div><span>Wins</span><strong id="frogWins">0</strong></div>
                   <div><span>Copied signals</span><strong id="frogSignals">0</strong></div>
                   <div><span>Profit made</span><strong id="frogRoomProfit">$0.00</strong></div>
+                  <div><span>USDC now</span><strong id="frogRoomUsdc">$0.00</strong></div>
+                  <div><span>Loss now</span><strong id="frogRoomLoss">$0.00</strong></div>
+                  <div><span>Frog made/lost</span><strong id="frogRoomTraderPnl">$0.00</strong></div>
                 </div>
 
                 <div class="room-copy-thread">
@@ -195,6 +214,9 @@
                   <div><span>Wins</span><strong id="truenestWins">0</strong></div>
                   <div><span>Copied signals</span><strong id="truenestSignals">0</strong></div>
                   <div><span>Profit made</span><strong id="truenestRoomProfit">$0.00</strong></div>
+                  <div><span>USDC now</span><strong id="truenestRoomUsdc">$0.00</strong></div>
+                  <div><span>Loss now</span><strong id="truenestRoomLoss">$0.00</strong></div>
+                  <div><span>Other guy made/lost</span><strong id="truenestRoomTraderPnl">$0.00</strong></div>
                 </div>
 
                 <div class="room-copy-thread">
