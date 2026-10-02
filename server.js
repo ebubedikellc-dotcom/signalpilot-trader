@@ -134,6 +134,8 @@ function send(response, status, data, headers = {}) {
 
 function normalizeState(state) {
   state.settings = { ...defaultState.settings, ...(state.settings || {}) };
+  state.settings.frogMode = normalizeCopyMode(state.settings.frogMode);
+  state.settings.truenestMode = normalizeCopyMode(state.settings.truenestMode);
   state.settings.frogWalletSync ||= state.settings.walletSync || defaultState.settings.walletSync;
   state.settings.frogRiskControl ||= state.settings.riskControl || defaultState.settings.riskControl;
   state.settings.frogLiveTradingSwitch ||= state.settings.liveTradingSwitch || defaultState.settings.liveTradingSwitch;
@@ -153,6 +155,12 @@ function normalizeState(state) {
   state.activity = Array.isArray(state.activity) ? state.activity : [];
   state.trades = Array.isArray(state.trades) ? state.trades : [];
   return state;
+}
+
+function normalizeCopyMode(mode) {
+  const value = String(mode || "Copy exact amount").toLowerCase();
+  if (value.includes("safety") || value.includes("protect")) return "Copy exact amount after safety check";
+  return "Copy exact amount";
 }
 
 function normalizeEmail(email) {
@@ -238,12 +246,12 @@ function publicSettings(settings = {}, includeSecrets = false) {
 function depositAddresses(state, plan = "frog") {
   const frog = state.settings.frogTradeWallet || "";
   const truenest = state.settings.truenestTradeWallet || "";
-  if (plan === "truenest") return [{ label: "Truenest Big Win", address: truenest }];
+  if (plan === "truenest") return [{ label: "Risk Win", address: truenest }];
   if (plan === "both") return [
-    { label: "Frog Beginner", address: frog },
-    { label: "Truenest Big Win", address: truenest }
+    { label: "Smart Win", address: frog },
+    { label: "Risk Win", address: truenest }
   ];
-  return [{ label: "Frog Beginner", address: frog }];
+  return [{ label: "Smart Win", address: frog }];
 }
 
 function customerPublic(customer, state) {
@@ -330,6 +338,8 @@ function clean(input) {
   for (const field of fields) {
     if (typeof input[field] === "string") out[field] = input[field].trim();
   }
+  if (out.frogMode) out.frogMode = normalizeCopyMode(out.frogMode);
+  if (out.truenestMode) out.truenestMode = normalizeCopyMode(out.truenestMode);
   return out;
 }
 
@@ -362,6 +372,18 @@ function profileRiskControl(state, profile) {
   return profileSetting(state, profile, "riskControl", "on");
 }
 
+function profileMode(state, profile) {
+  const mode = profile === "frog" ? state.settings.frogMode : state.settings.truenestMode;
+  return String(mode || "Copy exact amount");
+}
+
+function profileProtectionEnabled(state, profile) {
+  const mode = profileMode(state, profile).toLowerCase();
+  if (mode.includes("safety") || mode.includes("protect")) return true;
+  if (mode.includes("exact amount")) return false;
+  return profileRiskControl(state, profile) === "on";
+}
+
 function profileLiveTradingSwitch(state, profile) {
   return profileSetting(state, profile, "liveTradingSwitch", "on");
 }
@@ -375,7 +397,7 @@ function liveTradingAllowed(state, profile = "") {
 }
 
 function profileLabel(profile) {
-  return profile === "frog" ? "Frog beginner" : "Truenest Big Win";
+  return profile === "frog" ? "Smart Win" : "Risk Win";
 }
 
 function targetWallet(state, profile) {
@@ -472,7 +494,7 @@ function solanaAddress(value) {
 }
 
 async function executeSolWithdrawal(state, { profile, destination, amountSol }) {
-  if (profile !== "frog" && profile !== "truenest") throw new Error("Choose Frog or Big Trader wallet.");
+  if (profile !== "frog" && profile !== "truenest") throw new Error("Choose Smart Win or Risk Win wallet.");
   const sourceWallet = tradeWallet(state, profile);
   const signer = signerId(state, profile) || sourceWallet;
   const from = solanaAddress(sourceWallet);
@@ -592,7 +614,7 @@ async function executeCopiedSwap(profile, transaction, state) {
 
   const maxUsd = profileMaxUsd(state, profile);
   if (maxUsd && Number(order.inUsdValue || 0) > maxUsd) {
-    if (profileRiskControl(state, profile) !== "off") {
+    if (profileProtectionEnabled(state, profile)) {
       return { status: `Skipped - signal value $${Number(order.inUsdValue).toFixed(2)} is over ${profileLabel(profile)} max $${maxUsd}` };
     }
   }
@@ -1111,7 +1133,7 @@ async function handleApi(request, response, url) {
     state.profiles[profile].running = true;
     state.profiles[profile].lastAction = new Date().toISOString();
     state.activity = [
-      line(`${profile === "frog" ? "Frog beginner" : "Truenest Big Win"} started.`),
+      line(`${profileLabel(profile)} started.`),
       line(liveTradingAllowed(state, profile)
         ? "Production execution is enabled. Copy worker can execute with the connected signer."
         : "Monitoring is active. Real swap execution stays locked until EXECUTE_REAL_SWAPS=true is set in Render."),
@@ -1130,7 +1152,7 @@ async function handleApi(request, response, url) {
     state.profiles[profile].running = false;
     state.profiles[profile].lastAction = new Date().toISOString();
     state.activity = [
-      line(`${profile === "frog" ? "Frog beginner" : "Truenest Big Win"} stopped.`),
+      line(`${profileLabel(profile)} stopped.`),
       ...(state.activity || [])
     ].slice(0, 20);
     await saveState(state);
