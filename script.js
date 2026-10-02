@@ -29,6 +29,7 @@ const fields = [
 
 const page = document.body.dataset.page || "customer";
 const $ = (id) => document.getElementById(id);
+let activeCustomerToken = "";
 
 function money(value) {
   const amount = Number(value || 0);
@@ -57,6 +58,27 @@ function setText(id, text) {
 function setHidden(id, hidden) {
   const node = $(id);
   if (node) node.classList.toggle("hidden", hidden);
+}
+
+function publicUrl(path) {
+  return `${window.location.origin}${path}`;
+}
+
+function tokenFromLink(input) {
+  const text = String(input || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text, window.location.origin);
+    const match = url.pathname.match(/^\/player\/([^/]+)/);
+    if (match) return match[1];
+  } catch {}
+  const match = text.match(/\/player\/([^/\s]+)/);
+  return match ? match[1] : text.replace(/^\/+/, "");
+}
+
+function tokenFromLocation() {
+  const match = window.location.pathname.match(/^\/player\/([^/]+)/);
+  return match ? match[1] : "";
 }
 
 function payload() {
@@ -166,6 +188,7 @@ function renderState(state) {
   setText("truenestProfit", money(profiles.truenest?.profit));
   setText("frogBalance", `Deposit: ${money(settings.frogDeposit)}`);
   setText("truenestBalance", `Deposit: ${money(settings.truenestDeposit)}`);
+  renderManualDeposit(settings);
   renderVault(settings, profiles);
   renderTrades(state.trades || []);
   setText("liveEnvStatus", productionExecution
@@ -210,6 +233,21 @@ function renderState(state) {
     ? `${settings.walletSync || "Turnkey server wallet"} is selected. Render is watching the trader and execution is enabled.`
     : `Wallet sync: ${settings.walletSync || "Turnkey server wallet"}. Press Start on Frog or Truenest.`);
   setLog(state.activity?.length ? state.activity : ["Ready. Press Start Frog or Start Truenest."]);
+}
+
+function renderManualDeposit(settings = {}) {
+  const frogWallet = settings.frogTradeWallet || "";
+  const truenestWallet = settings.truenestTradeWallet || "";
+  const frogDeposit = Number(settings.frogDeposit || 0);
+  const truenestDeposit = Number(settings.truenestDeposit || 0);
+
+  setText("manualFrogWallet", frogWallet || "Wallet not connected yet");
+  setText("manualTruenestWallet", truenestWallet || "Wallet not connected yet");
+  setText("manualDepositTotal", money(frogDeposit + truenestDeposit));
+  if ($("manualFrogDeposit") && document.activeElement !== $("manualFrogDeposit")) $("manualFrogDeposit").value = settings.frogDeposit || "";
+  if ($("manualTruenestDeposit") && document.activeElement !== $("manualTruenestDeposit")) $("manualTruenestDeposit").value = settings.truenestDeposit || "";
+  if ($("copyManualFrogWallet")) $("copyManualFrogWallet").disabled = !frogWallet;
+  if ($("copyManualTruenestWallet")) $("copyManualTruenestWallet").disabled = !truenestWallet;
 }
 
 async function api(path, options = {}) {
@@ -271,7 +309,8 @@ function renderAddresses(addresses = []) {
 
 function renderCustomer(customer) {
   if (!customer) return;
-  setText("customerWelcome", `${customer.name || customer.email} account`);
+  activeCustomerToken = customer.accessToken || activeCustomerToken;
+  setText("customerWelcome", `${customer.name || customer.email || "Customer"} account`);
   setText("customerDeposited", money(customer.deposited));
   setText("customerProfit", money(customer.profit));
   setText("customerOwnerShare", money(customer.ownerProfitShare));
@@ -301,12 +340,14 @@ function renderOwner(data) {
   }
 
   data.customers.forEach((customer) => {
+    const customerLink = publicUrl(customer.accessPath || `/player/${customer.accessToken}`);
     const row = document.createElement("article");
     row.className = "customer-row";
     row.innerHTML = `
       <div>
-        <strong>${escapeHtml(customer.name || customer.email)}</strong>
-        <span>${escapeHtml(customer.email)}</span>
+        <strong>${escapeHtml(customer.name || customer.email || "Customer")}</strong>
+        <span>${escapeHtml(customer.phone || customer.email || "Private link customer")}</span>
+        <a class="mini-link" href="${escapeHtml(customerLink)}" target="_blank" rel="noreferrer">Open link</a>
       </div>
       <label>Plan
         <select data-field="plan">
@@ -328,11 +369,16 @@ function renderOwner(data) {
           <option value="paused">Paused</option>
         </select>
       </label>
+      <button type="button" class="secondary-action copy-link-button">Copy link</button>
       <button type="button" class="secondary-action">Save</button>
     `;
     row.querySelector('[data-field="plan"]').value = customer.plan || "frog";
     row.querySelector('[data-field="status"]').value = customer.status || "active";
-    row.querySelector("button").addEventListener("click", async () => {
+    row.querySelector(".copy-link-button").addEventListener("click", async () => {
+      await navigator.clipboard.writeText(customerLink);
+      showBusinessMessage("Customer private link copied.");
+    });
+    row.querySelector("button:last-of-type").addEventListener("click", async () => {
       const result = await api(`/api/owner/customer/${customer.id}`, {
         method: "POST",
         body: JSON.stringify({
@@ -351,6 +397,10 @@ function renderOwner(data) {
 
 async function loadBusiness() {
   try {
+    if (page === "customer" && tokenFromLocation()) {
+      await loadCustomerLink(tokenFromLocation());
+      return;
+    }
     const data = await api("/api/business");
     if (data.role === "owner") {
       if (page !== "owner") {
@@ -367,6 +417,25 @@ async function loadBusiness() {
     }
   } catch {
     setMode(null);
+  }
+}
+
+async function loadCustomerLink(token) {
+  const data = await api(`/api/customer/link/${encodeURIComponent(token)}`);
+  activeCustomerToken = token;
+  setMode("customer");
+  renderCustomer(data.customer);
+  showBusinessMessage("Private trading room opened.");
+}
+
+async function openCustomerLink() {
+  try {
+    const token = tokenFromLink(value("customerLinkInput"));
+    if (!token) throw new Error("Paste your private customer link.");
+    window.history.replaceState({}, "", `/player/${token}`);
+    await loadCustomerLink(token);
+  } catch (error) {
+    showBusinessMessage(error.message, true);
   }
 }
 
@@ -420,14 +489,28 @@ async function ownerCreateCustomer() {
       method: "POST",
       body: JSON.stringify({
         name: value("ownerCustomerName"),
+        phone: value("ownerCustomerPhone"),
         email: value("ownerCustomerEmail"),
-        password: value("ownerCustomerPassword"),
         plan: value("ownerCustomerPlan"),
         deposited: value("ownerCustomerDeposit")
       })
     });
     renderOwner({ owner: { email: value("ownerEmail") }, ...result });
-    showBusinessMessage("Customer saved in owner panel.");
+    const link = publicUrl(result.customer.accessPath);
+    const box = $("printedLinkBox");
+    if (box) {
+      box.classList.remove("hidden");
+      box.innerHTML = `
+        <strong>Private customer link printed</strong>
+        <span>${escapeHtml(link)}</span>
+        <button type="button" class="secondary-action">Copy link</button>
+      `;
+      box.querySelector("button").addEventListener("click", async () => {
+        await navigator.clipboard.writeText(link);
+        showBusinessMessage("Printed link copied.");
+      });
+    }
+    showBusinessMessage("Customer link printed and deposit credited.");
   } catch (error) {
     showBusinessMessage(error.message, true);
   }
@@ -435,7 +518,10 @@ async function ownerCreateCustomer() {
 
 async function saveCustomerPlan() {
   try {
-    const result = await api("/api/customer/plan", {
+    const path = activeCustomerToken
+      ? `/api/customer/link/${encodeURIComponent(activeCustomerToken)}/plan`
+      : "/api/customer/plan";
+    const result = await api(path, {
       method: "POST",
       body: JSON.stringify({ plan: value("customerPlan") })
     });
@@ -448,7 +534,10 @@ async function saveCustomerPlan() {
 
 async function requestWithdrawal() {
   try {
-    const result = await api("/api/customer/withdraw", {
+    const path = activeCustomerToken
+      ? `/api/customer/link/${encodeURIComponent(activeCustomerToken)}/withdraw`
+      : "/api/customer/withdraw";
+    const result = await api(path, {
       method: "POST",
       body: JSON.stringify({
         amount: value("withdrawAmount"),
@@ -463,9 +552,14 @@ async function requestWithdrawal() {
 }
 
 async function logout() {
-  await api("/api/auth/logout", { method: "POST" });
+  if (activeCustomerToken) {
+    activeCustomerToken = "";
+    window.history.replaceState({}, "", "/");
+  } else {
+    await api("/api/auth/logout", { method: "POST" });
+  }
   setMode(null);
-  showBusinessMessage("Logged out.");
+  showBusinessMessage("Closed.");
 }
 
 async function refresh() {
@@ -490,6 +584,24 @@ async function saveSettings() {
   renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(payload()) }));
 }
 
+async function saveManualDeposit() {
+  const data = {
+    ...payload(),
+    frogDeposit: value("manualFrogDeposit"),
+    truenestDeposit: value("manualTruenestDeposit")
+  };
+  renderState({ settings: data, profiles: {}, activity: ["Saving manual deposit..."] });
+  renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
+  showBusinessMessage("Manual deposit saved.");
+}
+
+async function copyTextFromNode(id, label) {
+  const text = $(id)?.textContent?.trim() || "";
+  if (!text || text === "Wallet not connected yet") return;
+  await navigator.clipboard.writeText(text);
+  showBusinessMessage(`${label} copied.`);
+}
+
 async function startProfile(profile) {
   renderState(await api(`/api/start/${profile}`, { method: "POST" }));
 }
@@ -506,9 +618,13 @@ function on(id, event, handler) {
 on("saveSettings", "click", saveSettings);
 on("saveSettingsInline", "click", saveSettings);
 on("saveProfitShare", "click", saveSettings);
+on("saveManualDeposit", "click", saveManualDeposit);
+on("copyManualFrogWallet", "click", () => copyTextFromNode("manualFrogWallet", "Frog wallet"));
+on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "Truenest wallet"));
 on("ownerLogin", "click", ownerLogin);
 on("customerLogin", "click", customerLogin);
 on("customerSignup", "click", customerSignup);
+on("openCustomerLink", "click", openCustomerLink);
 on("ownerCreateCustomer", "click", ownerCreateCustomer);
 on("saveCustomerPlan", "click", saveCustomerPlan);
 on("requestWithdraw", "click", requestWithdrawal);
