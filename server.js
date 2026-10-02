@@ -609,6 +609,21 @@ function sourceUsdFromSignal(transaction = {}, wallet = "") {
   return 0;
 }
 
+function receivedUsdFromSignal(transaction = {}, wallet = "") {
+  const transfers = Array.isArray(transaction.tokenTransfers) ? transaction.tokenTransfers : [];
+  const quoteTransfer = transfers.find((item) => transferEntersWallet(item, wallet) && [usdcMint, usdtMint].includes(transferMint(item)));
+  if (quoteTransfer) return Number(quoteTransfer.tokenAmount || quoteTransfer.amount || 0);
+
+  const changes = accountTokenChanges(transaction, wallet);
+  const quoteChange = changes.find((item) => [usdcMint, usdtMint].includes(item.mint) && item.amount > 0);
+  if (quoteChange) return Math.abs(quoteChange.amount);
+
+  const swap = transaction.events?.swap || {};
+  const tokenOutput = (swap.tokenOutputs || []).find((item) => [usdcMint, usdtMint].includes(transferMint(item)));
+  if (tokenOutput) return Number(tokenOutput.tokenAmount || tokenOutput.amount || 0);
+  return 0;
+}
+
 function extractCopySignal(profile, transaction, state) {
   const wallet = targetWallet(state, profile);
   if (!wallet) return null;
@@ -1006,6 +1021,9 @@ function tradeFromTransaction(profile, transaction, state) {
     ? "Observed - execution pending"
     : "Observed - live trading locked";
   const leg = primarySwapLeg(transaction, profile, state);
+  const wallet = targetWallet(state, profile);
+  const sourceUsd = Number(leg?.sourceUsd || 0);
+  const sourceReceivedUsd = leg?.action === "sell" ? Number(receivedUsdFromSignal(transaction, wallet) || 0) : 0;
   return {
     id: transaction.signature,
     signature: transaction.signature,
@@ -1014,6 +1032,9 @@ function tradeFromTransaction(profile, transaction, state) {
     action: leg?.action === "sell" ? "Sell signal" : "Buy signal",
     token: leg?.outputSymbol || tokenName(transaction),
     amount: tradeAmount(transaction),
+    sourceUsd,
+    sourceReceivedUsd,
+    traderPnlUsd: leg?.action === "buy" ? -Math.abs(sourceUsd) : sourceReceivedUsd,
     pnl: 0,
     status
   };
