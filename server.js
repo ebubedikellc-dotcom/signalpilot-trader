@@ -39,12 +39,14 @@ const defaultState = {
     frogCopySizing: "Copy by percentage",
     frogTraderBankroll: "350",
     frogUseProfit: "off",
+    frogTradeMode: "both",
     truenestWallet: "ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT",
     truenestMax: "750",
     truenestMode: "Copy exact amount",
     truenestCopySizing: "Copy by percentage",
     truenestTraderBankroll: "350",
     truenestUseProfit: "off",
+    truenestTradeMode: "both",
     walletSync: "Turnkey server wallet",
     riskControl: "on",
     liveTradingSwitch: "on",
@@ -94,12 +96,14 @@ const fields = [
   "frogCopySizing",
   "frogTraderBankroll",
   "frogUseProfit",
+  "frogTradeMode",
   "truenestWallet",
   "truenestMax",
   "truenestMode",
   "truenestCopySizing",
   "truenestTraderBankroll",
   "truenestUseProfit",
+  "truenestTradeMode",
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
@@ -263,6 +267,8 @@ function publicSettings(settings = {}, includeSecrets = false) {
     truenestTraderBankroll: settings.truenestTraderBankroll || "",
     frogUseProfit: settings.frogUseProfit === "on" ? "on" : "off",
     truenestUseProfit: settings.truenestUseProfit === "on" ? "on" : "off",
+    frogTradeMode: settings.frogTradeMode === "sellOnly" ? "sellOnly" : "both",
+    truenestTradeMode: settings.truenestTradeMode === "sellOnly" ? "sellOnly" : "both",
     walletSync: settings.walletSync || "Turnkey server wallet",
     riskControl: settings.riskControl || "on",
     liveTradingSwitch: settings.liveTradingSwitch || "on",
@@ -523,6 +529,11 @@ function profileProtectionEnabled(state, profile) {
 
 function profileLiveTradingSwitch(state, profile) {
   return profileSetting(state, profile, "liveTradingSwitch", "on");
+}
+
+function profileSellOnly(state, profile) {
+  const value = profile === "frog" ? state.settings.frogTradeMode : state.settings.truenestTradeMode;
+  return value === "sellOnly";
 }
 
 function liveTradingAllowed(state, profile = "") {
@@ -1089,6 +1100,9 @@ async function executeCopiedSwap(profile, transaction, state) {
   let copyAmount = scaledCopyAmount(leg.amount, state, profile);
 
   if (leg.action === "buy") {
+    if (profileSellOnly(state, profile)) {
+      return { status: "Skipped - Sell Only mode is ON, new buys are blocked" };
+    }
     let buyUsd = buyUsdAmount(state, profile, leg.sourceUsd);
     if (!buyUsd) return { status: "Skipped - no deposit amount available for USDC buy" };
     const tradeableUsdc = await profileTradeableUsdc(connection, state, profile, wallet);
