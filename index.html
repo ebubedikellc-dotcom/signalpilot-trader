@@ -13,17 +13,17 @@
       <header class="topbar public-hero">
         <div>
           <p class="eyebrow">SignalPilot Trader</p>
-          <h1>Log in first. Then deposit and trade.</h1>
-          <p class="lede">Customers must log in or create an account before any deposit wallet, trading plan, balance, or withdrawal tools are shown.</p>
+          <h1>Your private trading link.</h1>
+          <p class="lede">No password and no email login. Open the private link the owner gives you, deposit there, watch your balance and profit there, and withdraw from there.</p>
           <div class="hero-actions">
-            <a class="link-action" href="#customerLoginCard">Customer login</a>
-            <a class="secondary-link" href="#createAccount">Create account</a>
+            <a class="link-action" href="#customerPortalTitle">Open my link</a>
+            <a class="secondary-link" href="/control-panel">Owner control panel</a>
           </div>
         </div>
         <div class="system-card">
-          <span class="system-label">Private by default</span>
-          <strong>Wallet hidden until login</strong>
-          <small>The trading wallet and deposit tools unlock only inside the customer dashboard.</small>
+          <span class="system-label">Simple access</span>
+          <strong>One link, one account</strong>
+          <small>Your link is your private door. Keep it safe because it opens your balance, deposit wallet, and withdrawal room.</small>
         </div>
       </header>
 
@@ -31,29 +31,25 @@
         <div class="section-title">
           <div>
             <p class="eyebrow">Customer Access</p>
-            <h2 id="customerPortalTitle">Open your trading account</h2>
+            <h2 id="customerPortalTitle">Open your private trading room</h2>
           </div>
           <button id="logoutButton" class="secondary-action hidden" type="button">Log out</button>
         </div>
 
         <div id="authPanel" class="auth-grid customer-auth-grid">
           <article class="login-card" id="customerLoginCard">
-            <span class="login-badge">Existing Customer</span>
-            <h3>Log in first</h3>
-            <p>Use your email and password to open your dashboard, deposit wallet, trading plan, and withdrawal tools.</p>
-            <label>Email <input id="customerLoginEmail" autocomplete="email" placeholder="customer@email.com"></label>
-            <label>Password <input id="customerLoginPassword" type="password" autocomplete="current-password" placeholder="Password"></label>
-            <button id="customerLogin" class="primary-action" type="button">Log in customer</button>
+            <span class="login-badge">Private Link</span>
+            <h3>Paste your link</h3>
+            <p>If the owner sent you a private link, paste it here and open your own money room.</p>
+            <label>Private customer link <input id="customerLinkInput" autocomplete="off" placeholder="https://signalpilot-trader.onrender.com/player/..."></label>
+            <button id="openCustomerLink" class="primary-action" type="button">Open my trading room</button>
           </article>
 
           <article class="login-card" id="createAccount">
-            <span class="login-badge">New Customer</span>
-            <h3>Create account</h3>
-            <p>Start here. After you create the account, your deposit wallet appears immediately.</p>
-            <label>Name <input id="signupName" autocomplete="name" placeholder="Full name"></label>
-            <label>Email <input id="signupEmail" autocomplete="email" placeholder="customer@email.com"></label>
-            <label>Password <input id="signupPassword" type="password" autocomplete="new-password" placeholder="At least 6 characters"></label>
-            <button id="customerSignup" class="primary-action" type="button">Create customer account</button>
+            <span class="login-badge">No Signup</span>
+            <h3>How your account works</h3>
+            <p>The owner prints your link after payment. That link carries your account detail, deposit wallet, balance, profit, and withdrawal room.</p>
+            <p class="muted">Keep the link private. Anyone with the link can open that customer room.</p>
           </article>
         </div>
 
@@ -62,7 +58,7 @@
             <div>
               <span class="login-badge">Customer Dashboard</span>
               <h3 id="customerWelcome">Your account</h3>
-              <p>Deposit is simple: choose a plan, copy the wallet, send SOL or USDC, then wait for your balance to be credited.</p>
+              <p>This is your private room. Deposit here, trade from here, and withdraw from here.</p>
             </div>
           </div>
 
@@ -82,7 +78,7 @@
             <article class="tool-card deposit-card">
               <span class="login-badge">Step 1</span>
               <h4>Deposit money</h4>
-              <p class="muted">Choose your plan. Copy the wallet address. Send SOL or USDC to that wallet.</p>
+              <p class="muted">Copy the wallet, send SOL or USDC, then your balance shows after the owner confirms your deposit.</p>
               <label>
                 Choose plan
                 <select id="customerPlan">
@@ -95,7 +91,7 @@
               <div id="depositAddresses" class="deposit-addresses"></div>
               <div class="deposit-help">
                 <strong>After sending money</strong>
-                <span>Your balance shows after the owner confirms your deposit in the control panel.</span>
+                <span>Your balance shows after the owner confirms your deposit.</span>
               </div>
             </article>
 
@@ -123,18 +119,18 @@
         <div class="simple-steps">
           <article class="active-step">
             <span>1</span>
-            <strong>Create account</strong>
-            <p>Use your email and password. This opens your dashboard.</p>
+            <strong>Open private link</strong>
+            <p>The owner gives you your own link.</p>
           </article>
           <article>
             <span>2</span>
             <strong>Copy wallet</strong>
-            <p>Choose Frog, Truenest, or both, then copy the deposit address shown.</p>
+            <p>Choose Frog, Truenest, or both, then copy the address.</p>
           </article>
           <article>
             <span>3</span>
-            <strong>Track balance</strong>
-            <p>Your deposit, profit, and withdrawal request appear in your dashboard.</p>
+            <strong>Send and wait</strong>
+            <p>Your balance appears after the owner confirms payment.</p>
           </article>
         </div>
       </section>
