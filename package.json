@@ -7,7 +7,9 @@
     "start": "node server.js",
     "check": "node --check server.js"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@turnkey/sdk-server": "^8.6.0"
+  },
   "engines": {
     "node": ">=20"
   }
