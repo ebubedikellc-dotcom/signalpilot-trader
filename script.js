@@ -595,6 +595,32 @@ async function saveManualDeposit() {
   showBusinessMessage("Manual deposit saved.");
 }
 
+async function ownerWithdraw() {
+  const resultNode = $("ownerWithdrawResult");
+  if (resultNode) resultNode.textContent = "Sending withdrawal...";
+  try {
+    const result = await api("/api/owner/withdraw", {
+      method: "POST",
+      body: JSON.stringify({
+        profile: value("ownerWithdrawProfile"),
+        wallet: value("ownerWithdrawWallet"),
+        amountSol: value("ownerWithdrawAmount")
+      })
+    });
+    renderState(result.status);
+    const signature = result.withdrawal?.signature || "";
+    if (resultNode) {
+      resultNode.innerHTML = signature
+        ? `Withdrawal sent. <a href="https://solscan.io/tx/${encodeURIComponent(signature)}" target="_blank" rel="noopener">Open Solscan receipt</a>`
+        : "Withdrawal sent.";
+    }
+    showBusinessMessage("Withdrawal sent.");
+  } catch (error) {
+    if (resultNode) resultNode.textContent = error.message;
+    showBusinessMessage(error.message, true);
+  }
+}
+
 async function copyTextFromNode(id, label) {
   const text = $(id)?.textContent?.trim() || "";
   if (!text || text === "Wallet not connected yet") return;
@@ -619,6 +645,7 @@ on("saveSettings", "click", saveSettings);
 on("saveSettingsInline", "click", saveSettings);
 on("saveProfitShare", "click", saveSettings);
 on("saveManualDeposit", "click", saveManualDeposit);
+on("ownerWithdrawButton", "click", ownerWithdraw);
 on("copyManualFrogWallet", "click", () => copyTextFromNode("manualFrogWallet", "Frog wallet"));
 on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "Truenest wallet"));
 on("ownerLogin", "click", ownerLogin);
