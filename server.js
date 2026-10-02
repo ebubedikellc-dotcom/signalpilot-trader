@@ -5,6 +5,14 @@ import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Turnkey } from "@turnkey/sdk-server";
+import {
+  Connection,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  clusterApiUrl
+} from "@solana/web3.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 3000);
@@ -404,6 +412,74 @@ function tradeWallet(state, profile) {
 
 function signerId(state, profile) {
   return profile === "frog" ? state.settings.frogSignerToken : state.settings.truenestSignerToken;
+}
+
+function solanaConnection(settings = {}) {
+  const key = String(settings.heliusKey || "").trim();
+  const endpoint = key
+    ? `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(key)}`
+    : clusterApiUrl("mainnet-beta");
+  return new Connection(endpoint, "confirmed");
+}
+
+function solanaAddress(value) {
+  try {
+    return new PublicKey(String(value || "").trim());
+  } catch {
+    return null;
+  }
+}
+
+async function executeSolWithdrawal(state, { profile, destination, amountSol }) {
+  if (profile !== "frog" && profile !== "truenest") throw new Error("Choose Frog or Big Trader wallet.");
+  const sourceWallet = tradeWallet(state, profile);
+  const signer = signerId(state, profile) || sourceWallet;
+  const from = solanaAddress(sourceWallet);
+  const to = solanaAddress(destination);
+  const amount = Number(amountSol || 0);
+
+  if (!from || !signer) throw new Error("Trading wallet or Turnkey signer is missing.");
+  if (!to) throw new Error("Enter a valid Solana wallet address.");
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid SOL amount.");
+
+  const lamports = Math.round(amount * LAMPORTS_PER_SOL);
+  if (lamports <= 0) throw new Error("Amount is too small.");
+
+  const connection = solanaConnection(state.settings);
+  const balance = await connection.getBalance(from, "confirmed");
+  const feeReserve = 7000;
+  if (balance < lamports + feeReserve) {
+    throw new Error(`Not enough SOL in ${profileLabel(profile)} wallet for this withdrawal and network fee.`);
+  }
+
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+  const transaction = new Transaction({
+    feePayer: from,
+    recentBlockhash: blockhash
+  }).add(SystemProgram.transfer({ fromPubkey: from, toPubkey: to, lamports }));
+
+  const unsignedTransaction = transaction
+    .serialize({ requireAllSignatures: false, verifySignatures: false })
+    .toString("base64");
+  const signed = await turnkeyClient(state.settings).signTransaction({
+    signWith: signer,
+    unsignedTransaction,
+    type: "TRANSACTION_TYPE_SOLANA"
+  });
+  if (!signed?.signedTransaction) throw new Error("Turnkey did not return a signed withdrawal transaction.");
+
+  const signature = await connection.sendRawTransaction(Buffer.from(signed.signedTransaction, "base64"), {
+    skipPreflight: false,
+    maxRetries: 3
+  });
+  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+
+  return {
+    signature,
+    sourceWallet,
+    destination: to.toBase58(),
+    amountSol: amount
+  };
 }
 
 function profileMaxUsd(state, profile) {
@@ -927,6 +1003,56 @@ async function handleApi(request, response, url) {
     });
     await saveState(state);
     send(response, 200, { customer: customerPublic(customer, state), withdrawals: state.withdrawals.filter((item) => item.customerId === customer.id) });
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/owner/withdraw") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    const body = await readBody(request);
+    const profile = body.profile === "truenest" ? "truenest" : "frog";
+    const destination = String(body.wallet || "").trim();
+    const amountSol = Number(body.amountSol || body.amount || 0);
+
+    try {
+      const result = await executeSolWithdrawal(state, { profile, destination, amountSol });
+      state.withdrawals.push({
+        id: randomUUID(),
+        owner: true,
+        profile,
+        amount: result.amountSol,
+        asset: "SOL",
+        sourceWallet: result.sourceWallet,
+        wallet: result.destination,
+        txid: result.signature,
+        status: "sent",
+        createdAt: new Date().toISOString()
+      });
+      state.activity = [
+        line(`${profileLabel(profile)} withdrawal sent: ${result.amountSol} SOL to ${result.destination.slice(0, 6)}...${result.destination.slice(-4)}.`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+      await saveState(state);
+      send(response, 200, { withdrawal: result, status: statusPayload(state, { role: "owner", id: "owner" }) });
+    } catch (error) {
+      state.withdrawals.push({
+        id: randomUUID(),
+        owner: true,
+        profile,
+        amount: amountSol,
+        asset: "SOL",
+        wallet: destination,
+        status: "failed",
+        error: error.message,
+        createdAt: new Date().toISOString()
+      });
+      state.activity = [
+        line(`${profileLabel(profile)} withdrawal failed: ${error.message}`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+      await saveState(state);
+      send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
+    }
     return true;
   }
 
