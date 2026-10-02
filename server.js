@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs";
 import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Turnkey } from "@turnkey/sdk-server";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 3000);
@@ -354,17 +355,171 @@ function tradeAmount(transaction) {
   return Number(tokenAmount || 0);
 }
 
+function transferMint(transfer = {}) {
+  return transfer.mint || transfer.tokenMint || transfer.rawTokenAmount?.mint || "";
+}
+
+function transferAmount(transfer = {}) {
+  const raw = transfer.rawTokenAmount?.tokenAmount || transfer.rawAmount || transfer.amountRaw;
+  if (raw !== undefined && raw !== null && String(raw) !== "") return String(raw);
+  const decimals = Number(transfer.rawTokenAmount?.decimals ?? transfer.decimals ?? 0);
+  const tokenAmount = Number(transfer.tokenAmount ?? transfer.amount ?? 0);
+  if (!Number.isFinite(tokenAmount) || tokenAmount <= 0) return "";
+  return String(Math.round(tokenAmount * (10 ** decimals)));
+}
+
+function primarySwapLeg(transaction) {
+  const swap = transaction.events?.swap || {};
+  const input = (swap.tokenInputs || []).find((item) => transferMint(item) && transferAmount(item));
+  const output = (swap.tokenOutputs || []).find((item) => transferMint(item));
+  if (input && output) {
+    return {
+      inputMint: transferMint(input),
+      outputMint: transferMint(output),
+      amount: transferAmount(input),
+      inputSymbol: input.symbol || transferMint(input),
+      outputSymbol: output.symbol || transferMint(output)
+    };
+  }
+
+  const transfers = Array.isArray(transaction.tokenTransfers) ? transaction.tokenTransfers : [];
+  const fromTrader = transfers.find((item) => transferMint(item) && transferAmount(item) && item.fromUserAccount === transaction.accountData?.[0]?.account);
+  const toTrader = transfers.find((item) => transferMint(item) && item.toUserAccount === transaction.accountData?.[0]?.account);
+  if (fromTrader && toTrader) {
+    return {
+      inputMint: transferMint(fromTrader),
+      outputMint: transferMint(toTrader),
+      amount: transferAmount(fromTrader),
+      inputSymbol: fromTrader.symbol || transferMint(fromTrader),
+      outputSymbol: toTrader.symbol || transferMint(toTrader)
+    };
+  }
+
+  return null;
+}
+
+function tradeWallet(state, profile) {
+  return profile === "frog" ? state.settings.frogTradeWallet : state.settings.truenestTradeWallet;
+}
+
+function signerId(state, profile) {
+  return profile === "frog" ? state.settings.frogSignerToken : state.settings.truenestSignerToken;
+}
+
+function profileMaxUsd(state, profile) {
+  const value = Number(profile === "frog" ? state.settings.frogMax : state.settings.truenestMax);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function jupiterApiKey(settings = {}) {
+  const value = String(settings.routeApi || "").trim();
+  if (!value || value.startsWith("http://") || value.startsWith("https://")) return "";
+  return value;
+}
+
+function turnkeyClient(settings = {}) {
+  return new Turnkey({
+    apiBaseUrl: "https://api.turnkey.com",
+    apiPublicKey: settings.turnkeyApiPublicKey,
+    apiPrivateKey: settings.turnkeyApiPrivateKey,
+    defaultOrganizationId: settings.turnkeyOrgId
+  }).apiClient();
+}
+
+async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {}) {
+  const url = new URL(`https://api.jup.ag${pathname}`);
+  Object.entries(query || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value) !== "") url.searchParams.set(key, String(value));
+  });
+  const response = await fetch(url, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(apiKey ? { "x-api-key": apiKey } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.error || payload.errorMessage) {
+    throw new Error(payload.errorMessage || payload.error || `Jupiter returned ${response.status}`);
+  }
+  return payload;
+}
+
+async function executeCopiedSwap(profile, transaction, state) {
+  const leg = primarySwapLeg(transaction);
+  if (!leg?.inputMint || !leg?.outputMint || !leg?.amount) {
+    return { status: "Skipped - unsupported swap format" };
+  }
+
+  const wallet = tradeWallet(state, profile);
+  const signer = signerId(state, profile) || wallet;
+  const apiKey = jupiterApiKey(state.settings);
+  if (!wallet || !signer) return { status: "Skipped - trading wallet or signer missing" };
+
+  const order = await jupiterJson("/swap/v2/order", {
+    apiKey,
+    query: {
+      inputMint: leg.inputMint,
+      outputMint: leg.outputMint,
+      amount: leg.amount,
+      taker: wallet,
+      swapMode: "ExactIn",
+      slippageBps: 200
+    }
+  });
+
+  if (!order.transaction) {
+    return { status: `Skipped - Jupiter could not build transaction${order.errorCode ? ` (${order.errorCode})` : ""}` };
+  }
+
+  const maxUsd = profileMaxUsd(state, profile);
+  if (maxUsd && Number(order.inUsdValue || 0) > maxUsd) {
+    return { status: `Skipped - signal value $${Number(order.inUsdValue).toFixed(2)} is over ${profileLabel(profile)} max $${maxUsd}` };
+  }
+
+  const signed = await turnkeyClient(state.settings).signTransaction({
+    signWith: signer,
+    unsignedTransaction: order.transaction,
+    type: "TRANSACTION_TYPE_SOLANA"
+  });
+  if (!signed?.signedTransaction) throw new Error("Turnkey did not return a signed Solana transaction");
+
+  const executed = await jupiterJson("/swap/v2/execute", {
+    apiKey,
+    method: "POST",
+    body: {
+      signedTransaction: signed.signedTransaction,
+      requestId: order.requestId,
+      lastValidBlockHeight: order.lastValidBlockHeight
+    }
+  });
+
+  return {
+    status: "Executed",
+    inputMint: leg.inputMint,
+    outputMint: leg.outputMint,
+    inputSymbol: leg.inputSymbol,
+    outputSymbol: leg.outputSymbol,
+    requestId: order.requestId,
+    swapUsdValue: order.swapUsdValue,
+    outAmount: order.outAmount,
+    txid: executed.signature || executed.txid || executed.transactionId || executed.swapTransaction || ""
+  };
+}
+
 function tradeFromTransaction(profile, transaction, state) {
   const status = liveTradingAllowed(state)
-    ? "Observed - signer execution needed"
+    ? "Observed - execution pending"
     : "Observed - live trading locked";
+  const leg = primarySwapLeg(transaction);
   return {
     id: transaction.signature,
     signature: transaction.signature,
     time: transaction.timestamp ? new Date(transaction.timestamp * 1000).toLocaleString("en-US", { hour12: false }) : new Date().toLocaleString("en-US", { hour12: false }),
     profile: profileLabel(profile),
     action: "Copied signal",
-    token: tokenName(transaction),
+    token: leg?.outputSymbol || tokenName(transaction),
     amount: tradeAmount(transaction),
     pnl: 0,
     status
@@ -420,16 +575,33 @@ async function runCopyWorkerOnce() {
 
     if (!unseen.length) continue;
     const existing = new Set((state.trades || []).map((trade) => trade.signature || trade.id));
-    const newTrades = unseen
+    const signalTransactions = unseen
       .reverse()
       .filter((transaction) => !existing.has(transaction.signature) && looksLikeSwap(transaction))
-      .map((transaction) => tradeFromTransaction(profile, transaction, state));
+    const newTrades = [];
+
+    for (const transaction of signalTransactions) {
+      const trade = tradeFromTransaction(profile, transaction, state);
+      if (liveTradingAllowed(state)) {
+        try {
+          const execution = await executeCopiedSwap(profile, transaction, state);
+          trade.status = execution.status;
+          trade.execution = execution;
+          if (execution.outputSymbol) trade.token = execution.outputSymbol;
+          if (execution.swapUsdValue) trade.amount = Number(execution.swapUsdValue);
+        } catch (error) {
+          trade.status = "Execution failed";
+          trade.executionError = error.message;
+        }
+      }
+      newTrades.push(trade);
+    }
 
     state.profiles[profile].lastSignature = newest;
     if (newTrades.length) {
       state.trades = [...newTrades, ...(state.trades || [])].slice(0, 100);
       state.activity = [
-        line(`${profileLabel(profile)} worker found ${newTrades.length} new swap signal${newTrades.length === 1 ? "" : "s"}.`),
+        line(`${profileLabel(profile)} worker found ${newTrades.length} new swap signal${newTrades.length === 1 ? "" : "s"}${liveTradingAllowed(state) ? " and attempted execution" : ""}.`),
         ...(state.activity || [])
       ].slice(0, 20);
     }
