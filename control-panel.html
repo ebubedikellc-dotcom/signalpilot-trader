@@ -13,16 +13,16 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">Owner Control Panel</p>
-          <h1>My manual trading room.</h1>
-          <p class="lede">For now this is only for you. Copy your wallet, deposit your money, type the confirmed amount here, then start Frog or Truenest when you are ready.</p>
+          <h1>My trading room.</h1>
+          <p class="lede">Deposit, start trading, watch profit, and withdraw from one clean page. Frog and Big Win each have their own room so the money does not mix.</p>
           <div class="hero-actions">
-            <a class="secondary-link" href="#manualDepositCard">Go to deposit</a>
+            <a class="secondary-link" href="#tradePage">Go to trade page</a>
           </div>
         </div>
         <div class="system-card">
           <span class="system-label">Simple mode</span>
           <strong id="engineStatus">Deposit first</strong>
-          <small id="engineSubtext">Manual deposit now. Customer links can come later after you start making money.</small>
+          <small id="engineSubtext">Manual deposit now. Customer links and advanced setup stay away in Settings.</small>
         </div>
       </header>
 
@@ -52,288 +52,261 @@
           <div class="dashboard-head">
             <div>
               <span class="login-badge">Owner Mode</span>
-              <h3>Owner home</h3>
+              <h3>Choose what you want to do</h3>
               <p id="ownerIdentity">Logged in as owner.</p>
             </div>
           </div>
 
-          <div class="metric-grid">
-            <article><span>Customers</span><strong id="ownerCustomerCount">0</strong></article>
-            <article><span>Total deposits</span><strong id="ownerTotalDeposits">$0.00</strong></article>
-            <article><span>Total gross gain</span><strong id="ownerTotalProfit">$0.00</strong></article>
-            <article><span>Your gain share</span><strong id="ownerProfitShare">$0.00</strong><small id="ownerProfitShareRule">0% of customer gain</small></article>
-            <article><span>Pending withdrawals</span><strong id="ownerPendingWithdrawals">0</strong></article>
+          <div class="owner-tabs" role="tablist" aria-label="Owner pages">
+            <button class="owner-tab active" type="button" data-owner-tab="trade">Trade</button>
+            <button class="owner-tab" type="button" data-owner-tab="settings">Settings</button>
+            <button class="owner-tab" type="button" data-owner-tab="history">History</button>
           </div>
 
-          <div class="owner-tools">
-            <article class="tool-card deposit-control-card" id="manualDepositCard">
-              <span class="login-badge">1</span>
-              <h4>Manual deposit for me</h4>
-              <p class="muted">Send money to your trading wallet, then type the amount here so the control panel shows your balance.</p>
-              <div class="deposit-addresses">
+          <section id="tradePage" class="owner-page" data-owner-page="trade" aria-label="Trade page">
+            <div class="metric-grid trading-summary">
+              <article><span>Frog deposit</span><strong id="frogBalance">Deposit: $0.00</strong></article>
+              <article><span>Frog profit</span><strong id="frogProfit">$0.00</strong></article>
+              <article><span>Big Win deposit</span><strong id="truenestBalance">Deposit: $0.00</strong></article>
+              <article><span>Big Win profit</span><strong id="truenestProfit">$0.00</strong></article>
+              <article><span>Total saved deposit</span><strong id="manualDepositTotal">$0.00</strong></article>
+            </div>
+
+            <div class="trade-room-grid">
+              <article class="trader-card trade-room-card beginner">
+                <div class="trader-head">
+                  <div class="avatar frog-face" aria-hidden="true">F</div>
+                  <div>
+                    <span class="slot">Frog Room</span>
+                    <h2>Frog</h2>
+                    <p>Deposit here, start Frog, withdraw from Frog.</p>
+                  </div>
+                </div>
+
                 <div class="address-card">
-                  <span>Frog wallet</span>
+                  <span>Deposit to Frog wallet</span>
                   <strong id="manualFrogWallet">Wallet not connected yet</strong>
                   <button id="copyManualFrogWallet" type="button" disabled>Copy Frog wallet</button>
                 </div>
-                <div class="address-card">
-                  <span>Truenest wallet</span>
-                  <strong id="manualTruenestWallet">Wallet not connected yet</strong>
-                  <button id="copyManualTruenestWallet" type="button" disabled>Copy Truenest wallet</button>
+
+                <label>Frog deposit confirmed <input id="manualFrogDeposit" inputmode="decimal" placeholder="0"></label>
+                <button id="saveFrogDeposit" class="primary-action" type="button">Save Frog deposit</button>
+
+                <div class="button-row">
+                  <button class="primary-action" id="frogStart" disabled>Start Frog</button>
+                  <button class="stop-action" id="frogStop" disabled>Stop</button>
                 </div>
-              </div>
-              <label>Frog deposit confirmed <input id="manualFrogDeposit" inputmode="decimal" placeholder="0"></label>
-              <label>Truenest deposit confirmed <input id="manualTruenestDeposit" inputmode="decimal" placeholder="0"></label>
-              <button id="saveManualDeposit" class="primary-action" type="button">Save my deposit</button>
-            </article>
 
-            <article class="tool-card customer-balance-card">
-              <span class="login-badge">2</span>
-              <h4>Start or stop trading</h4>
-              <p class="muted">After your deposit is saved, use the Frog and Truenest Start buttons below. The engine status will tell you if real execution is still locked.</p>
-              <div class="share-mini">
-                <span>Your saved manual deposit</span>
-                <strong id="manualDepositTotal">$0.00</strong>
-                <small id="manualDepositNote">This is your record inside the control panel.</small>
-              </div>
-              <a class="secondary-link" href="#traderProfiles">Open start buttons</a>
-            </article>
+                <div class="withdraw-inline">
+                  <h4>Withdraw from Frog</h4>
+                  <label>Send to Solana wallet <input id="frogWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
+                  <label>Amount in SOL <input id="frogWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
+                  <button id="frogWithdrawButton" class="secondary-action" type="button">Withdraw Frog SOL</button>
+                  <small id="frogWithdrawResult">No Frog withdrawal sent yet.</small>
+                </div>
+              </article>
 
-            <article class="tool-card withdraw-control-card" id="ownerWithdrawCard">
-              <span class="login-badge">3</span>
-              <h4>Withdraw to my wallet</h4>
-              <p class="muted">Send SOL from your Frog or Big Trader trading wallet to any Solana wallet address you choose.</p>
-              <label>Withdraw from
-                <select id="ownerWithdrawProfile">
-                  <option value="frog">Frog wallet</option>
-                  <option value="truenest">Big Trader wallet</option>
-                </select>
-              </label>
-              <label>Send to Solana wallet <input id="ownerWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, Solflare, exchange, or buyer Solana address"></label>
-              <label>Amount in SOL <input id="ownerWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
-              <button id="ownerWithdrawButton" class="primary-action" type="button">Withdraw SOL now</button>
-              <div class="deposit-help danger-help">
-                <strong>Solana only.</strong>
-                <span>Do not paste TRC20, BEP20, Ethereum, or Bitcoin address here. First test with a small amount.</span>
-              </div>
-              <small id="ownerWithdrawResult">No withdrawal sent yet.</small>
-            </article>
+              <article class="trader-card trade-room-card bigwin">
+                <div class="trader-head">
+                  <div class="avatar truenest-face" aria-hidden="true">B</div>
+                  <div>
+                    <span class="slot">Big Win Room</span>
+                    <h2>Big Win</h2>
+                    <p>Deposit here, start Big Win, withdraw from Big Win.</p>
+                  </div>
+                </div>
 
-            <article class="tool-card share-control-card">
-              <span class="login-badge">Later</span>
-              <h4>Customer mode later</h4>
-              <p class="muted">No customer deposit now. Make your own money first. When you are ready, we can bring back customer links and profit share.</p>
-            </article>
-          </div>
+                <div class="address-card">
+                  <span>Deposit to Big Win wallet</span>
+                  <strong id="manualTruenestWallet">Wallet not connected yet</strong>
+                  <button id="copyManualTruenestWallet" type="button" disabled>Copy Big Win wallet</button>
+                </div>
+
+                <label>Big Win deposit confirmed <input id="manualTruenestDeposit" inputmode="decimal" placeholder="0"></label>
+                <button id="saveTruenestDeposit" class="primary-action" type="button">Save Big Win deposit</button>
+
+                <div class="button-row">
+                  <button class="primary-action" id="truenestStart" disabled>Start Big Win</button>
+                  <button class="stop-action" id="truenestStop" disabled>Stop</button>
+                </div>
+
+                <div class="withdraw-inline">
+                  <h4>Withdraw from Big Win</h4>
+                  <label>Send to Solana wallet <input id="truenestWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
+                  <label>Amount in SOL <input id="truenestWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
+                  <button id="truenestWithdrawButton" class="secondary-action" type="button">Withdraw Big Win SOL</button>
+                  <small id="truenestWithdrawResult">No Big Win withdrawal sent yet.</small>
+                </div>
+              </article>
+            </div>
+
+            <div class="deposit-help danger-help">
+              <strong>Solana only.</strong>
+              <span>For withdrawal, paste only a Solana wallet address. Test with small money first.</span>
+            </div>
+          </section>
+
+          <section class="owner-page hidden" data-owner-page="settings" aria-label="Settings page">
+            <div class="metric-grid">
+              <article><span>Customers</span><strong id="ownerCustomerCount">0</strong></article>
+              <article><span>Total deposits</span><strong id="ownerTotalDeposits">$0.00</strong></article>
+              <article><span>Total gross gain</span><strong id="ownerTotalProfit">$0.00</strong></article>
+              <article><span>Your gain share</span><strong id="ownerProfitShare">$0.00</strong><small id="ownerProfitShareRule">0% of customer gain</small></article>
+              <article><span>Pending withdrawals</span><strong id="ownerPendingWithdrawals">0</strong></article>
+            </div>
+
+            <section class="easy-setup" aria-labelledby="easySetupTitle">
+              <div class="section-title">
+                <div>
+                  <p class="eyebrow">Easy Setup</p>
+                  <h2 id="easySetupTitle">Do this part once, then trading can start</h2>
+                </div>
+                <a class="link-action" href="https://app.turnkey.com" target="_blank" rel="noreferrer">Open Turnkey</a>
+              </div>
+
+              <div class="simple-steps">
+                <article class="active-step">
+                  <span>Now</span>
+                  <strong>Create Frog wallet</strong>
+                  <p>In Turnkey Company Wallets, create <b>SignalPilot Frog Beginner</b>, then add <b>Frog Solana Account</b>.</p>
+                </article>
+                <article>
+                  <span>Next</span>
+                  <strong>Create Big Win wallet</strong>
+                  <p>Create a second Company Wallet named <b>SignalPilot Truenest Big Win</b> with a Solana account.</p>
+                </article>
+                <article>
+                  <span>Last</span>
+                  <strong>Paste safe values here</strong>
+                  <p>Paste wallet addresses and Turnkey IDs in the boxes below. Do not paste seed phrase or recovery words anywhere.</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="vault-panel" aria-labelledby="vaultTitle">
+              <div class="section-title">
+                <div>
+                  <p class="eyebrow">Private Vault</p>
+                  <h2 id="vaultTitle">Your money room</h2>
+                </div>
+                <span class="vault-badge" id="vaultStatus">Private owner mode</span>
+              </div>
+
+              <div class="vault-summary">
+                <article><span>Total deposited</span><strong id="vaultDeposited">$0.00</strong><small>Money still goes into your Solana trading wallets.</small></article>
+                <article><span>Total profit</span><strong id="vaultProfit">$0.00</strong><small>Profit from Frog and Big Win trades.</small></article>
+                <article><span>SignalPilot fee</span><strong id="vaultFee">$0.00</strong><small id="vaultFeeNote">Fee is for future business mode.</small></article>
+                <article><span>You can withdraw</span><strong id="vaultWithdrawable">$0.00</strong><small>Deposit plus profit, after fee.</small></article>
+              </div>
+
+              <div class="form-grid vault-form">
+                <label>Vault mode <select id="vaultMode"><option value="private">Private - only me</option><option value="business" disabled>Business - users later</option></select></label>
+                <label>Future profit fee <select id="vaultFeePercent"><option value="0">0% now</option><option value="10">10% later</option><option value="20">20% later</option></select></label>
+                <label>Owner fee wallet <input id="ownerFeeWallet" autocomplete="off" placeholder="Your business Solana wallet for future fees"></label>
+                <label>Vault note <input id="vaultNote" autocomplete="off" placeholder="Private vault first. Open to users later."></label>
+              </div>
+            </section>
+
+            <section class="engine-room" aria-labelledby="engineTitle">
+              <div class="section-title">
+                <div>
+                  <p class="eyebrow">Control Panel</p>
+                  <h2 id="engineTitle">Private engine settings</h2>
+                </div>
+                <button id="saveSettings" class="secondary-action">Save engine settings</button>
+              </div>
+
+              <div class="unlock-guide" aria-label="Unlock checklist">
+                <article><span>1</span><strong>Backend</strong><p>Already running on Render. This watches traders and serves accounts.</p></article>
+                <article><span>2</span><strong>Keys and wallets</strong><p>Paste Helius, Jupiter, Turnkey, Frog wallet, and Big Win wallet details here only.</p></article>
+                <article><span>3</span><strong>Production execution lock</strong><p id="liveEnvStatus">Render execution status will show here.</p></article>
+              </div>
+
+              <div class="switch-board" aria-label="Main engine switches">
+                <label class="switch-card"><span><strong>Wallet Sync</strong><small>Turnkey is the secure wallet engine for the trading wallets.</small></span><select id="walletSync"><option>Turnkey server wallet</option><option>Manual wallet only</option></select></label>
+                <label class="switch-card bold-switch"><span><strong>Risk Control</strong><small>If this is OFF, the safety rules will not block trades.</small></span><select id="riskControl"><option value="on">ON - protect me</option><option value="off">OFF - exact copy only</option></select></label>
+                <label class="switch-card bold-switch live-switch"><span><strong>Live Trading</strong><small>Render must also have EXECUTE_REAL_SWAPS=true before real buying and selling can happen.</small></span><select id="liveTradingSwitch"><option value="on">ON - allow live trading</option><option value="off">OFF - monitor only</option></select></label>
+              </div>
+
+              <div class="form-grid">
+                <label>Helius API key <input id="heliusKey" type="password" autocomplete="off" placeholder="Paste Helius API key here"></label>
+                <label>Jupiter / trading route API <input id="routeApi" type="password" autocomplete="off" placeholder="Paste route API or endpoint here"></label>
+                <label>Turnkey organization ID <input id="turnkeyOrgId" autocomplete="off" placeholder="Paste Turnkey organization ID"></label>
+                <label>Turnkey API public key <input id="turnkeyApiPublicKey" autocomplete="off" placeholder="Paste Turnkey API public key"></label>
+                <label>Turnkey API private key <input id="turnkeyApiPrivateKey" type="password" autocomplete="off" placeholder="Paste only inside this control panel"></label>
+                <div class="inline-save-box">
+                  <strong>After you paste the private key</strong>
+                  <span>Tap this save button here. No need to scroll back up.</span>
+                  <button id="saveSettingsInline" class="secondary-action">Save private key / settings</button>
+                </div>
+                <label>Turnkey policy ID <input id="turnkeyPolicyId" autocomplete="off" placeholder="Optional policy ID for trade approvals"></label>
+                <label>Beginner Frog wallet address <input id="frogTradeWallet" autocomplete="off" placeholder="Frog deposit/copy wallet"></label>
+                <label>Big Win wallet address <input id="truenestTradeWallet" autocomplete="off" placeholder="Big Win deposit/copy wallet"></label>
+                <label>Frog Turnkey wallet ID <input id="frogSignerToken" type="password" autocomplete="off" placeholder="Frog wallet ID from Turnkey, not seed phrase"></label>
+                <label>Big Win Turnkey wallet ID <input id="truenestSignerToken" type="password" autocomplete="off" placeholder="Big Win wallet ID from Turnkey, not seed phrase"></label>
+                <label>Frog deposit amount <input id="frogDeposit" inputmode="decimal" placeholder="Money for Frog account, e.g. 395"></label>
+                <label>Big Win deposit amount <input id="truenestDeposit" inputmode="decimal" placeholder="Money for Big Win account"></label>
+              </div>
+
+              <div class="profile-settings">
+                <article>
+                  <h3>Frog settings</h3>
+                  <label>Trader wallet <input id="frogWallet" value="4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh"></label>
+                  <label>Maximum single buy <input id="frogMax" value="420"></label>
+                  <label>Mode <select id="frogMode"><option>Copy exact amount</option><option>Copy exact amount after safety check</option><option>Copy smaller percentage</option></select></label>
+                  <p class="account-note">Separate beginner wallet only. Keep this money small until the engine proves itself.</p>
+                </article>
+                <article>
+                  <h3>Big Win settings</h3>
+                  <label>Trader wallet <input id="truenestWallet" value="ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT"></label>
+                  <label>Maximum single buy <input id="truenestMax" value="750"></label>
+                  <label>Mode <select id="truenestMode"><option>Copy exact amount</option><option>Copy exact amount after safety check</option><option>Copy smaller percentage</option></select></label>
+                  <p class="account-note">Separate big-win wallet only. This must not mix with Frog beginner money.</p>
+                </article>
+              </div>
+            </section>
+          </section>
+
+          <section class="owner-page hidden" data-owner-page="history" aria-label="History page">
+            <section class="activity" aria-labelledby="activityTitle">
+              <div>
+                <p class="eyebrow">Live View</p>
+                <h2 id="activityTitle">Trading activity</h2>
+              </div>
+              <ul id="activityLog">
+                <li>Waiting for owner login.</li>
+              </ul>
+            </section>
+
+            <section class="activity trade-history" aria-labelledby="historyTitle">
+              <div>
+                <p class="eyebrow">Profit Tracking</p>
+                <h2 id="historyTitle">Every copied trade</h2>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Slot</th>
+                      <th>Action</th>
+                      <th>Token</th>
+                      <th>Amount</th>
+                      <th>Profit / Loss</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tradeRows">
+                    <tr><td colspan="7">No copied trade yet. When SignalPilot trades, every buy and sell will show here.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </section>
         </div>
 
         <p id="businessMessage" class="message-line"></p>
       </section>
-
-      <details class="advanced-owner owner-area">
-        <summary>
-          <span>Advanced setup and trading engine</span>
-          <small>Not needed for normal deposit work. Open only for keys, wallet IDs, start/stop, logs, or trade history.</small>
-        </summary>
-
-      <section class="easy-setup owner-area" aria-labelledby="easySetupTitle">
-        <div class="section-title">
-          <div>
-            <p class="eyebrow">Easy Setup</p>
-            <h2 id="easySetupTitle">Do this part once, then trading can start</h2>
-          </div>
-          <a class="link-action" href="https://app.turnkey.com" target="_blank" rel="noreferrer">Open Turnkey</a>
-        </div>
-
-        <div class="simple-steps">
-          <article class="active-step">
-            <span>Now</span>
-            <strong>Create Frog wallet</strong>
-            <p>In Turnkey Company Wallets, create <b>SignalPilot Frog Beginner</b>, then add <b>Frog Solana Account</b>.</p>
-          </article>
-          <article>
-            <span>Next</span>
-            <strong>Create Truenest wallet</strong>
-            <p>Create a second Company Wallet named <b>SignalPilot Truenest Big Win</b> with a Solana account.</p>
-          </article>
-          <article>
-            <span>Last</span>
-            <strong>Paste safe values here</strong>
-            <p>Paste wallet addresses and Turnkey IDs in the boxes below. Do not paste seed phrase or recovery words anywhere.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="trader-grid owner-area" id="traderProfiles" aria-label="Trader profiles">
-        <article class="trader-card beginner">
-          <div class="trader-head">
-            <div class="avatar frog-face" aria-hidden="true">F</div>
-            <div>
-              <span class="slot">Beginner Slot</span>
-              <h2>Frog</h2>
-              <p>Small beginner copy profile.</p>
-            </div>
-          </div>
-          <dl class="facts">
-            <div><dt>Normal buy size</dt><dd>$350 - $420</dd></div>
-            <div><dt>Known style</dt><dd>Fast Solana memecoin entries</dd></div>
-            <div><dt>Use rule</dt><dd>Use strict limits first</dd></div>
-          </dl>
-          <div class="profit-box">
-            <span>My profit from Frog</span>
-            <strong id="frogProfit">$0.00</strong>
-            <small id="frogBalance">Deposit: $0.00</small>
-          </div>
-          <div class="button-row">
-            <button class="primary-action" id="frogStart" disabled>Start Frog</button>
-            <button class="stop-action" id="frogStop" disabled>Stop</button>
-          </div>
-        </article>
-
-        <article class="trader-card bigwin">
-          <div class="trader-head">
-            <div class="avatar truenest-face" aria-hidden="true">T</div>
-            <div>
-              <span class="slot">Big Win Slot</span>
-              <h2>Truenest</h2>
-              <p>High-profit profile for bigger trading.</p>
-            </div>
-          </div>
-          <dl class="facts">
-            <div><dt>Normal buy size</dt><dd>$500+</dd></div>
-            <div><dt>Known style</dt><dd>Higher-speed high-win attempts</dd></div>
-            <div><dt>Use rule</dt><dd>Automation only, never manual</dd></div>
-          </dl>
-          <div class="profit-box">
-            <span>My profit from Truenest</span>
-            <strong id="truenestProfit">$0.00</strong>
-            <small id="truenestBalance">Deposit: $0.00</small>
-          </div>
-          <div class="button-row">
-            <button class="primary-action" id="truenestStart" disabled>Start Truenest</button>
-            <button class="stop-action" id="truenestStop" disabled>Stop</button>
-          </div>
-        </article>
-      </section>
-
-      <section class="vault-panel owner-area" aria-labelledby="vaultTitle">
-        <div class="section-title">
-          <div>
-            <p class="eyebrow">Private Vault</p>
-            <h2 id="vaultTitle">Your money room</h2>
-          </div>
-          <span class="vault-badge" id="vaultStatus">Private owner mode</span>
-        </div>
-
-        <div class="vault-summary">
-          <article><span>Total deposited</span><strong id="vaultDeposited">$0.00</strong><small>Money still goes into your Solana trading wallets.</small></article>
-          <article><span>Total profit</span><strong id="vaultProfit">$0.00</strong><small>Profit from Frog and Truenest trades.</small></article>
-          <article><span>SignalPilot fee</span><strong id="vaultFee">$0.00</strong><small id="vaultFeeNote">Fee is for future business mode.</small></article>
-          <article><span>You can withdraw</span><strong id="vaultWithdrawable">$0.00</strong><small>Deposit plus profit, after fee.</small></article>
-        </div>
-
-        <div class="form-grid vault-form">
-          <label>Vault mode <select id="vaultMode"><option value="private">Private - only me</option><option value="business" disabled>Business - users later</option></select></label>
-          <label>Future profit fee <select id="vaultFeePercent"><option value="0">0% now</option><option value="10">10% later</option><option value="20">20% later</option></select></label>
-          <label>Owner fee wallet <input id="ownerFeeWallet" autocomplete="off" placeholder="Your business Solana wallet for future fees"></label>
-          <label>Vault note <input id="vaultNote" autocomplete="off" placeholder="Private vault first. Open to users later."></label>
-        </div>
-      </section>
-
-      <section class="engine-room owner-area" aria-labelledby="engineTitle">
-        <div class="section-title">
-          <div>
-            <p class="eyebrow">Control Panel</p>
-            <h2 id="engineTitle">Private engine settings</h2>
-          </div>
-          <button id="saveSettings" class="secondary-action">Save engine settings</button>
-        </div>
-
-        <div class="unlock-guide" aria-label="Unlock checklist">
-          <article><span>1</span><strong>Backend</strong><p>Already running on Render. This watches traders and serves accounts.</p></article>
-          <article><span>2</span><strong>Keys and wallets</strong><p>Paste Helius, Jupiter, Turnkey, Frog wallet, and Truenest wallet details here only.</p></article>
-          <article><span>3</span><strong>Production execution lock</strong><p id="liveEnvStatus">Render execution status will show here.</p></article>
-        </div>
-
-        <div class="switch-board" aria-label="Main engine switches">
-          <label class="switch-card"><span><strong>Wallet Sync</strong><small>Turnkey is the secure wallet engine for the trading wallets.</small></span><select id="walletSync"><option>Turnkey server wallet</option><option>Manual wallet only</option></select></label>
-          <label class="switch-card bold-switch"><span><strong>Risk Control</strong><small>If this is OFF, the safety rules will not block trades.</small></span><select id="riskControl"><option value="on">ON - protect me</option><option value="off">OFF - exact copy only</option></select></label>
-          <label class="switch-card bold-switch live-switch"><span><strong>Live Trading</strong><small>Render must also have EXECUTE_REAL_SWAPS=true before real buying and selling can happen.</small></span><select id="liveTradingSwitch"><option value="on">ON - allow live trading</option><option value="off">OFF - monitor only</option></select></label>
-        </div>
-
-        <div class="form-grid">
-          <label>Helius API key <input id="heliusKey" type="password" autocomplete="off" placeholder="Paste Helius API key here"></label>
-          <label>Jupiter / trading route API <input id="routeApi" type="password" autocomplete="off" placeholder="Paste route API or endpoint here"></label>
-          <label>Turnkey organization ID <input id="turnkeyOrgId" autocomplete="off" placeholder="Paste Turnkey organization ID"></label>
-          <label>Turnkey API public key <input id="turnkeyApiPublicKey" autocomplete="off" placeholder="Paste Turnkey API public key"></label>
-          <label>Turnkey API private key <input id="turnkeyApiPrivateKey" type="password" autocomplete="off" placeholder="Paste only inside this control panel"></label>
-          <div class="inline-save-box">
-            <strong>After you paste the private key</strong>
-            <span>Tap this save button here. No need to scroll back up.</span>
-            <button id="saveSettingsInline" class="secondary-action">Save private key / settings</button>
-          </div>
-          <label>Turnkey policy ID <input id="turnkeyPolicyId" autocomplete="off" placeholder="Optional policy ID for trade approvals"></label>
-          <label>Beginner Frog wallet address <input id="frogTradeWallet" autocomplete="off" placeholder="Frog deposit/copy wallet"></label>
-          <label>Big Win Truenest wallet address <input id="truenestTradeWallet" autocomplete="off" placeholder="Truenest deposit/copy wallet"></label>
-          <label>Frog Turnkey wallet ID <input id="frogSignerToken" type="password" autocomplete="off" placeholder="Frog wallet ID from Turnkey, not seed phrase"></label>
-          <label>Truenest Turnkey wallet ID <input id="truenestSignerToken" type="password" autocomplete="off" placeholder="Truenest wallet ID from Turnkey, not seed phrase"></label>
-          <label>Frog deposit amount <input id="frogDeposit" inputmode="decimal" placeholder="Money for Frog account, e.g. 395"></label>
-          <label>Truenest deposit amount <input id="truenestDeposit" inputmode="decimal" placeholder="Money for Big Win account"></label>
-        </div>
-
-        <div class="profile-settings">
-          <article>
-            <h3>Frog settings</h3>
-            <label>Trader wallet <input id="frogWallet" value="4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh"></label>
-            <label>Maximum single buy <input id="frogMax" value="420"></label>
-            <label>Mode <select id="frogMode"><option>Copy exact amount</option><option>Copy exact amount after safety check</option><option>Copy smaller percentage</option></select></label>
-            <p class="account-note">Separate beginner wallet only. Keep this money small until the engine proves itself.</p>
-          </article>
-          <article>
-            <h3>Truenest settings</h3>
-            <label>Trader wallet <input id="truenestWallet" value="ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT"></label>
-            <label>Maximum single buy <input id="truenestMax" value="750"></label>
-            <label>Mode <select id="truenestMode"><option>Copy exact amount</option><option>Copy exact amount after safety check</option><option>Copy smaller percentage</option></select></label>
-            <p class="account-note">Separate big-win wallet only. This must not mix with Frog beginner money.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="activity owner-area" aria-labelledby="activityTitle">
-        <div>
-          <p class="eyebrow">Live View</p>
-          <h2 id="activityTitle">Trading activity</h2>
-        </div>
-        <ul id="activityLog">
-          <li>Waiting for owner login.</li>
-        </ul>
-      </section>
-
-      <section class="activity trade-history owner-area" aria-labelledby="historyTitle">
-        <div>
-          <p class="eyebrow">Profit Tracking</p>
-          <h2 id="historyTitle">Every copied trade</h2>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Slot</th>
-                <th>Action</th>
-                <th>Token</th>
-                <th>Amount</th>
-                <th>Profit / Loss</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody id="tradeRows">
-              <tr><td colspan="7">No copied trade yet. When SignalPilot trades, every buy and sell will show here.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-      </details>
     </main>
     <script src="./script.js"></script>
   </body>
