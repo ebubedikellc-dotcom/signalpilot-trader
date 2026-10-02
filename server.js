@@ -34,6 +34,12 @@ const defaultState = {
     walletSync: "Turnkey server wallet",
     riskControl: "on",
     liveTradingSwitch: "on",
+    frogWalletSync: "Turnkey server wallet",
+    frogRiskControl: "on",
+    frogLiveTradingSwitch: "on",
+    truenestWalletSync: "Turnkey server wallet",
+    truenestRiskControl: "on",
+    truenestLiveTradingSwitch: "on",
     vaultMode: "private",
     vaultFeePercent: "0",
     ownerProfitSharePercent: "0",
@@ -77,6 +83,12 @@ const fields = [
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
+  "frogWalletSync",
+  "frogRiskControl",
+  "frogLiveTradingSwitch",
+  "truenestWalletSync",
+  "truenestRiskControl",
+  "truenestLiveTradingSwitch",
   "vaultMode",
   "vaultFeePercent",
   "ownerProfitSharePercent",
@@ -122,6 +134,12 @@ function send(response, status, data, headers = {}) {
 
 function normalizeState(state) {
   state.settings = { ...defaultState.settings, ...(state.settings || {}) };
+  state.settings.frogWalletSync ||= state.settings.walletSync || defaultState.settings.walletSync;
+  state.settings.frogRiskControl ||= state.settings.riskControl || defaultState.settings.riskControl;
+  state.settings.frogLiveTradingSwitch ||= state.settings.liveTradingSwitch || defaultState.settings.liveTradingSwitch;
+  state.settings.truenestWalletSync ||= state.settings.walletSync || defaultState.settings.walletSync;
+  state.settings.truenestRiskControl ||= state.settings.riskControl || defaultState.settings.riskControl;
+  state.settings.truenestLiveTradingSwitch ||= state.settings.liveTradingSwitch || defaultState.settings.liveTradingSwitch;
   state.profiles = { ...structuredClone(defaultState.profiles), ...(state.profiles || {}) };
   state.owner = { email: (state.owner?.email || ownerEmail).toLowerCase() };
   state.customers = Array.isArray(state.customers) ? state.customers : [];
@@ -204,6 +222,12 @@ function publicSettings(settings = {}, includeSecrets = false) {
     walletSync: settings.walletSync || "Turnkey server wallet",
     riskControl: settings.riskControl || "on",
     liveTradingSwitch: settings.liveTradingSwitch || "on",
+    frogWalletSync: settings.frogWalletSync || settings.walletSync || "Turnkey server wallet",
+    frogRiskControl: settings.frogRiskControl || settings.riskControl || "on",
+    frogLiveTradingSwitch: settings.frogLiveTradingSwitch || settings.liveTradingSwitch || "on",
+    truenestWalletSync: settings.truenestWalletSync || settings.walletSync || "Turnkey server wallet",
+    truenestRiskControl: settings.truenestRiskControl || settings.riskControl || "on",
+    truenestLiveTradingSwitch: settings.truenestLiveTradingSwitch || settings.liveTradingSwitch || "on",
     vaultMode: settings.vaultMode || "private",
     vaultFeePercent: settings.vaultFeePercent || "0",
     ownerProfitSharePercent: settings.ownerProfitSharePercent || "0",
@@ -324,13 +348,30 @@ function ready(state) {
   );
 }
 
-function liveTradingAllowed(state) {
-  return Boolean(
-    ready(state) &&
-    state.settings.liveTradingSwitch === "on" &&
-    process.env.ENABLE_LIVE_TRADING === "true" &&
-    process.env.EXECUTE_REAL_SWAPS === "true"
-  );
+function profileSetting(state, profile, key, fallback = "") {
+  const prefix = profile === "frog" ? "frog" : "truenest";
+  const profileKey = `${prefix}${key[0].toUpperCase()}${key.slice(1)}`;
+  return state.settings[profileKey] || state.settings[key] || fallback;
+}
+
+function profileWalletSync(state, profile) {
+  return profileSetting(state, profile, "walletSync", "Turnkey server wallet");
+}
+
+function profileRiskControl(state, profile) {
+  return profileSetting(state, profile, "riskControl", "on");
+}
+
+function profileLiveTradingSwitch(state, profile) {
+  return profileSetting(state, profile, "liveTradingSwitch", "on");
+}
+
+function liveTradingAllowed(state, profile = "") {
+  if (!ready(state) || process.env.ENABLE_LIVE_TRADING !== "true" || process.env.EXECUTE_REAL_SWAPS !== "true") {
+    return false;
+  }
+  if (!profile) return ["frog", "truenest"].some((item) => liveTradingAllowed(state, item));
+  return profileLiveTradingSwitch(state, profile) === "on" && profileWalletSync(state, profile) === "Turnkey server wallet";
 }
 
 function profileLabel(profile) {
@@ -551,7 +592,9 @@ async function executeCopiedSwap(profile, transaction, state) {
 
   const maxUsd = profileMaxUsd(state, profile);
   if (maxUsd && Number(order.inUsdValue || 0) > maxUsd) {
-    return { status: `Skipped - signal value $${Number(order.inUsdValue).toFixed(2)} is over ${profileLabel(profile)} max $${maxUsd}` };
+    if (profileRiskControl(state, profile) !== "off") {
+      return { status: `Skipped - signal value $${Number(order.inUsdValue).toFixed(2)} is over ${profileLabel(profile)} max $${maxUsd}` };
+    }
   }
 
   const signed = await turnkeyClient(state.settings).signTransaction({
@@ -585,7 +628,7 @@ async function executeCopiedSwap(profile, transaction, state) {
 }
 
 function tradeFromTransaction(profile, transaction, state) {
-  const status = liveTradingAllowed(state)
+  const status = liveTradingAllowed(state, profile)
     ? "Observed - execution pending"
     : "Observed - live trading locked";
   const leg = primarySwapLeg(transaction);
@@ -658,7 +701,7 @@ async function runCopyWorkerOnce() {
 
     for (const transaction of signalTransactions) {
       const trade = tradeFromTransaction(profile, transaction, state);
-      if (liveTradingAllowed(state)) {
+      if (liveTradingAllowed(state, profile)) {
         try {
           const execution = await executeCopiedSwap(profile, transaction, state);
           trade.status = execution.status;
@@ -677,7 +720,7 @@ async function runCopyWorkerOnce() {
     if (newTrades.length) {
       state.trades = [...newTrades, ...(state.trades || [])].slice(0, 100);
       state.activity = [
-        line(`${profileLabel(profile)} worker found ${newTrades.length} new swap signal${newTrades.length === 1 ? "" : "s"}${liveTradingAllowed(state) ? " and attempted execution" : ""}.`),
+        line(`${profileLabel(profile)} worker found ${newTrades.length} new swap signal${newTrades.length === 1 ? "" : "s"}${liveTradingAllowed(state, profile) ? " and attempted execution" : ""}.`),
         ...(state.activity || [])
       ].slice(0, 20);
     }
@@ -1069,7 +1112,7 @@ async function handleApi(request, response, url) {
     state.profiles[profile].lastAction = new Date().toISOString();
     state.activity = [
       line(`${profile === "frog" ? "Frog beginner" : "Truenest Big Win"} started.`),
-      line(liveTradingAllowed(state)
+      line(liveTradingAllowed(state, profile)
         ? "Production execution is enabled. Copy worker can execute with the connected signer."
         : "Monitoring is active. Real swap execution stays locked until EXECUTE_REAL_SWAPS=true is set in Render."),
       ...(state.activity || [])
