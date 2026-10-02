@@ -1374,7 +1374,7 @@ async function executeManualTokenSell(state, { profile, mint }) {
 function roomMatchesProfile(trade = {}, profile = "") {
   const text = String(trade.profile || "").toLowerCase();
   return profile === "frog"
-    ? text.includes("smart win") || text.includes("frog")
+    ? text.includes("decu win") || text.includes("deku") || text.includes("decu") || text.includes("smart win") || text.includes("frog")
     : text.includes("risk win") || text.includes("truenest") || text.includes("big win");
 }
 
