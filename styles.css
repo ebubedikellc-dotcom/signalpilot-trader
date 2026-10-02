@@ -150,12 +150,13 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .owner-page { display: grid; gap: 16px; }
 .trade-room-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .trade-room-card { display: grid; gap: 14px; }
-.trade-room-card .address-card, .trade-room-card label, .trade-room-card .withdraw-inline, .trade-room-card .safety-panel, .trade-room-card .room-copy-thread, .trade-room-card .room-stat-grid { position: relative; z-index: 1; }
+.trade-room-card .address-card, .trade-room-card label, .trade-room-card .withdraw-inline, .trade-room-card .room-copy-thread, .trade-room-card .room-stat-grid { position: relative; z-index: 1; }
 .trading-summary strong { font-size: 1.25rem; }
 .room-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .room-stat-grid div { display: grid; gap: 5px; min-height: 82px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.18); }
 .room-stat-grid span { color: var(--muted); font-size: .8rem; font-weight: 850; }
 .room-stat-grid strong { font-size: 1.25rem; }
+.settings-room-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
 .safety-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 14px; border: 1px solid rgba(246,201,92,.38); border-radius: 8px; background: linear-gradient(145deg, rgba(246,201,92,.13), rgba(0,0,0,.22)); }
 .safety-panel h4 { grid-column: 1 / -1; margin: 0; font-size: 1.05rem; }
 .safety-panel .secondary-action, .safety-panel .room-help { grid-column: 1 / -1; }
@@ -261,7 +262,7 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .inline-save-box span { color: var(--muted); line-height: 1.45; }
 .inline-save-box .secondary-action { width: 100%; min-height: 52px; background: var(--green); color: #061118; border: 0; }
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row { grid-template-columns: 1fr; }
+  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row { grid-template-columns: 1fr; }
   .owner-tabs { grid-template-columns: 1fr; }
   .facts { grid-template-columns: 1fr; }
   .section-title { align-items: stretch; flex-direction: column; }
@@ -331,7 +332,7 @@ td { color: var(--muted); }
 .loss-row td:nth-child(6) { color: var(--red); font-weight: 900; }
 
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row {
+  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row {
     grid-template-columns: 1fr;
   }
 
