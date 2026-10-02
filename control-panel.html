@@ -66,8 +66,10 @@
           <section id="tradePage" class="owner-page" data-owner-page="trade" aria-label="Trade page">
             <div class="metric-grid trading-summary">
               <article><span>Smart Win deposit</span><strong id="frogBalance">Deposit: $0.00</strong></article>
+              <article><span>Smart Win SOL gas</span><strong id="frogSolBalance">Checking...</strong></article>
               <article><span>Smart Win profit</span><strong id="frogProfit">$0.00</strong></article>
               <article><span>Risk Win deposit</span><strong id="truenestBalance">Deposit: $0.00</strong></article>
+              <article><span>Risk Win SOL gas</span><strong id="truenestSolBalance">Checking...</strong></article>
               <article><span>Risk Win profit</span><strong id="truenestProfit">$0.00</strong></article>
               <article><span>Total saved deposit</span><strong id="manualDepositTotal">$0.00</strong></article>
             </div>
@@ -157,6 +159,8 @@
                 <div class="address-card">
                   <span>Deposit to Smart Win wallet</span>
                   <strong id="manualFrogWallet">Wallet not connected yet</strong>
+                  <small id="manualFrogGas">SOL gas: checking...</small>
+                  <small id="manualFrogUsdc">USDC balance: checking...</small>
                   <button id="copyManualFrogWallet" type="button" disabled>Copy Smart Win wallet</button>
                 </div>
 
@@ -203,6 +207,8 @@
                 <div class="address-card">
                   <span>Deposit to Risk Win wallet</span>
                   <strong id="manualTruenestWallet">Wallet not connected yet</strong>
+                  <small id="manualTruenestGas">SOL gas: checking...</small>
+                  <small id="manualTruenestUsdc">USDC balance: checking...</small>
                   <button id="copyManualTruenestWallet" type="button" disabled>Copy Risk Win wallet</button>
                 </div>
 
