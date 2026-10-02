@@ -190,7 +190,8 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .share-control-card { border-color: rgba(246,201,92,.45); background: linear-gradient(145deg, rgba(246,201,92,.14), rgba(0,0,0,.2)); }
 .deposit-control-card { order: 1; border-color: rgba(46,230,166,.5); background: linear-gradient(145deg, rgba(46,230,166,.18), rgba(0,0,0,.2)); }
 .customer-balance-card { order: 2; }
-.share-control-card { order: 3; }
+.withdraw-control-card { order: 3; border-color: rgba(92,182,246,.45); background: linear-gradient(145deg, rgba(92,182,246,.14), rgba(0,0,0,.2)); }
+.share-control-card { order: 4; }
 .share-mini { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.04); }
 .share-mini span, .share-mini small { color: var(--muted); font-size: .82rem; }
 .share-mini strong { color: var(--gold); }
@@ -220,6 +221,8 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .deposit-card h4 { font-size: 1.55rem; }
 .deposit-help { display: grid; gap: 4px; padding: 12px; border: 1px solid rgba(46,230,166,.28); border-radius: 8px; background: rgba(46,230,166,.08); }
 .deposit-help span { color: var(--muted); line-height: 1.45; }
+.danger-help { border-color: rgba(255,107,107,.35); background: rgba(255,107,107,.1); }
+.danger-help strong { color: var(--red); }
 .advanced-owner { margin-bottom: 18px; }
 .advanced-owner > summary { display: grid; gap: 4px; padding: 18px 20px; border: 1px solid rgba(246,201,92,.42); border-radius: 8px; background: rgba(246,201,92,.12); cursor: pointer; }
 .advanced-owner > summary span { color: var(--text); font-size: 1.1rem; font-weight: 950; }
