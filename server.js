@@ -9,6 +9,7 @@ import {
   Connection,
   LAMPORTS_PER_SOL,
   PublicKey,
+  TransactionInstruction,
   SystemProgram,
   Transaction,
   clusterApiUrl
@@ -26,6 +27,9 @@ const sessionMaxAge = 60 * 60 * 24 * 30;
 const solMint = "So11111111111111111111111111111111111111112";
 const usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const usdtMint = "Es9vMFrzaCERmJfrF4H2FYD4AWuEJ1hDPPpQdjCXg82h";
+const usdcDecimals = 6;
+const tokenProgramId = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const associatedTokenProgramId = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
 const defaultState = {
   settings: {
@@ -394,6 +398,55 @@ async function walletBalances(state) {
   }
 
   return balances;
+}
+
+async function tokenUiBalance(connection, owner, mint) {
+  const ownerKey = solanaAddress(owner);
+  const mintKey = solanaAddress(mint);
+  if (!ownerKey || !mintKey) return 0;
+  const accounts = await connection.getParsedTokenAccountsByOwner(ownerKey, { mint: mintKey }, "confirmed");
+  return (accounts.value || []).reduce((sum, item) => {
+    return sum + Number(item.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0);
+  }, 0);
+}
+
+function associatedTokenAddress(owner, mint) {
+  return PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), tokenProgramId.toBuffer(), mint.toBuffer()],
+    associatedTokenProgramId
+  )[0];
+}
+
+function createAssociatedTokenAccountInstruction(payer, ata, owner, mint) {
+  return new TransactionInstruction({
+    programId: associatedTokenProgramId,
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: ata, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: false, isWritable: false },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false }
+    ],
+    data: Buffer.alloc(0)
+  });
+}
+
+function createTransferCheckedInstruction(source, mint, destination, owner, amount, decimals) {
+  const data = Buffer.alloc(10);
+  data[0] = 12;
+  data.writeBigUInt64LE(BigInt(amount), 1);
+  data[9] = decimals;
+  return new TransactionInstruction({
+    programId: tokenProgramId,
+    keys: [
+      { pubkey: source, isSigner: false, isWritable: true },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: destination, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: true, isWritable: false }
+    ],
+    data
+  });
 }
 
 function requireOwner(response, session) {
@@ -812,6 +865,69 @@ async function executeSolWithdrawal(state, { profile, destination, amountSol }) 
   };
 }
 
+async function executeUsdcWithdrawal(state, { profile, destination, amountUsd, profitOnly = false }) {
+  if (profile !== "frog" && profile !== "truenest") throw new Error("Choose Smart Win or Risk Win wallet.");
+  const sourceWallet = tradeWallet(state, profile);
+  const signer = signerId(state, profile) || sourceWallet;
+  const from = solanaAddress(sourceWallet);
+  const to = solanaAddress(destination);
+  const amount = Number(amountUsd || 0);
+
+  if (!from || !signer) throw new Error("Trading wallet or Turnkey signer is missing.");
+  if (!to) throw new Error("Enter a valid Solana wallet address.");
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid USDC amount.");
+
+  const connection = solanaConnection(state.settings);
+  const currentUsdc = await tokenUiBalance(connection, sourceWallet, usdcMint);
+  const principal = profileDepositUsd(state, profile);
+  const lockedProfit = Math.max(0, currentUsdc - principal);
+  const available = profitOnly ? lockedProfit : currentUsdc;
+  if (amount > available + 0.000001) {
+    throw new Error(profitOnly
+      ? `Profit available is only $${available.toFixed(2)}. Principal stays locked for trading.`
+      : `USDC available is only $${available.toFixed(2)}.`);
+  }
+
+  const mint = new PublicKey(usdcMint);
+  const sourceAta = associatedTokenAddress(from, mint);
+  const destinationAta = associatedTokenAddress(to, mint);
+  const rawAmount = Math.floor(amount * (10 ** usdcDecimals));
+  if (rawAmount <= 0) throw new Error("USDC amount is too small.");
+
+  const instructions = [];
+  const destinationAccount = await connection.getAccountInfo(destinationAta, "confirmed");
+  if (!destinationAccount) {
+    instructions.push(createAssociatedTokenAccountInstruction(from, destinationAta, to, mint));
+  }
+  instructions.push(createTransferCheckedInstruction(sourceAta, mint, destinationAta, from, rawAmount, usdcDecimals));
+
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+  const transaction = new Transaction({
+    feePayer: from,
+    recentBlockhash: blockhash
+  }).add(...instructions);
+
+  const unsignedTransaction = transaction
+    .serialize({ requireAllSignatures: false, verifySignatures: false })
+    .toString("base64");
+  const signed = await signSolanaTransaction(state, signer, sourceWallet, unsignedTransaction);
+
+  const signature = await connection.sendRawTransaction(Buffer.from(signed.signedTransactionBase64, "base64"), {
+    skipPreflight: false,
+    maxRetries: 3
+  });
+  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+
+  return {
+    signature,
+    sourceWallet,
+    destination: to.toBase58(),
+    amountUsd: amount,
+    profitOnly,
+    lockedProfitBefore: lockedProfit
+  };
+}
+
 function profileMaxUsd(state, profile) {
   const value = Number(profile === "frog" ? state.settings.frogMax : state.settings.truenestMax);
   return Number.isFinite(value) && value > 0 ? value : 0;
@@ -820,6 +936,13 @@ function profileMaxUsd(state, profile) {
 function profileDepositUsd(state, profile) {
   const value = Number(profile === "frog" ? state.settings.frogDeposit : state.settings.truenestDeposit);
   return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+async function profileTradeableUsdc(connection, state, profile, wallet) {
+  const principal = profileDepositUsd(state, profile);
+  const currentUsdc = await tokenUiBalance(connection, wallet, usdcMint);
+  if (!principal) return currentUsdc;
+  return Math.max(0, Math.min(currentUsdc, principal));
 }
 
 function profileTraderBankrollUsd(state, profile) {
@@ -943,13 +1066,16 @@ async function executeCopiedSwap(profile, transaction, state) {
   let copyAmount = scaledCopyAmount(leg.amount, state, profile);
 
   if (leg.action === "buy") {
-    const buyUsd = buyUsdAmount(state, profile, leg.sourceUsd);
+    let buyUsd = buyUsdAmount(state, profile, leg.sourceUsd);
     if (!buyUsd) return { status: "Skipped - no deposit amount available for USDC buy" };
+    const tradeableUsdc = await profileTradeableUsdc(connection, state, profile, wallet);
+    if (tradeableUsdc <= 0) return { status: "Skipped - no tradeable USDC after profit lock" };
+    buyUsd = Math.min(buyUsd, tradeableUsdc);
     inputMint = usdcMint;
     outputMint = leg.outputMint;
     copyAmount = {
       amount: usdcRawFromUsd(buyUsd),
-      note: `USDC buy ${buyUsd.toFixed(2)}${leg.sourceUsd ? " from source trade size" : " fallback/protected size"}`
+      note: `USDC buy ${buyUsd.toFixed(2)}${leg.sourceUsd ? " from source trade size" : " fallback/protected size"}; profit lock kept extra USDC out`
     };
   }
 
@@ -1474,15 +1600,21 @@ async function handleApi(request, response, url) {
     const profile = body.profile === "truenest" ? "truenest" : "frog";
     const destination = String(body.wallet || "").trim();
     const amountSol = Number(body.amountSol || body.amount || 0);
+    const amountUsd = Number(body.amountUsd || 0);
+    const asset = String(body.asset || "SOL").toUpperCase();
+    const profitOnly = body.profitOnly === true || body.mode === "profit";
 
     try {
-      const result = await executeSolWithdrawal(state, { profile, destination, amountSol });
+      const result = asset === "USDC"
+        ? await executeUsdcWithdrawal(state, { profile, destination, amountUsd, profitOnly })
+        : await executeSolWithdrawal(state, { profile, destination, amountSol });
       state.withdrawals.push({
         id: randomUUID(),
         owner: true,
         profile,
-        amount: result.amountSol,
-        asset: "SOL",
+        amount: asset === "USDC" ? result.amountUsd : result.amountSol,
+        asset,
+        profitOnly,
         sourceWallet: result.sourceWallet,
         wallet: result.destination,
         txid: result.signature,
@@ -1490,7 +1622,7 @@ async function handleApi(request, response, url) {
         createdAt: new Date().toISOString()
       });
       state.activity = [
-        line(`${profileLabel(profile)} withdrawal sent: ${result.amountSol} SOL to ${result.destination.slice(0, 6)}...${result.destination.slice(-4)}.`),
+        line(`${profileLabel(profile)} ${profitOnly ? "profit " : ""}withdrawal sent: ${asset === "USDC" ? `$${result.amountUsd} USDC` : `${result.amountSol} SOL`} to ${result.destination.slice(0, 6)}...${result.destination.slice(-4)}.`),
         ...(state.activity || [])
       ].slice(0, 20);
       await saveState(state);
@@ -1500,8 +1632,9 @@ async function handleApi(request, response, url) {
         id: randomUUID(),
         owner: true,
         profile,
-        amount: amountSol,
-        asset: "SOL",
+        amount: asset === "USDC" ? amountUsd : amountSol,
+        asset,
+        profitOnly,
         wallet: destination,
         status: "failed",
         error: error.message,
