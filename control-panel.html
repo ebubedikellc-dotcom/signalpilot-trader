@@ -164,6 +164,8 @@
                   <div><span>Copied signals</span><strong id="frogSignals">0</strong></div>
                   <div><span>Profit made</span><strong id="frogRoomProfit">$0.00</strong></div>
                   <div><span>USDC now</span><strong id="frogRoomUsdc">$0.00</strong></div>
+                  <div><span>Profit locked</span><strong id="frogRoomLockedProfit">$0.00</strong></div>
+                  <div><span>Tradeable head money</span><strong id="frogRoomTradeable">$0.00</strong></div>
                   <div><span>Loss now</span><strong id="frogRoomLoss">$0.00</strong></div>
                   <div><span>Frog made/lost</span><strong id="frogRoomTraderPnl">$0.00</strong></div>
                 </div>
@@ -193,6 +195,10 @@
 
                 <div class="withdraw-inline">
                   <h4>Withdraw from Smart Win</h4>
+                  <label>Profit USDC to wallet <input id="frogProfitWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
+                  <label>Profit amount in USDC <input id="frogProfitWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
+                  <button id="frogProfitWithdrawButton" class="primary-action" type="button">Withdraw Smart Win profit</button>
+                  <small id="frogProfitWithdrawResult">Profit stays locked until you withdraw it.</small>
                   <label>Send to Solana wallet <input id="frogWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
                   <label>Amount in SOL <input id="frogWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
                   <button id="frogWithdrawButton" class="secondary-action" type="button">Withdraw Smart Win SOL</button>
@@ -215,6 +221,8 @@
                   <div><span>Copied signals</span><strong id="truenestSignals">0</strong></div>
                   <div><span>Profit made</span><strong id="truenestRoomProfit">$0.00</strong></div>
                   <div><span>USDC now</span><strong id="truenestRoomUsdc">$0.00</strong></div>
+                  <div><span>Profit locked</span><strong id="truenestRoomLockedProfit">$0.00</strong></div>
+                  <div><span>Tradeable head money</span><strong id="truenestRoomTradeable">$0.00</strong></div>
                   <div><span>Loss now</span><strong id="truenestRoomLoss">$0.00</strong></div>
                   <div><span>Other guy made/lost</span><strong id="truenestRoomTraderPnl">$0.00</strong></div>
                 </div>
@@ -244,6 +252,10 @@
 
                 <div class="withdraw-inline">
                   <h4>Withdraw from Risk Win</h4>
+                  <label>Profit USDC to wallet <input id="truenestProfitWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
+                  <label>Profit amount in USDC <input id="truenestProfitWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
+                  <button id="truenestProfitWithdrawButton" class="primary-action" type="button">Withdraw Risk Win profit</button>
+                  <small id="truenestProfitWithdrawResult">Profit stays locked until you withdraw it.</small>
                   <label>Send to Solana wallet <input id="truenestWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
                   <label>Amount in SOL <input id="truenestWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
                   <button id="truenestWithdrawButton" class="secondary-action" type="button">Withdraw Risk Win SOL</button>
