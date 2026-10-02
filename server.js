@@ -445,6 +445,12 @@ function looksLikeSwap(transaction) {
   return type.includes("SWAP") || source.includes("JUPITER") || source.includes("RAYDIUM") || source.includes("METEORA");
 }
 
+function movementSummary(transaction = {}) {
+  const type = `${transaction.type || transaction.transactionType || "movement"}`;
+  const source = `${transaction.source || "unknown source"}`;
+  return `${type} from ${source}`;
+}
+
 function tokenName(transaction) {
   const transfer = transaction.tokenTransfers?.[0] || transaction.events?.swap?.tokenInputs?.[0] || transaction.events?.swap?.tokenOutputs?.[0];
   return transfer?.symbol || transfer?.mint || transfer?.tokenMint || "Solana token";
@@ -777,6 +783,14 @@ async function runCopyWorkerOnce() {
       .reverse()
       .filter((transaction) => !existing.has(transaction.signature) && looksLikeSwap(transaction))
     const newTrades = [];
+
+    if (!signalTransactions.length) {
+      const sample = unseen[0] ? movementSummary(unseen[0]) : "wallet movement";
+      state.activity = [
+        line(`${profileLabel(profile)} saw ${unseen.length} new Frog movement${unseen.length === 1 ? "" : "s"}, but no buy/sell swap was found. Latest was ${sample}; use the exact GMGN trade feed or signer wallet to copy this.`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+    }
 
     for (const transaction of signalTransactions) {
       const trade = tradeFromTransaction(profile, transaction, state);
