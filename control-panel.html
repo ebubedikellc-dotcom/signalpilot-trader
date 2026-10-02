@@ -13,16 +13,16 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">Owner Control Panel</p>
-          <h1>Your simple owner screen.</h1>
-          <p class="lede">Use this page to set your business percentage, add customers, credit deposits, and check balances. Advanced engine settings stay hidden until you need them.</p>
+          <h1>My manual trading room.</h1>
+          <p class="lede">For now this is only for you. Copy your wallet, deposit your money, type the confirmed amount here, then start Frog or Truenest when you are ready.</p>
           <div class="hero-actions">
-            <a class="secondary-link" href="/">Open customer page</a>
+            <a class="secondary-link" href="#manualDepositCard">Go to deposit</a>
           </div>
         </div>
         <div class="system-card">
-          <span class="system-label">Owner status</span>
-          <strong id="engineStatus">Checking engine</strong>
-          <small id="engineSubtext">Backend, keys, wallets, and live trading will show here clearly.</small>
+          <span class="system-label">Simple mode</span>
+          <strong id="engineStatus">Deposit first</strong>
+          <small id="engineSubtext">Manual deposit now. Customer links can come later after you start making money.</small>
         </div>
       </header>
 
@@ -66,40 +66,43 @@
           </div>
 
           <div class="owner-tools">
-            <article class="tool-card share-control-card">
+            <article class="tool-card deposit-control-card" id="manualDepositCard">
               <span class="login-badge">1</span>
-              <h4>Your percent from gain</h4>
-              <p class="muted">Put the percent your business keeps from customer profit. It does not touch their deposit.</p>
-              <label>Business percent <input id="ownerProfitSharePercent" inputmode="decimal" placeholder="Example: 20"></label>
-              <button id="saveProfitShare" class="primary-action" type="button">Save percent</button>
-            </article>
-
-            <article class="tool-card">
-              <span class="login-badge">2</span>
-              <h4>Add customer or credit deposit</h4>
-              <p class="muted">Use this when someone pays. Add their email, choose their plan, and type the deposit amount you confirmed.</p>
-              <label>Name <input id="ownerCustomerName" placeholder="Customer name"></label>
-              <label>Email <input id="ownerCustomerEmail" placeholder="customer@email.com"></label>
-              <label>Temporary password <input id="ownerCustomerPassword" placeholder="Optional"></label>
-              <label>
-                Trading plan
-                <select id="ownerCustomerPlan">
-                  <option value="frog">Frog Beginner</option>
-                  <option value="truenest">Truenest Big Win</option>
-                  <option value="both">Both wallets</option>
-                </select>
-              </label>
-              <label>Deposit credited <input id="ownerCustomerDeposit" inputmode="decimal" placeholder="0"></label>
-              <button id="ownerCreateCustomer" class="primary-action" type="button">Save customer deposit</button>
-            </article>
-
-            <article class="tool-card">
-              <span class="login-badge">3</span>
-              <h4>Customers and balances</h4>
-              <p class="muted">Update deposit or gain here. Customers only see their own dashboard.</p>
-              <div id="customerList" class="customer-list">
-                <p class="muted">No customer account yet.</p>
+              <h4>Manual deposit for me</h4>
+              <p class="muted">Send money to your trading wallet, then type the amount here so the control panel shows your balance.</p>
+              <div class="deposit-addresses">
+                <div class="address-card">
+                  <span>Frog wallet</span>
+                  <strong id="manualFrogWallet">Wallet not connected yet</strong>
+                  <button id="copyManualFrogWallet" type="button" disabled>Copy Frog wallet</button>
+                </div>
+                <div class="address-card">
+                  <span>Truenest wallet</span>
+                  <strong id="manualTruenestWallet">Wallet not connected yet</strong>
+                  <button id="copyManualTruenestWallet" type="button" disabled>Copy Truenest wallet</button>
+                </div>
               </div>
+              <label>Frog deposit confirmed <input id="manualFrogDeposit" inputmode="decimal" placeholder="0"></label>
+              <label>Truenest deposit confirmed <input id="manualTruenestDeposit" inputmode="decimal" placeholder="0"></label>
+              <button id="saveManualDeposit" class="primary-action" type="button">Save my deposit</button>
+            </article>
+
+            <article class="tool-card customer-balance-card">
+              <span class="login-badge">2</span>
+              <h4>Start or stop trading</h4>
+              <p class="muted">After your deposit is saved, use the Frog and Truenest Start buttons below. The engine status will tell you if real execution is still locked.</p>
+              <div class="share-mini">
+                <span>Your saved manual deposit</span>
+                <strong id="manualDepositTotal">$0.00</strong>
+                <small id="manualDepositNote">This is your record inside the control panel.</small>
+              </div>
+              <a class="secondary-link" href="#traderProfiles">Open start buttons</a>
+            </article>
+
+            <article class="tool-card share-control-card">
+              <span class="login-badge">Later</span>
+              <h4>Customer mode later</h4>
+              <p class="muted">No customer deposit now. Make your own money first. When you are ready, we can bring back customer links and profit share.</p>
             </article>
           </div>
         </div>
@@ -110,7 +113,7 @@
       <details class="advanced-owner owner-area">
         <summary>
           <span>Advanced setup and trading engine</span>
-          <small>Open this only when you need keys, wallet IDs, start/stop, logs, or trade history.</small>
+          <small>Not needed for normal deposit work. Open only for keys, wallet IDs, start/stop, logs, or trade history.</small>
         </summary>
 
       <section class="easy-setup owner-area" aria-labelledby="easySetupTitle">
@@ -141,7 +144,7 @@
         </div>
       </section>
 
-      <section class="trader-grid owner-area" aria-label="Trader profiles">
+      <section class="trader-grid owner-area" id="traderProfiles" aria-label="Trader profiles">
         <article class="trader-card beginner">
           <div class="trader-head">
             <div class="avatar frog-face" aria-hidden="true">F</div>
