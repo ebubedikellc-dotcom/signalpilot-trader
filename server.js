@@ -1111,7 +1111,9 @@ async function runCopyWorkerOnce() {
     for (const transaction of signalTransactions) {
       const trade = tradeFromTransaction(profile, transaction, state);
       if (liveTradingAllowed(state, profile)) {
-        if (!freshEnoughToCopy(transaction)) {
+        const leg = primarySwapLeg(transaction, profile, state);
+        const staleSignal = !freshEnoughToCopy(transaction);
+        if (staleSignal && leg?.action !== "sell") {
           const seconds = Math.round(signalAgeMs(transaction) / 1000);
           trade.status = `Skipped - signal was ${seconds}s old`;
         } else try {
