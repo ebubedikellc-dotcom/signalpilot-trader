@@ -99,6 +99,26 @@
               <a class="secondary-link" href="#traderProfiles">Open start buttons</a>
             </article>
 
+            <article class="tool-card withdraw-control-card" id="ownerWithdrawCard">
+              <span class="login-badge">3</span>
+              <h4>Withdraw to my wallet</h4>
+              <p class="muted">Send SOL from your Frog or Big Trader trading wallet to any Solana wallet address you choose.</p>
+              <label>Withdraw from
+                <select id="ownerWithdrawProfile">
+                  <option value="frog">Frog wallet</option>
+                  <option value="truenest">Big Trader wallet</option>
+                </select>
+              </label>
+              <label>Send to Solana wallet <input id="ownerWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, Solflare, exchange, or buyer Solana address"></label>
+              <label>Amount in SOL <input id="ownerWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
+              <button id="ownerWithdrawButton" class="primary-action" type="button">Withdraw SOL now</button>
+              <div class="deposit-help danger-help">
+                <strong>Solana only.</strong>
+                <span>Do not paste TRC20, BEP20, Ethereum, or Bitcoin address here. First test with a small amount.</span>
+              </div>
+              <small id="ownerWithdrawResult">No withdrawal sent yet.</small>
+            </article>
+
             <article class="tool-card share-control-card">
               <span class="login-badge">Later</span>
               <h4>Customer mode later</h4>
