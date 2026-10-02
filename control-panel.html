@@ -83,6 +83,43 @@
                   </div>
                 </div>
 
+                <div class="room-stat-grid">
+                  <div><span>Wins</span><strong id="frogWins">0</strong></div>
+                  <div><span>Copied signals</span><strong id="frogSignals">0</strong></div>
+                  <div><span>Safety</span><strong id="frogSafeStatus">Protect me ON</strong></div>
+                </div>
+
+                <div class="safety-panel">
+                  <h4>Playing safe for Frog</h4>
+                  <label>Protect me
+                    <select id="frogRiskControl">
+                      <option value="on">ON - protect me</option>
+                      <option value="off">OFF - exact copy only</option>
+                    </select>
+                  </label>
+                  <label>Allow live trading
+                    <select id="frogLiveTradingSwitch">
+                      <option value="on">ON - allow live trading</option>
+                      <option value="off">OFF - monitor only</option>
+                    </select>
+                  </label>
+                  <label>Wallet engine
+                    <select id="frogWalletSync">
+                      <option>Turnkey server wallet</option>
+                      <option>Manual wallet only</option>
+                    </select>
+                  </label>
+                  <label>Trader copied wallet <input id="frogWallet" value="4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh"></label>
+                  <label>Maximum single buy <input id="frogMax" value="420"></label>
+                  <label>Copy mode <select id="frogMode"><option>Copy exact amount</option><option>Copy exact amount after safety check</option><option>Copy smaller percentage</option></select></label>
+                  <button id="saveFrogSafety" class="secondary-action" type="button">Save Frog safety</button>
+                  <div class="room-help">
+                    <strong id="frogWalletStatus">Turnkey server wallet selected.</strong>
+                    <span>Turnkey signs automatic buys, sells, and withdrawals from this Frog wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
+                    <span id="frogLiveStatus">Live trading follows this Frog switch plus Render production lock.</span>
+                  </div>
+                </div>
+
                 <div class="address-card">
                   <span>Deposit to Frog wallet</span>
                   <strong id="manualFrogWallet">Wallet not connected yet</strong>
@@ -113,6 +150,43 @@
                     <span class="slot">Big Win Room</span>
                     <h2>Big Win</h2>
                     <p>Deposit here, start Big Win, withdraw from Big Win.</p>
+                  </div>
+                </div>
+
+                <div class="room-stat-grid">
+                  <div><span>Wins</span><strong id="truenestWins">0</strong></div>
+                  <div><span>Copied signals</span><strong id="truenestSignals">0</strong></div>
+                  <div><span>Safety</span><strong id="truenestSafeStatus">Protect me ON</strong></div>
+                </div>
+
+                <div class="safety-panel">
+                  <h4>Playing safe for Big Win</h4>
+                  <label>Protect me
+                    <select id="truenestRiskControl">
+                      <option value="on">ON - protect me</option>
+                      <option value="off">OFF - exact copy only</option>
+                    </select>
+                  </label>
+                  <label>Allow live trading
+                    <select id="truenestLiveTradingSwitch">
+                      <option value="on">ON - allow live trading</option>
+                      <option value="off">OFF - monitor only</option>
+                    </select>
+                  </label>
+                  <label>Wallet engine
+                    <select id="truenestWalletSync">
+                      <option>Turnkey server wallet</option>
+                      <option>Manual wallet only</option>
+                    </select>
+                  </label>
+                  <label>Trader copied wallet <input id="truenestWallet" value="ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT"></label>
+                  <label>Maximum single buy <input id="truenestMax" value="750"></label>
+                  <label>Copy mode <select id="truenestMode"><option>Copy exact amount</option><option>Copy exact amount after safety check</option><option>Copy smaller percentage</option></select></label>
+                  <button id="saveTruenestSafety" class="secondary-action" type="button">Save Big Win safety</button>
+                  <div class="room-help">
+                    <strong id="truenestWalletStatus">Turnkey server wallet selected.</strong>
+                    <span>Turnkey signs automatic buys, sells, and withdrawals from this Big Win wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
+                    <span id="truenestLiveStatus">Live trading follows this Big Win switch plus Render production lock.</span>
                   </div>
                 </div>
 
@@ -222,12 +296,6 @@
                 <article><span>3</span><strong>Production execution lock</strong><p id="liveEnvStatus">Render execution status will show here.</p></article>
               </div>
 
-              <div class="switch-board" aria-label="Main engine switches">
-                <label class="switch-card"><span><strong>Wallet Sync</strong><small>Turnkey is the secure wallet engine for the trading wallets.</small></span><select id="walletSync"><option>Turnkey server wallet</option><option>Manual wallet only</option></select></label>
-                <label class="switch-card bold-switch"><span><strong>Risk Control</strong><small>If this is OFF, the safety rules will not block trades.</small></span><select id="riskControl"><option value="on">ON - protect me</option><option value="off">OFF - exact copy only</option></select></label>
-                <label class="switch-card bold-switch live-switch"><span><strong>Live Trading</strong><small>Render must also have EXECUTE_REAL_SWAPS=true before real buying and selling can happen.</small></span><select id="liveTradingSwitch"><option value="on">ON - allow live trading</option><option value="off">OFF - monitor only</option></select></label>
-              </div>
-
               <div class="form-grid">
                 <label>Helius API key <input id="heliusKey" type="password" autocomplete="off" placeholder="Paste Helius API key here"></label>
                 <label>Jupiter / trading route API <input id="routeApi" type="password" autocomplete="off" placeholder="Paste route API or endpoint here"></label>
@@ -246,23 +314,6 @@
                 <label>Big Win Turnkey wallet ID <input id="truenestSignerToken" type="password" autocomplete="off" placeholder="Big Win wallet ID from Turnkey, not seed phrase"></label>
                 <label>Frog deposit amount <input id="frogDeposit" inputmode="decimal" placeholder="Money for Frog account, e.g. 395"></label>
                 <label>Big Win deposit amount <input id="truenestDeposit" inputmode="decimal" placeholder="Money for Big Win account"></label>
-              </div>
-
-              <div class="profile-settings">
-                <article>
-                  <h3>Frog settings</h3>
-                  <label>Trader wallet <input id="frogWallet" value="4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh"></label>
-                  <label>Maximum single buy <input id="frogMax" value="420"></label>
-                  <label>Mode <select id="frogMode"><option>Copy exact amount</option><option>Copy exact amount after safety check</option><option>Copy smaller percentage</option></select></label>
-                  <p class="account-note">Separate beginner wallet only. Keep this money small until the engine proves itself.</p>
-                </article>
-                <article>
-                  <h3>Big Win settings</h3>
-                  <label>Trader wallet <input id="truenestWallet" value="ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT"></label>
-                  <label>Maximum single buy <input id="truenestMax" value="750"></label>
-                  <label>Mode <select id="truenestMode"><option>Copy exact amount</option><option>Copy exact amount after safety check</option><option>Copy smaller percentage</option></select></label>
-                  <p class="account-note">Separate big-win wallet only. This must not mix with Frog beginner money.</p>
-                </article>
               </div>
             </section>
           </section>
