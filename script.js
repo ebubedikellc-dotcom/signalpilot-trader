@@ -17,12 +17,14 @@ const fields = [
   "frogCopySizing",
   "frogTraderBankroll",
   "frogUseProfit",
+  "frogTradeMode",
   "truenestWallet",
   "truenestMax",
   "truenestMode",
   "truenestCopySizing",
   "truenestTraderBankroll",
   "truenestUseProfit",
+  "truenestTradeMode",
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
@@ -442,6 +444,8 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   const riskControl = modeUsesProtection(mode) ? "on" : "off";
   const liveSwitch = profileSetting(settings, profile, "liveTradingSwitch", "on");
   const walletSync = profileSetting(settings, profile, "walletSync", "Turnkey server wallet");
+  const tradeMode = profileSetting(settings, profile, "tradeMode", "both");
+  const sellOnly = tradeMode === "sellOnly";
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
   const lastTraderResult = latestTraderClosedResult(trades, profile);
   const todayTraderPnl = traderTodayPnlFromTrades(trades, profile);
@@ -457,6 +461,11 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   setText(`${profile}RoomTraderToday`, signedMoney(todayTraderPnl));
   setText(`${profile}RoomTraderLast`, lastTraderResult.label);
   setText(`${profile}RoomTraderTodayNote`, todayPnlLabel(todayTraderPnl, traderName));
+  setText(`${profile}TradeModeStatus`, sellOnly
+    ? `${label} is SELL ONLY: new buys are blocked, sells still work.`
+    : `${label} can buy and sell.`);
+  if ($(`${profile}SellOnly`)) $(`${profile}SellOnly`).disabled = sellOnly;
+  if ($(`${profile}ResumeBuying`)) $(`${profile}ResumeBuying`).disabled = !sellOnly;
   renderRoomThread(profile, roomTrades);
   setText(`${profile}SafeStatus`, riskControl === "off" ? "Exact copy, no protection" : "Protect me ON");
   setText(`${profile}WalletStatus`, walletSync === "Turnkey server wallet"
@@ -1064,6 +1073,20 @@ async function saveManualDeposit() {
   showBusinessMessage("Manual deposit saved.");
 }
 
+async function saveTradeMode(profile, mode) {
+  const prefix = roomPrefix(profile);
+  const data = {
+    ...currentPayload(),
+    [`${prefix}TradeMode`]: mode
+  };
+  const message = mode === "sellOnly"
+    ? `${profileName(profile)} Sell Only saved: new buys blocked, sells still allowed.`
+    : `${profileName(profile)} can buy again.`;
+  renderState({ settings: data, profiles: {}, activity: [message] });
+  renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
+  showBusinessMessage(message);
+}
+
 async function ownerWithdraw(profile = "frog", options = {}) {
   const prefix = profile === "truenest" ? "truenest" : "frog";
   const profitOnly = options.profitOnly === true;
@@ -1171,8 +1194,12 @@ on("requestWithdraw", "click", requestWithdrawal);
 on("logoutButton", "click", logout);
 on("frogStart", "click", () => startProfile("frog"));
 on("frogStop", "click", () => stopProfile("frog"));
+on("frogSellOnly", "click", () => saveTradeMode("frog", "sellOnly"));
+on("frogResumeBuying", "click", () => saveTradeMode("frog", "both"));
 on("truenestStart", "click", () => startProfile("truenest"));
 on("truenestStop", "click", () => stopProfile("truenest"));
+on("truenestSellOnly", "click", () => saveTradeMode("truenest", "sellOnly"));
+on("truenestResumeBuying", "click", () => saveTradeMode("truenest", "both"));
 ["frog", "truenest"].forEach((profile) => {
   const prefix = roomPrefix(profile);
   on(`${prefix}Mode`, "change", () => {
