@@ -605,12 +605,14 @@ function renderState(state) {
     profiles: { ...(latestState.profiles || {}), ...(state.profiles || {}) },
     trades: state.trades || latestState.trades || [],
     backend: { ...(latestState.backend || {}), ...(state.backend || {}) },
+    strategy: { ...(latestState.strategy || {}), ...(state.strategy || {}) },
     walletBalances: state.walletBalances || latestState.walletBalances || {}
   };
   const settings = latestState.settings || {};
   const profiles = latestState.profiles || {};
   const trades = latestState.trades || [];
   const backend = latestState.backend || {};
+  const strategy = latestState.strategy || {};
   const liveTradingEnv = backend.liveTradingEnv === true;
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
 
@@ -675,20 +677,24 @@ function renderState(state) {
   const running = [];
   if (profiles.frog?.running) running.push("Decu Win is running.");
   if (profiles.truenest?.running) running.push("Risk Win is running.");
+  const activeStrategyLabel = strategy.activeProfile === "truenest" ? "Trunoest" : "Deku";
+  const strategyLine = strategy.paused
+    ? `Auto-paused: ${strategy.pauseReason || "restart required."}`
+    : `One-chart mode: ${activeStrategyLabel} active. Deku losses ${Number(strategy.frogLosses || 0)}/3, Trunoest losses ${Number(strategy.truenestLosses || 0)}/3.`;
 
   if (!productionExecution) {
     setText("engineStatus", running.length ? "Monitoring running" : "Ready to monitor");
     setText("engineSubtext", running.length
-      ? "SignalPilot is watching the trader wallet. Real buy/sell execution is still locked in Render."
-      : "Keys are saved. To allow real trades, set EXECUTE_REAL_SWAPS=true in Render Environment.");
+      ? `${strategyLine} Real buy/sell execution is still locked in Render.`
+      : `Keys are saved. ${strategyLine}`);
     setLog(state.activity?.length ? state.activity : ["Keys are ready. Production execution is still locked."]);
     return;
   }
 
-  setText("engineStatus", running.length ? "Production copy engine running" : "Production execution enabled");
+  setText("engineStatus", strategy.paused ? "Auto-paused after losses" : running.length ? "Production copy engine running" : "Production execution enabled");
   setText("engineSubtext", running.length
-    ? "Each room uses its own wallet engine and safety switch. Render is watching the trader and execution is enabled."
-    : "Press Start inside Decu Win or Risk Win. Each room has its own safety and live trading switch.");
+    ? strategyLine
+    : strategy.paused ? strategyLine : "Press Start Decu Win to run Deku first, then auto-switch to Trunoest after 3 Deku losses.");
   setLog(state.activity?.length ? state.activity : ["Ready. Press Start Decu Win or Start Risk Win."]);
 }
 
