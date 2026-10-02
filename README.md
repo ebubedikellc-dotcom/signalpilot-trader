@@ -1,3 +1,3 @@
 # SignalPilot Trader
 
-Private trading control panel for Smart Win and Risk Win profiles.
+Private trading control panel for Decu Win and Risk Win profiles.
