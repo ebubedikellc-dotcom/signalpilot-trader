@@ -111,6 +111,59 @@ function traderPnlFromTrades(trades = [], profile = "frog") {
     .reduce((sum, trade) => sum + traderSignalUsd(trade), 0);
 }
 
+function tradeSide(trade = {}) {
+  const action = String(trade.action || trade.execution?.action || "").toLowerCase();
+  if (action.includes("sell")) return "sell";
+  if (action.includes("buy")) return "buy";
+  return "";
+}
+
+function tradeTokenKey(trade = {}) {
+  return String(trade.tradedTokenMint || trade.tokenMint || trade.token || "").trim().toLowerCase();
+}
+
+function latestTraderClosedResult(trades = [], profile = "frog") {
+  const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
+  const newestSellIndex = roomTrades.findIndex((trade) => tradeSide(trade) === "sell");
+  if (newestSellIndex === -1) {
+    const openBuy = roomTrades.find((trade) => tradeSide(trade) === "buy");
+    if (!openBuy) return { state: "none", label: "No trader result yet.", amount: 0 };
+    return {
+      state: "open",
+      label: `Open buy: ${money(openBuy.sourceUsd || openBuy.amount)} not sold yet.`,
+      amount: 0,
+      token: openBuy.token || ""
+    };
+  }
+
+  const sell = roomTrades[newestSellIndex];
+  const sellReceived = Number(sell.sourceReceivedUsd || sell.traderPnlUsd || 0);
+  const tokenKey = tradeTokenKey(sell);
+  const priorBuy = roomTrades
+    .slice(newestSellIndex + 1)
+    .find((trade) => tradeSide(trade) === "buy" && (!tokenKey || tradeTokenKey(trade) === tokenKey));
+  const buyUsed = Number(priorBuy?.sourceUsd || 0);
+
+  if (!buyUsed || !sellReceived) {
+    return {
+      state: "unknown",
+      label: sellReceived ? `Last sell received ${money(sellReceived)}. Buy cost not found yet.` : "Last sell found, but value is still reading.",
+      amount: 0,
+      token: sell.token || ""
+    };
+  }
+
+  const amount = sellReceived - buyUsed;
+  return {
+    state: amount >= 0 ? "profit" : "loss",
+    label: amount >= 0
+      ? `Last trader profit: ${signedMoney(amount)}`
+      : `Last trader loss: ${signedMoney(amount)}`,
+    amount,
+    token: sell.token || priorBuy?.token || ""
+  };
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -363,6 +416,7 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   const liveSwitch = profileSetting(settings, profile, "liveTradingSwitch", "on");
   const walletSync = profileSetting(settings, profile, "walletSync", "Turnkey server wallet");
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
+  const lastTraderResult = latestTraderClosedResult(trades, profile);
 
   setText(`${profile}Wins`, String(wins));
   setText(`${profile}Signals`, String(roomTrades.length));
@@ -371,6 +425,7 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   setText(`${profile}RoomTradeable`, money(profileTradeableUsdc(settings, profile)));
   setText(`${profile}RoomLoss`, money(profileLoss(settings, profile)));
   setText(`${profile}RoomTraderPnl`, signedMoney(traderPnlFromTrades(trades, profile)));
+  setText(`${profile}RoomTraderLast`, lastTraderResult.label);
   renderRoomThread(profile, roomTrades);
   setText(`${profile}SafeStatus`, riskControl === "off" ? "Exact copy, no protection" : "Protect me ON");
   setText(`${profile}WalletStatus`, walletSync === "Turnkey server wallet"
@@ -463,6 +518,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   const usdcNow = balanceUsdc(profile);
   const lossNow = profileLoss(settings, profile);
   const traderPnl = traderPnlFromTrades(trades, profile);
+  const lastTraderResult = latestTraderClosedResult(trades, profile);
   const running = Boolean(profiles[profile]?.running);
   const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
   const lastTrade = roomTrades[0];
@@ -476,7 +532,8 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   setText("watchUsdcNow", money(usdcNow));
   setText("watchLossNow", `Loss from deposit: ${money(lossNow)}`);
   setText("watchTraderPnl", signedMoney(traderPnl));
-  setText("watchTraderNote", `${label === "Smart Win" ? "Frog" : "Copied trader"} made/lost from visible buy and sell signals.`);
+  setText("watchTraderNote", `${label === "Smart Win" ? "Frog" : "Copied trader"} total visible made/lost from buy and sell signals.`);
+  setText("watchTraderLast", lastTraderResult.label);
   setText("watchLastAction", lastTrade?.action || "Waiting");
   setText("watchLastToken", lastTrade ? `${lastTrade.token || "-"} - ${lastTrade.status || "Observed"}` : "No buy or sell shown yet.");
   setText("watchLiveBadge", running ? "Live watch ON" : "Waiting");

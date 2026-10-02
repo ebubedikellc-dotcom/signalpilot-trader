@@ -1160,13 +1160,18 @@ function tradeFromTransaction(profile, transaction, state) {
   const wallet = targetWallet(state, profile);
   const sourceUsd = Number(leg?.sourceUsd || 0);
   const sourceReceivedUsd = leg?.action === "sell" ? Number(receivedUsdFromSignal(transaction, wallet) || 0) : 0;
+  const tradedToken = leg?.action === "sell"
+    ? (leg?.inputSymbol || leg?.inputMint || tokenName(transaction))
+    : (leg?.outputSymbol || leg?.outputMint || tokenName(transaction));
   return {
     id: transaction.signature,
     signature: transaction.signature,
     time: transaction.timestamp ? new Date(transaction.timestamp * 1000).toLocaleString("en-US", { hour12: false }) : new Date().toLocaleString("en-US", { hour12: false }),
     profile: profileLabel(profile),
     action: leg?.action === "sell" ? "Sell signal" : "Buy signal",
-    token: leg?.outputSymbol || tokenName(transaction),
+    token: tradedToken,
+    tradedToken,
+    tradedTokenMint: leg?.action === "sell" ? leg?.inputMint : leg?.outputMint,
     amount: tradeAmount(transaction),
     sourceUsd,
     sourceReceivedUsd,
