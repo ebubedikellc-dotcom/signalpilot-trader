@@ -47,6 +47,17 @@ function money(value) {
   return amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+function solAmount(value) {
+  if (value === null || value === undefined || value === "") return "Checking...";
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "Checking...";
+  return `${amount.toLocaleString("en-US", { maximumFractionDigits: 6 })} SOL`;
+}
+
+function walletBalance(profile) {
+  return latestState.walletBalances?.[profile] || {};
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -388,6 +399,8 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   const prefix = roomPrefix(profile);
   const deposit = settings[`${prefix}Deposit`] || 0;
   const wallet = settings[`${prefix}TradeWallet`] || "";
+  const balance = walletBalance(profile);
+  const gasText = balance.error ? `Gas check: ${balance.error}` : `SOL gas: ${solAmount(balance.sol)}`;
   const profit = Number(profiles[profile]?.profit || 0);
   const running = Boolean(profiles[profile]?.running);
   const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
@@ -396,7 +409,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   setText("watchProfileName", label);
   setText("watchProfileStatus", running ? `${label} is watching and ready to copy.` : `${label} is ready. Press Start when you want it to watch Frog.`);
   setText("watchDeposit", money(deposit));
-  setText("watchWallet", wallet ? `Wallet ${wallet}` : "Wallet not connected yet");
+  setText("watchWallet", wallet ? `Wallet ${wallet} | ${gasText}` : "Wallet not connected yet");
   setText("watchProfit", money(profit));
   setText("watchProfitNote", profit > 0 ? "Profit is positive." : profit < 0 ? "Profit is negative." : "No profit recorded yet.");
   setText("watchLastAction", lastTrade?.action || "Waiting");
@@ -426,7 +439,8 @@ function renderState(state) {
     settings: { ...(latestState.settings || {}), ...(state.settings || {}) },
     profiles: { ...(latestState.profiles || {}), ...(state.profiles || {}) },
     trades: state.trades || latestState.trades || [],
-    backend: { ...(latestState.backend || {}), ...(state.backend || {}) }
+    backend: { ...(latestState.backend || {}), ...(state.backend || {}) },
+    walletBalances: state.walletBalances || latestState.walletBalances || {}
   };
   const settings = latestState.settings || {};
   const profiles = latestState.profiles || {};
@@ -453,6 +467,8 @@ function renderState(state) {
   setText("truenestRoomProfit", money(profiles.truenest?.profit));
   setText("frogBalance", `Deposit: ${money(settings.frogDeposit)}`);
   setText("truenestBalance", `Deposit: ${money(settings.truenestDeposit)}`);
+  setText("frogSolBalance", solAmount(walletBalance("frog").sol));
+  setText("truenestSolBalance", solAmount(walletBalance("truenest").sol));
   renderRoomStatus("frog", settings, trades, backend);
   renderRoomStatus("truenest", settings, trades, backend);
   renderLiveWatch(settings, profiles, trades);
@@ -508,9 +524,15 @@ function renderManualDeposit(settings = {}) {
   const truenestWallet = settings.truenestTradeWallet || "";
   const frogDeposit = Number(settings.frogDeposit || 0);
   const truenestDeposit = Number(settings.truenestDeposit || 0);
+  const frogBalance = walletBalance("frog");
+  const truenestBalance = walletBalance("truenest");
 
   setText("manualFrogWallet", frogWallet || "Wallet not connected yet");
   setText("manualTruenestWallet", truenestWallet || "Wallet not connected yet");
+  setText("manualFrogGas", frogBalance.error ? `SOL gas: ${frogBalance.error}` : `SOL gas: ${solAmount(frogBalance.sol)}`);
+  setText("manualTruenestGas", truenestBalance.error ? `SOL gas: ${truenestBalance.error}` : `SOL gas: ${solAmount(truenestBalance.sol)}`);
+  setText("manualFrogUsdc", `USDC balance: ${money(frogBalance.usdc)}`);
+  setText("manualTruenestUsdc", `USDC balance: ${money(truenestBalance.usdc)}`);
   setText("manualDepositTotal", money(frogDeposit + truenestDeposit));
   if ($("manualFrogDeposit") && document.activeElement !== $("manualFrogDeposit")) $("manualFrogDeposit").value = settings.frogDeposit || "";
   if ($("manualTruenestDeposit") && document.activeElement !== $("manualTruenestDeposit")) $("manualTruenestDeposit").value = settings.truenestDeposit || "";
