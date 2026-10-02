@@ -319,6 +319,104 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   }
 }
 
+function chartPointsFromTrades(trades = [], profile = "frog", profit = 0) {
+  const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade)).slice(0, 10).reverse();
+  if (!roomTrades.length) {
+    return [
+      [20, 170],
+      [170, 170],
+      [320, 170],
+      [470, 170],
+      [620, 170]
+    ];
+  }
+
+  let running = 0;
+  const hasPnl = roomTrades.some((trade) => Number(trade.pnl || 0) !== 0);
+  const values = roomTrades.map((trade, index) => {
+    const pnl = Number(trade.pnl || 0);
+    running += hasPnl ? pnl : 1;
+    return running;
+  });
+  values.push(Number(profit || running || 0));
+  const min = Math.min(...values, 0);
+  const max = Math.max(...values, 1);
+  const range = max - min || 1;
+  return values.map((value, index) => {
+    const x = 20 + (index * (600 / Math.max(values.length - 1, 1)));
+    const y = 185 - (((value - min) / range) * 145);
+    return [Math.round(x), Math.round(y)];
+  });
+}
+
+function pathFromPoints(points = []) {
+  if (!points.length) return "";
+  return points.map((point, index) => `${index ? "L" : "M"}${point[0]} ${point[1]}`).join(" ");
+}
+
+function renderWatchTape(profile, trades = []) {
+  const tape = $("watchTape");
+  if (!tape) return;
+  tape.innerHTML = "";
+  const label = profileName(profile);
+  const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade)).slice(0, 8);
+  if (!roomTrades.length) {
+    const li = document.createElement("li");
+    li.textContent = `Waiting for Frog / ${label} to make a trade.`;
+    tape.appendChild(li);
+    return;
+  }
+
+  roomTrades.forEach((trade) => {
+    const pnl = Number(trade.pnl || 0);
+    const li = document.createElement("li");
+    li.className = pnl >= 0 ? "tape-win" : "tape-loss";
+    li.innerHTML = `
+      <strong>${escapeHtml(trade.action || "Copied signal")}</strong>
+      <span>${escapeHtml(trade.token || "-")} - ${money(trade.amount)} - ${escapeHtml(trade.status || "Observed")}</span>
+      <em>${trade.time ? escapeHtml(trade.time) : "live"}</em>
+    `;
+    tape.appendChild(li);
+  });
+}
+
+function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
+  const profile = profiles.frog?.running || !profiles.truenest?.running ? "frog" : "truenest";
+  const label = profileName(profile);
+  const prefix = roomPrefix(profile);
+  const deposit = settings[`${prefix}Deposit`] || 0;
+  const wallet = settings[`${prefix}TradeWallet`] || "";
+  const profit = Number(profiles[profile]?.profit || 0);
+  const running = Boolean(profiles[profile]?.running);
+  const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
+  const lastTrade = roomTrades[0];
+
+  setText("watchProfileName", label);
+  setText("watchProfileStatus", running ? `${label} is watching and ready to copy.` : `${label} is ready. Press Start when you want it to watch Frog.`);
+  setText("watchDeposit", money(deposit));
+  setText("watchWallet", wallet ? `Wallet ${wallet}` : "Wallet not connected yet");
+  setText("watchProfit", money(profit));
+  setText("watchProfitNote", profit > 0 ? "Profit is positive." : profit < 0 ? "Profit is negative." : "No profit recorded yet.");
+  setText("watchLastAction", lastTrade?.action || "Waiting");
+  setText("watchLastToken", lastTrade ? `${lastTrade.token || "-"} - ${lastTrade.status || "Observed"}` : "No buy or sell shown yet.");
+  setText("watchLiveBadge", running ? "Live watch ON" : "Waiting");
+  setText("watchChartNote", roomTrades.length ? `${roomTrades.length} copied signal${roomTrades.length === 1 ? "" : "s"} on screen.` : "Chart starts when copied trades appear.");
+
+  const badge = $("watchLiveBadge");
+  if (badge) badge.classList.toggle("is-live", running);
+
+  const points = chartPointsFromTrades(trades, profile, profit);
+  const path = $("watchChartPath");
+  const dot = $("watchChartDot");
+  if (path) path.setAttribute("d", pathFromPoints(points));
+  if (dot && points.length) {
+    const last = points[points.length - 1];
+    dot.setAttribute("cx", last[0]);
+    dot.setAttribute("cy", last[1]);
+  }
+  renderWatchTape(profile, trades);
+}
+
 function renderState(state) {
   latestState = {
     ...latestState,
@@ -355,6 +453,7 @@ function renderState(state) {
   setText("truenestBalance", `Deposit: ${money(settings.truenestDeposit)}`);
   renderRoomStatus("frog", settings, trades, backend);
   renderRoomStatus("truenest", settings, trades, backend);
+  renderLiveWatch(settings, profiles, trades);
   renderManualDeposit(settings);
   renderVault(settings, profiles);
   renderTrades(trades);
