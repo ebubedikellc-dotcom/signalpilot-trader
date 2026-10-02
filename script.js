@@ -175,11 +175,17 @@ function localReady(data = payload()) {
 }
 
 function profileName(profile) {
-  return profile === "frog" ? "Frog" : "Big Win";
+  return profile === "frog" ? "Smart Win" : "Risk Win";
 }
 
 function profileStatusName(profile) {
-  return profile === "frog" ? "Frog beginner" : "Truenest Big Win";
+  return profileName(profile);
+}
+
+function profileTradeMatches(profile, trade) {
+  const text = String(trade.profile || "").toLowerCase();
+  if (profile === "frog") return text.includes("smart win") || text.includes("frog");
+  return text.includes("risk win") || text.includes("truenest") || text.includes("big win");
 }
 
 function profileSetting(settings, profile, key, fallback = "") {
@@ -188,19 +194,86 @@ function profileSetting(settings, profile, key, fallback = "") {
   return settings[profileKey] || settings[key] || fallback;
 }
 
+function normalizeCopyMode(mode) {
+  const value = String(mode || "Copy exact amount").toLowerCase();
+  return value.includes("safety") || value.includes("protect")
+    ? "Copy exact amount after safety check"
+    : "Copy exact amount";
+}
+
+function modeUsesProtection(mode) {
+  return normalizeCopyMode(mode) === "Copy exact amount after safety check";
+}
+
+function roomPrefix(profile) {
+  return profile === "frog" ? "frog" : "truenest";
+}
+
+function syncRoomProtectionFromMode(profile) {
+  const prefix = roomPrefix(profile);
+  const mode = normalizeCopyMode(value(`${prefix}Mode`));
+  const modeNode = $(`${prefix}Mode`);
+  const riskNode = $(`${prefix}RiskControl`);
+  if (modeNode) modeNode.value = mode;
+  if (riskNode) riskNode.value = modeUsesProtection(mode) ? "on" : "off";
+}
+
+function syncRoomModeFromProtection(profile) {
+  const prefix = roomPrefix(profile);
+  const riskNode = $(`${prefix}RiskControl`);
+  const modeNode = $(`${prefix}Mode`);
+  if (!riskNode || !modeNode) return;
+  modeNode.value = riskNode.value === "on" ? "Copy exact amount after safety check" : "Copy exact amount";
+}
+
+async function saveRoomSettings(profile) {
+  try {
+    await saveSettings();
+    showBusinessMessage(`${profileName(profile)} choice saved.`);
+  } catch (error) {
+    showBusinessMessage(error.message, true);
+  }
+}
+
+function renderRoomThread(profile, trades = []) {
+  const list = $(`${profile}RoomThread`);
+  if (!list) return;
+  list.innerHTML = "";
+  const label = profileName(profile);
+  const recent = trades.slice(0, 5);
+  if (!recent.length) {
+    const li = document.createElement("li");
+    li.textContent = `No ${label} copied trade yet.`;
+    list.appendChild(li);
+    return;
+  }
+
+  recent.forEach((trade) => {
+    const li = document.createElement("li");
+    const time = trade.time ? `${trade.time} - ` : "";
+    const detail = `${time}${trade.token || "-"} - ${money(trade.amount)} - ${trade.status || "-"}`;
+    li.innerHTML = `
+      <strong>${escapeHtml(trade.action || "Copied signal")}</strong>
+      <span>${escapeHtml(detail)}</span>
+    `;
+    list.appendChild(li);
+  });
+}
+
 function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   const label = profileName(profile);
-  const statusLabel = profileStatusName(profile).toLowerCase();
-  const roomTrades = trades.filter((trade) => String(trade.profile || "").toLowerCase().includes(statusLabel.toLowerCase()));
+  const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
   const wins = roomTrades.filter((trade) => Number(trade.pnl || 0) > 0 || /\bwin\b|\bprofit\b/i.test(String(trade.status || ""))).length;
-  const riskControl = profileSetting(settings, profile, "riskControl", "on");
+  const mode = normalizeCopyMode(profileSetting(settings, profile, "mode", "Copy exact amount"));
+  const riskControl = modeUsesProtection(mode) ? "on" : "off";
   const liveSwitch = profileSetting(settings, profile, "liveTradingSwitch", "on");
   const walletSync = profileSetting(settings, profile, "walletSync", "Turnkey server wallet");
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
 
   setText(`${profile}Wins`, String(wins));
   setText(`${profile}Signals`, String(roomTrades.length));
-  setText(`${profile}SafeStatus`, riskControl === "off" ? "Exact copy only" : "Protect me ON");
+  renderRoomThread(profile, roomTrades);
+  setText(`${profile}SafeStatus`, riskControl === "off" ? "Exact copy, no protection" : "Protect me ON");
   setText(`${profile}WalletStatus`, walletSync === "Turnkey server wallet"
     ? `Turnkey server wallet is selected for ${label}.`
     : `Manual wallet only is selected for ${label}.`);
@@ -236,6 +309,7 @@ function renderState(state) {
     const node = $(id);
     if (node && settings[id] && document.activeElement !== node) node.value = settings[id];
   });
+  ["frog", "truenest"].forEach(syncRoomProtectionFromMode);
 
   const ready = localReady(settings);
   if ($("frogStart")) $("frogStart").disabled = !ready || profiles.frog?.running;
@@ -267,18 +341,18 @@ function renderState(state) {
     if (!settings.turnkeyOrgId) missing.push("Waiting for Turnkey organization ID.");
     if (!settings.turnkeyApiPublicKey) missing.push("Waiting for Turnkey API public key.");
     if (!settings.turnkeyApiPrivateKey) missing.push("Waiting for Turnkey API private key.");
-    if (!settings.frogTradeWallet) missing.push("Waiting for Frog beginner wallet.");
-    if (!settings.truenestTradeWallet) missing.push("Waiting for Truenest Big Win wallet.");
-    if (!settings.frogSignerToken) missing.push("Waiting for Frog Turnkey wallet ID.");
-    if (!settings.truenestSignerToken) missing.push("Waiting for Truenest Turnkey wallet ID.");
+    if (!settings.frogTradeWallet) missing.push("Waiting for Smart Win wallet.");
+    if (!settings.truenestTradeWallet) missing.push("Waiting for Risk Win wallet.");
+    if (!settings.frogSignerToken) missing.push("Waiting for Smart Win Turnkey wallet ID.");
+    if (!settings.truenestSignerToken) missing.push("Waiting for Risk Win Turnkey wallet ID.");
     missing.push(productionExecution ? "Production execution: ON." : "Production execution: OFF - real trading stays locked.");
     setLog(missing);
     return;
   }
 
   const running = [];
-  if (profiles.frog?.running) running.push("Frog beginner is running.");
-  if (profiles.truenest?.running) running.push("Truenest Big Win is running.");
+  if (profiles.frog?.running) running.push("Smart Win is running.");
+  if (profiles.truenest?.running) running.push("Risk Win is running.");
 
   if (!productionExecution) {
     setText("engineStatus", running.length ? "Monitoring running" : "Ready to monitor");
@@ -292,8 +366,8 @@ function renderState(state) {
   setText("engineStatus", running.length ? "Production copy engine running" : "Production execution enabled");
   setText("engineSubtext", running.length
     ? "Each room uses its own wallet engine and safety switch. Render is watching the trader and execution is enabled."
-    : "Press Start inside Frog or Big Win. Each room has its own safety and live trading switch.");
-  setLog(state.activity?.length ? state.activity : ["Ready. Press Start Frog or Start Truenest."]);
+    : "Press Start inside Smart Win or Risk Win. Each room has its own safety and live trading switch.");
+  setLog(state.activity?.length ? state.activity : ["Ready. Press Start Smart Win or Start Risk Win."]);
 }
 
 function renderManualDeposit(settings = {}) {
@@ -422,8 +496,8 @@ function renderOwner(data) {
       </div>
       <label>Plan
         <select data-field="plan">
-          <option value="frog">Frog</option>
-          <option value="truenest">Truenest</option>
+          <option value="frog">Smart Win</option>
+          <option value="truenest">Risk Win</option>
           <option value="both">Both</option>
         </select>
       </label>
@@ -724,8 +798,8 @@ on("saveTruenestSafety", "click", saveSettings);
 on("ownerWithdrawButton", "click", () => ownerWithdraw(value("ownerWithdrawProfile") || "frog"));
 on("frogWithdrawButton", "click", () => ownerWithdraw("frog"));
 on("truenestWithdrawButton", "click", () => ownerWithdraw("truenest"));
-on("copyManualFrogWallet", "click", () => copyTextFromNode("manualFrogWallet", "Frog wallet"));
-on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "Big Win wallet"));
+on("copyManualFrogWallet", "click", () => copyTextFromNode("manualFrogWallet", "Smart Win wallet"));
+on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "Risk Win wallet"));
 on("ownerLogin", "click", ownerLogin);
 on("customerLogin", "click", customerLogin);
 on("customerSignup", "click", customerSignup);
@@ -734,14 +808,28 @@ on("ownerCreateCustomer", "click", ownerCreateCustomer);
 on("saveCustomerPlan", "click", saveCustomerPlan);
 on("requestWithdraw", "click", requestWithdrawal);
 on("logoutButton", "click", logout);
-fields.forEach((id) => {
-  on(id, "input", () => renderState({ settings: payload(), profiles: {}, activity: [] }));
-  on(id, "change", () => renderState({ settings: payload(), profiles: {}, activity: [] }));
-});
 on("frogStart", "click", () => startProfile("frog"));
 on("frogStop", "click", () => stopProfile("frog"));
 on("truenestStart", "click", () => startProfile("truenest"));
 on("truenestStop", "click", () => stopProfile("truenest"));
+["frog", "truenest"].forEach((profile) => {
+  const prefix = roomPrefix(profile);
+  on(`${prefix}Mode`, "change", () => {
+    syncRoomProtectionFromMode(profile);
+    saveRoomSettings(profile);
+  });
+  on(`${prefix}RiskControl`, "change", () => {
+    syncRoomModeFromProtection(profile);
+    saveRoomSettings(profile);
+  });
+  [`${prefix}LiveTradingSwitch`, `${prefix}WalletSync`, `${prefix}Wallet`, `${prefix}Max`].forEach((id) => {
+    on(id, "change", () => saveRoomSettings(profile));
+  });
+});
+fields.forEach((id) => {
+  on(id, "input", () => renderState({ settings: payload(), profiles: {}, activity: [] }));
+  on(id, "change", () => renderState({ settings: payload(), profiles: {}, activity: [] }));
+});
 document.querySelectorAll("[data-owner-tab]").forEach((button) => {
   button.addEventListener("click", () => showOwnerPage(button.dataset.ownerTab));
 });
