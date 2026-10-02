@@ -150,7 +150,7 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .owner-page { display: grid; gap: 16px; }
 .trade-room-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .trade-room-card { display: grid; gap: 14px; }
-.trade-room-card .address-card, .trade-room-card label, .trade-room-card .withdraw-inline, .trade-room-card .safety-panel, .trade-room-card .room-stat-grid { position: relative; z-index: 1; }
+.trade-room-card .address-card, .trade-room-card label, .trade-room-card .withdraw-inline, .trade-room-card .safety-panel, .trade-room-card .room-copy-thread, .trade-room-card .room-stat-grid { position: relative; z-index: 1; }
 .trading-summary strong { font-size: 1.25rem; }
 .room-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .room-stat-grid div { display: grid; gap: 5px; min-height: 82px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.18); }
@@ -162,6 +162,12 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .room-help { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.2); }
 .room-help strong { color: var(--text); }
 .room-help span { color: var(--muted); line-height: 1.45; }
+.room-copy-thread { display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(46,230,166,.3); border-radius: 8px; background: rgba(0,0,0,.2); }
+.room-copy-thread h4 { margin: 0; font-size: 1.05rem; }
+.room-copy-thread ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.room-copy-thread li { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.04); }
+.room-copy-thread strong { color: var(--text); }
+.room-copy-thread span { color: var(--muted); line-height: 1.4; overflow-wrap: anywhere; }
 .withdraw-inline { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.2); }
 .withdraw-inline h4 { margin: 0; font-size: 1.05rem; }
 .withdraw-inline small { color: var(--muted); overflow-wrap: anywhere; line-height: 1.45; }
