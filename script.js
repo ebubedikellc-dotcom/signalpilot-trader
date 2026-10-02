@@ -334,7 +334,7 @@ function profileStatusName(profile) {
 
 function profileTradeMatches(profile, trade) {
   const text = String(trade.profile || "").toLowerCase();
-  if (profile === "frog") return text.includes("smart win") || text.includes("frog");
+  if (profile === "frog") return text.includes("decu win") || text.includes("deku") || text.includes("decu") || text.includes("smart win") || text.includes("frog");
   return text.includes("risk win") || text.includes("truenest") || text.includes("big win");
 }
 
