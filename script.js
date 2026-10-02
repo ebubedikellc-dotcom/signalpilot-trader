@@ -58,6 +58,47 @@ function walletBalance(profile) {
   return latestState.walletBalances?.[profile] || {};
 }
 
+function balanceUsdc(profile) {
+  const value = Number(walletBalance(profile).usdc);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function profileDeposit(settings = {}, profile = "frog") {
+  const prefix = roomPrefix(profile);
+  return Number(settings[`${prefix}Deposit`] || 0);
+}
+
+function profileNet(settings = {}, profile = "frog") {
+  return balanceUsdc(profile) - profileDeposit(settings, profile);
+}
+
+function profileLoss(settings = {}, profile = "frog") {
+  return Math.max(0, -profileNet(settings, profile));
+}
+
+function signedMoney(value) {
+  const amount = Number(value || 0);
+  const sign = amount > 0 ? "+" : "";
+  return `${sign}${money(amount)}`;
+}
+
+function traderSignalUsd(trade = {}) {
+  const explicit = Number(trade.traderPnlUsd);
+  if (Number.isFinite(explicit) && explicit !== 0) return explicit;
+  const sourceBuy = Number(trade.sourceUsd || trade.execution?.sourceUsd || 0);
+  const sourceSell = Number(trade.sourceReceivedUsd || trade.execution?.sourceReceivedUsd || 0);
+  const action = String(trade.action || trade.execution?.action || "").toLowerCase();
+  if (sourceSell) return sourceSell;
+  if (sourceBuy && action.includes("buy")) return -Math.abs(sourceBuy);
+  return 0;
+}
+
+function traderPnlFromTrades(trades = [], profile = "frog") {
+  return trades
+    .filter((trade) => profileTradeMatches(profile, trade))
+    .reduce((sum, trade) => sum + traderSignalUsd(trade), 0);
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -313,6 +354,9 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
 
   setText(`${profile}Wins`, String(wins));
   setText(`${profile}Signals`, String(roomTrades.length));
+  setText(`${profile}RoomUsdc`, money(balanceUsdc(profile)));
+  setText(`${profile}RoomLoss`, money(profileLoss(settings, profile)));
+  setText(`${profile}RoomTraderPnl`, signedMoney(traderPnlFromTrades(trades, profile)));
   renderRoomThread(profile, roomTrades);
   setText(`${profile}SafeStatus`, riskControl === "off" ? "Exact copy, no protection" : "Protect me ON");
   setText(`${profile}WalletStatus`, walletSync === "Turnkey server wallet"
@@ -402,6 +446,9 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   const balance = walletBalance(profile);
   const gasText = balance.error ? `Gas check: ${balance.error}` : `SOL gas: ${solAmount(balance.sol)}`;
   const profit = Number(profiles[profile]?.profit || 0);
+  const usdcNow = balanceUsdc(profile);
+  const lossNow = profileLoss(settings, profile);
+  const traderPnl = traderPnlFromTrades(trades, profile);
   const running = Boolean(profiles[profile]?.running);
   const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
   const lastTrade = roomTrades[0];
@@ -412,6 +459,10 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   setText("watchWallet", wallet ? `Wallet ${wallet} | ${gasText}` : "Wallet not connected yet");
   setText("watchProfit", money(profit));
   setText("watchProfitNote", profit > 0 ? "Profit is positive." : profit < 0 ? "Profit is negative." : "No profit recorded yet.");
+  setText("watchUsdcNow", money(usdcNow));
+  setText("watchLossNow", `Loss from deposit: ${money(lossNow)}`);
+  setText("watchTraderPnl", signedMoney(traderPnl));
+  setText("watchTraderNote", `${label === "Smart Win" ? "Frog" : "Copied trader"} made/lost from visible buy and sell signals.`);
   setText("watchLastAction", lastTrade?.action || "Waiting");
   setText("watchLastToken", lastTrade ? `${lastTrade.token || "-"} - ${lastTrade.status || "Observed"}` : "No buy or sell shown yet.");
   setText("watchLiveBadge", running ? "Live watch ON" : "Waiting");
@@ -467,8 +518,14 @@ function renderState(state) {
   setText("truenestRoomProfit", money(profiles.truenest?.profit));
   setText("frogBalance", `Deposit: ${money(settings.frogDeposit)}`);
   setText("truenestBalance", `Deposit: ${money(settings.truenestDeposit)}`);
+  setText("frogUsdcNow", money(balanceUsdc("frog")));
+  setText("truenestUsdcNow", money(balanceUsdc("truenest")));
+  setText("frogLoss", money(profileLoss(settings, "frog")));
+  setText("truenestLoss", money(profileLoss(settings, "truenest")));
   setText("frogSolBalance", solAmount(walletBalance("frog").sol));
   setText("truenestSolBalance", solAmount(walletBalance("truenest").sol));
+  setText("frogTraderPnl", signedMoney(traderPnlFromTrades(trades, "frog")));
+  setText("truenestTraderPnl", signedMoney(traderPnlFromTrades(trades, "truenest")));
   renderRoomStatus("frog", settings, trades, backend);
   renderRoomStatus("truenest", settings, trades, backend);
   renderLiveWatch(settings, profiles, trades);
