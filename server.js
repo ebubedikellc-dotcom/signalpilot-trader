@@ -262,13 +262,17 @@ function businessSummary(state) {
 
 function statusPayload(state, session) {
   const isOwner = session?.role === "owner";
+  const liveTradingEnv = process.env.ENABLE_LIVE_TRADING === "true";
+  const productionExecution = liveTradingAllowed(state);
   return {
     ...state,
     settings: publicSettings(state.settings, isOwner),
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      liveTrading: process.env.ENABLE_LIVE_TRADING === "true",
+      liveTrading: productionExecution,
+      liveTradingEnv,
+      productionExecution,
       workerIntervalMs
     },
     auth: session ? { role: session.role, id: session.id } : null
@@ -305,7 +309,12 @@ function ready(state) {
 }
 
 function liveTradingAllowed(state) {
-  return state.settings.liveTradingSwitch === "on" && process.env.ENABLE_LIVE_TRADING === "true";
+  return Boolean(
+    ready(state) &&
+    state.settings.liveTradingSwitch === "on" &&
+    process.env.ENABLE_LIVE_TRADING === "true" &&
+    process.env.EXECUTE_REAL_SWAPS === "true"
+  );
 }
 
 function profileLabel(profile) {
@@ -441,7 +450,11 @@ function startCopyWorker() {
 
 async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
-    send(response, 200, { ok: true, liveTrading: process.env.ENABLE_LIVE_TRADING === "true" });
+    send(response, 200, {
+      ok: true,
+      liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
+      productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
+    });
     return true;
   }
 
@@ -692,8 +705,8 @@ async function handleApi(request, response, url) {
     state.activity = [
       line(`${profile === "frog" ? "Frog beginner" : "Truenest Big Win"} started.`),
       line(liveTradingAllowed(state)
-        ? "Live trading switch is on. Copy worker is allowed to execute after wallet signer is connected."
-        : "Monitoring is active. Live swap execution stays locked until Render live trading is enabled."),
+        ? "Production execution is enabled. Copy worker can execute with the connected signer."
+        : "Monitoring is active. Real swap execution stays locked until EXECUTE_REAL_SWAPS=true is set in Render."),
       ...(state.activity || [])
     ].slice(0, 20);
     await saveState(state);
