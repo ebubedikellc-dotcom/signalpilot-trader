@@ -295,6 +295,15 @@
                 </div>
                 <small id="truenestTradeModeStatus">Risk Win can buy and sell.</small>
 
+                <div class="withdraw-inline danger-box">
+                  <h4>Manual sell from Risk Win</h4>
+                  <p>Use this when a coin is stuck. It sells the coin back to USDC and leaves SOL gas in the wallet.</p>
+                  <label>Token to sell <input id="truenestSellMint" autocomplete="off" placeholder="Paste token mint address"></label>
+                  <small>Keep about 0.02 to 0.03 SOL for gas. Do not sell the SOL gas unless you are closing everything.</small>
+                  <button id="truenestSellTokenButton" class="stop-action" type="button">Sell Risk Win token to USDC</button>
+                  <small id="truenestSellTokenResult">No manual sell sent yet.</small>
+                </div>
+
                 <div class="withdraw-inline">
                   <h4>Withdraw from Risk Win</h4>
                   <label>Profit USDC to wallet <input id="truenestProfitWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
