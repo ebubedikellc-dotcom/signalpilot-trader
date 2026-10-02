@@ -352,6 +352,48 @@ function statusPayload(state, session) {
   };
 }
 
+async function walletBalances(state) {
+  const connection = solanaConnection(state.settings);
+  const balances = {};
+
+  for (const profile of ["frog", "truenest"]) {
+    const wallet = tradeWallet(state, profile);
+    const key = solanaAddress(wallet);
+    balances[profile] = {
+      address: wallet || "",
+      sol: null,
+      usdc: null,
+      error: ""
+    };
+
+    if (!key) {
+      balances[profile].error = "Wallet not connected";
+      continue;
+    }
+
+    try {
+      const [lamports, tokenAccounts] = await Promise.all([
+        connection.getBalance(key, "confirmed"),
+        connection.getParsedTokenAccountsByOwner(key, { mint: new PublicKey(usdcMint) }, "confirmed")
+      ]);
+      const usdc = (tokenAccounts.value || []).reduce((sum, item) => {
+        return sum + Number(item.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0);
+      }, 0);
+      balances[profile] = {
+        address: wallet,
+        sol: lamports / LAMPORTS_PER_SOL,
+        usdc,
+        error: "",
+        updatedAt: new Date().toISOString()
+      };
+    } catch (error) {
+      balances[profile].error = error.message || "Balance check failed";
+    }
+  }
+
+  return balances;
+}
+
 function requireOwner(response, session) {
   if (session?.role === "owner") return false;
   send(response, 401, { error: "Owner login required." });
@@ -1181,7 +1223,11 @@ async function handleApi(request, response, url) {
 
   if (request.method === "GET" && url.pathname === "/api/status") {
     const state = await readState();
-    send(response, 200, statusPayload(state, sessionFromRequest(request, state)));
+    const payload = statusPayload(state, sessionFromRequest(request, state));
+    payload.walletBalances = await walletBalances(state).catch((error) => ({
+      error: error.message || "Balance check failed"
+    }));
+    send(response, 200, payload);
     return true;
   }
 
