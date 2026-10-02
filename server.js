@@ -28,9 +28,13 @@ const defaultState = {
     frogWallet: "4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh",
     frogMax: "420",
     frogMode: "Copy exact amount",
+    frogCopySizing: "Copy by percentage",
+    frogTraderBankroll: "350",
     truenestWallet: "ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT",
     truenestMax: "750",
     truenestMode: "Copy exact amount",
+    truenestCopySizing: "Copy by percentage",
+    truenestTraderBankroll: "350",
     walletSync: "Turnkey server wallet",
     riskControl: "on",
     liveTradingSwitch: "on",
@@ -77,9 +81,13 @@ const fields = [
   "frogWallet",
   "frogMax",
   "frogMode",
+  "frogCopySizing",
+  "frogTraderBankroll",
   "truenestWallet",
   "truenestMax",
   "truenestMode",
+  "truenestCopySizing",
+  "truenestTraderBankroll",
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
@@ -163,6 +171,10 @@ function normalizeCopyMode(mode) {
   return "Copy exact amount";
 }
 
+function normalizeCopySizing(value) {
+  return String(value || "").toLowerCase().includes("percent") ? "Copy by percentage" : "Copy exact amount";
+}
+
 function copyModeFromProtection(value) {
   return value === "on" ? "Copy exact amount after safety check" : "Copy exact amount";
 }
@@ -233,6 +245,10 @@ function publicSettings(settings = {}, includeSecrets = false) {
     truenestMax: settings.truenestMax || "",
     frogMode: normalizeCopyMode(settings.frogMode),
     truenestMode: normalizeCopyMode(settings.truenestMode),
+    frogCopySizing: normalizeCopySizing(settings.frogCopySizing),
+    truenestCopySizing: normalizeCopySizing(settings.truenestCopySizing),
+    frogTraderBankroll: settings.frogTraderBankroll || "",
+    truenestTraderBankroll: settings.truenestTraderBankroll || "",
     walletSync: settings.walletSync || "Turnkey server wallet",
     riskControl: settings.riskControl || "on",
     liveTradingSwitch: settings.liveTradingSwitch || "on",
@@ -346,6 +362,8 @@ function clean(input) {
   }
   if (out.frogMode) out.frogMode = normalizeCopyMode(out.frogMode);
   if (out.truenestMode) out.truenestMode = normalizeCopyMode(out.truenestMode);
+  if (out.frogCopySizing) out.frogCopySizing = normalizeCopySizing(out.frogCopySizing);
+  if (out.truenestCopySizing) out.truenestCopySizing = normalizeCopySizing(out.truenestCopySizing);
   if (out.frogRiskControl === "on" || out.frogRiskControl === "off") out.frogMode = copyModeFromProtection(out.frogRiskControl);
   if (out.truenestRiskControl === "on" || out.truenestRiskControl === "off") out.truenestMode = copyModeFromProtection(out.truenestRiskControl);
   return out;
@@ -383,6 +401,11 @@ function profileRiskControl(state, profile) {
 function profileMode(state, profile) {
   const mode = profile === "frog" ? state.settings.frogMode : state.settings.truenestMode;
   return String(mode || "Copy exact amount");
+}
+
+function profileCopySizing(state, profile) {
+  const value = profile === "frog" ? state.settings.frogCopySizing : state.settings.truenestCopySizing;
+  return normalizeCopySizing(value);
 }
 
 function profileProtectionEnabled(state, profile) {
@@ -558,6 +581,33 @@ function profileMaxUsd(state, profile) {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+function profileDepositUsd(state, profile) {
+  const value = Number(profile === "frog" ? state.settings.frogDeposit : state.settings.truenestDeposit);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function profileTraderBankrollUsd(state, profile) {
+  const value = Number(profile === "frog" ? state.settings.frogTraderBankroll : state.settings.truenestTraderBankroll);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function scaledCopyAmount(amount, state, profile) {
+  if (profileCopySizing(state, profile) !== "Copy by percentage") {
+    return { amount: String(amount), note: "Exact amount copy" };
+  }
+  const deposit = profileDepositUsd(state, profile);
+  const traderBankroll = profileTraderBankrollUsd(state, profile);
+  if (!deposit || !traderBankroll) {
+    return { amount: String(amount), note: "Percentage copy missing deposit or trader wallet size, used exact amount" };
+  }
+  const scale = Math.max(1, Math.round((deposit / traderBankroll) * 1_000_000));
+  const scaled = (BigInt(String(amount)) * BigInt(scale)) / 1_000_000n;
+  return {
+    amount: String(scaled > 0n ? scaled : 1n),
+    note: `Percentage copy ${deposit}/${traderBankroll}`
+  };
+}
+
 function jupiterApiKey(settings = {}) {
   const value = String(settings.routeApi || "").trim();
   if (!value || value.startsWith("http://") || value.startsWith("https://")) return "";
@@ -603,13 +653,14 @@ async function executeCopiedSwap(profile, transaction, state) {
   const signer = signerId(state, profile) || wallet;
   const apiKey = jupiterApiKey(state.settings);
   if (!wallet || !signer) return { status: "Skipped - trading wallet or signer missing" };
+  const copyAmount = scaledCopyAmount(leg.amount, state, profile);
 
   const order = await jupiterJson("/swap/v2/order", {
     apiKey,
     query: {
       inputMint: leg.inputMint,
       outputMint: leg.outputMint,
-      amount: leg.amount,
+      amount: copyAmount.amount,
       taker: wallet,
       swapMode: "ExactIn",
       slippageBps: 200
@@ -650,6 +701,10 @@ async function executeCopiedSwap(profile, transaction, state) {
     outputMint: leg.outputMint,
     inputSymbol: leg.inputSymbol,
     outputSymbol: leg.outputSymbol,
+    copySizing: profileCopySizing(state, profile),
+    copySizingNote: copyAmount.note,
+    copiedSourceAmount: String(leg.amount),
+    copiedTradeAmount: copyAmount.amount,
     requestId: order.requestId,
     swapUsdValue: order.swapUsdValue,
     outAmount: order.outAmount,
