@@ -144,6 +144,18 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .owner-login { border-color: rgba(46,230,166,.45); }
 .owner-dashboard, .customer-dashboard { display: grid; gap: 16px; }
 .dashboard-head { padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.18); }
+.owner-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.2); }
+.owner-tab { min-height: 54px; border: 1px solid transparent; border-radius: 8px; color: var(--muted); background: transparent; font-weight: 950; cursor: pointer; }
+.owner-tab.active { color: #061118; background: var(--green); }
+.owner-page { display: grid; gap: 16px; }
+.trade-room-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.trade-room-card { display: grid; gap: 14px; }
+.trade-room-card .address-card, .trade-room-card label, .trade-room-card .withdraw-inline { position: relative; z-index: 1; }
+.trading-summary strong { font-size: 1.25rem; }
+.withdraw-inline { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.2); }
+.withdraw-inline h4 { margin: 0; font-size: 1.05rem; }
+.withdraw-inline small { color: var(--muted); overflow-wrap: anywhere; line-height: 1.45; }
+.withdraw-inline a { color: var(--green); font-weight: 900; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .metric-grid article { display: grid; gap: 6px; min-height: 112px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.18); }
 .metric-grid span { color: var(--muted); font-size: .85rem; font-weight: 800; }
@@ -233,7 +245,8 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .inline-save-box span { color: var(--muted); line-height: 1.45; }
 .inline-save-box .secondary-action { width: 100%; min-height: 52px; background: var(--green); color: #061118; border: 0; }
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row { grid-template-columns: 1fr; }
+  .topbar, .trader-grid, .trade-room-grid, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row { grid-template-columns: 1fr; }
+  .owner-tabs { grid-template-columns: 1fr; }
   .facts { grid-template-columns: 1fr; }
   .section-title { align-items: stretch; flex-direction: column; }
   .secondary-action { width: 100%; }
@@ -302,10 +315,11 @@ td { color: var(--muted); }
 .loss-row td:nth-child(6) { color: var(--red); font-weight: 900; }
 
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row {
+  .topbar, .trader-grid, .trade-room-grid, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row {
     grid-template-columns: 1fr;
   }
 
+  .owner-tabs { grid-template-columns: 1fr; }
   .facts { grid-template-columns: 1fr; }
   .section-title { align-items: stretch; flex-direction: column; }
   .secondary-action { width: 100%; }
