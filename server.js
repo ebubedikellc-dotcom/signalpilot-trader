@@ -116,6 +116,10 @@ function normalizeState(state) {
   state.profiles = { ...structuredClone(defaultState.profiles), ...(state.profiles || {}) };
   state.owner = { email: (state.owner?.email || ownerEmail).toLowerCase() };
   state.customers = Array.isArray(state.customers) ? state.customers : [];
+  state.customers.forEach((customer) => {
+    if (!customer.id) customer.id = randomUUID();
+    if (!customer.accessToken) customer.accessToken = customer.id;
+  });
   state.deposits = Array.isArray(state.deposits) ? state.deposits : [];
   state.withdrawals = Array.isArray(state.withdrawals) ? state.withdrawals : [];
   state.sessions = state.sessions && typeof state.sessions === "object" ? state.sessions : {};
@@ -221,6 +225,9 @@ function customerPublic(customer, state) {
     id: customer.id,
     name: customer.name,
     email: customer.email,
+    phone: customer.phone || "",
+    accessToken: customer.accessToken,
+    accessPath: `/player/${customer.accessToken}`,
     plan: customer.plan || "frog",
     status: customer.status || "active",
     deposited,
@@ -591,16 +598,22 @@ async function handleApi(request, response, url) {
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     const body = await readBody(request);
     const email = normalizeEmail(body.email);
-    if (!email.includes("@")) {
-      send(response, 400, { error: "Customer email is required." });
+    const phone = String(body.phone || "").trim().slice(0, 40);
+    const name = String(body.name || email || phone || "Customer").trim().slice(0, 80);
+    if (!name || name === "Customer") {
+      send(response, 400, { error: "Customer name or phone is required." });
       return true;
     }
-    let customer = state.customers.find((item) => item.email === email);
+    let customer = email.includes("@")
+      ? state.customers.find((item) => item.email === email)
+      : state.customers.find((item) => item.phone && item.phone === phone);
     if (!customer) {
       customer = {
         id: randomUUID(),
-        name: String(body.name || email.split("@")[0]).trim().slice(0, 80),
-        email,
+        accessToken: randomUUID(),
+        name,
+        email: email.includes("@") ? email : "",
+        phone,
         passwordHash: body.password ? makePasswordHash(body.password) : "",
         plan: body.plan === "truenest" || body.plan === "both" ? body.plan : "frog",
         status: "active",
@@ -611,14 +624,20 @@ async function handleApi(request, response, url) {
       };
       state.customers.push(customer);
     } else {
-      customer.name = String(body.name || customer.name).trim().slice(0, 80);
+      customer.name = name || customer.name;
+      customer.phone = phone || customer.phone || "";
+      if (email.includes("@")) customer.email = email;
       customer.plan = body.plan === "truenest" || body.plan === "both" ? body.plan : "frog";
       customer.deposited = Number(body.deposited || customer.deposited || 0);
       customer.profit = Number(body.profit || customer.profit || 0);
     }
-    state.activity = [line(`Owner saved customer ${email}.`), ...(state.activity || [])].slice(0, 20);
+    state.activity = [line(`Owner printed customer link for ${customer.name}.`), ...(state.activity || [])].slice(0, 20);
     await saveState(state);
-    send(response, 200, { summary: businessSummary(state), customers: state.customers.map((item) => customerPublic(item, state)) });
+    send(response, 200, {
+      summary: businessSummary(state),
+      customers: state.customers.map((item) => customerPublic(item, state)),
+      customer: customerPublic(customer, state)
+    });
     return true;
   }
 
@@ -640,6 +659,54 @@ async function handleApi(request, response, url) {
     await saveState(state);
     send(response, 200, { summary: businessSummary(state), customers: state.customers.map((item) => customerPublic(item, state)) });
     return true;
+  }
+
+  const customerLinkMatch = url.pathname.match(/^\/api\/customer\/link\/([^/]+)(?:\/(plan|withdraw))?$/);
+  if (customerLinkMatch) {
+    const state = await readState();
+    const customer = state.customers.find((item) => item.accessToken === customerLinkMatch[1]);
+    if (!customer || customer.status === "paused") {
+      send(response, 404, { error: "Customer link is not active." });
+      return true;
+    }
+
+    const action = customerLinkMatch[2] || "";
+    if (request.method === "GET" && !action) {
+      send(response, 200, { customer: customerPublic(customer, state) });
+      return true;
+    }
+
+    if (request.method === "POST" && action === "plan") {
+      const body = await readBody(request);
+      if (body.plan === "frog" || body.plan === "truenest" || body.plan === "both") customer.plan = body.plan;
+      await saveState(state);
+      send(response, 200, { customer: customerPublic(customer, state) });
+      return true;
+    }
+
+    if (request.method === "POST" && action === "withdraw") {
+      const body = await readBody(request);
+      const amount = Number(body.amount || 0);
+      const wallet = String(body.wallet || "").trim();
+      const available = customerPublic(customer, state).withdrawable;
+      if (!amount || amount <= 0 || amount > available || !wallet) {
+        send(response, 400, { error: "Enter a wallet and an amount inside your withdrawable balance." });
+        return true;
+      }
+      state.withdrawals.push({
+        id: randomUUID(),
+        customerId: customer.id,
+        customerEmail: customer.email || "",
+        customerName: customer.name || "",
+        amount,
+        wallet,
+        status: "pending",
+        createdAt: new Date().toISOString()
+      });
+      await saveState(state);
+      send(response, 200, { customer: customerPublic(customer, state), withdrawals: state.withdrawals.filter((item) => item.customerId === customer.id) });
+      return true;
+    }
   }
 
   if (request.method === "POST" && url.pathname === "/api/customer/plan") {
@@ -734,7 +801,11 @@ async function handleApi(request, response, url) {
 }
 
 function serveFile(response, pathname) {
-  const safePath = pathname === "/" ? "/index.html" : pathname === "/control-panel" ? "/control-panel.html" : pathname;
+  const safePath = pathname === "/" || pathname === "/control-panel"
+    ? "/control-panel.html"
+    : pathname.startsWith("/player/")
+      ? "/index.html"
+      : pathname;
   const filePath = path.normalize(path.join(__dirname, safePath));
   const relativePath = path.relative(__dirname, filePath);
   const hiddenSegment = relativePath.split(path.sep).some((segment) => segment.startsWith("."));
