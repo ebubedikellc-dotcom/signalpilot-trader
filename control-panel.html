@@ -72,6 +72,64 @@
               <article><span>Total saved deposit</span><strong id="manualDepositTotal">$0.00</strong></article>
             </div>
 
+            <section class="live-watch-panel" aria-labelledby="liveWatchTitle">
+              <div class="watch-top">
+                <div>
+                  <p class="eyebrow">Live Trading Watch</p>
+                  <h2 id="liveWatchTitle">Show me buy, sell, profit.</h2>
+                  <p>This is the screen to leave open or record when SignalPilot is copying trades.</p>
+                </div>
+                <div class="watch-live-badge" id="watchLiveBadge">Waiting</div>
+              </div>
+
+              <div class="watch-grid">
+                <article>
+                  <span>Watching</span>
+                  <strong id="watchProfileName">Smart Win</strong>
+                  <small id="watchProfileStatus">Waiting for Smart Win to start.</small>
+                </article>
+                <article>
+                  <span>Deposit</span>
+                  <strong id="watchDeposit">$0.00</strong>
+                  <small id="watchWallet">Wallet not connected yet</small>
+                </article>
+                <article>
+                  <span>Profit</span>
+                  <strong id="watchProfit">$0.00</strong>
+                  <small id="watchProfitNote">No profit recorded yet.</small>
+                </article>
+                <article>
+                  <span>Last action</span>
+                  <strong id="watchLastAction">Waiting</strong>
+                  <small id="watchLastToken">No buy or sell shown yet.</small>
+                </article>
+              </div>
+
+              <div class="watch-chart-card">
+                <div class="chart-head">
+                  <strong>Trading movement</strong>
+                  <span id="watchChartNote">Chart starts when copied trades appear.</span>
+                </div>
+                <div class="watch-chart">
+                  <svg id="watchChartSvg" viewBox="0 0 640 220" role="img" aria-label="SignalPilot copied trade movement chart">
+                    <path class="chart-grid-line" d="M0 55H640M0 110H640M0 165H640"></path>
+                    <path id="watchChartPath" class="chart-path" d="M20 170 C140 170 160 110 260 120 S400 90 500 105 S600 70 620 86"></path>
+                    <circle id="watchChartDot" class="chart-dot" cx="620" cy="86" r="7"></circle>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="watch-tape">
+                <div class="chart-head">
+                  <strong>Buy / sell tape</strong>
+                  <span>Real copied signals will list here.</span>
+                </div>
+                <ul id="watchTape">
+                  <li>Waiting for Frog / Smart Win to make a trade.</li>
+                </ul>
+              </div>
+            </section>
+
             <div class="trade-room-grid">
               <article class="trader-card trade-room-card beginner">
                 <div class="trader-head">
