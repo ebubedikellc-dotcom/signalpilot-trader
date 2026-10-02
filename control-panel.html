@@ -213,6 +213,15 @@
                   <button class="stop-action" id="frogStop" disabled>Stop</button>
                 </div>
 
+                <div class="withdraw-inline danger-box">
+                  <h4>Manual sell from Smart Win</h4>
+                  <p>Use this when a coin is stuck. It sells the coin back to USDC and leaves SOL gas in the wallet.</p>
+                  <label>Token to sell <input id="frogSellMint" autocomplete="off" value="3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh"></label>
+                  <small>Keep about 0.02 to 0.03 SOL for gas. Do not sell the SOL gas unless you are closing everything.</small>
+                  <button id="frogSellTokenButton" class="stop-action" type="button">Sell Smart Win token to USDC</button>
+                  <small id="frogSellTokenResult">No manual sell sent yet.</small>
+                </div>
+
                 <div class="withdraw-inline">
                   <h4>Withdraw from Smart Win</h4>
                   <label>Profit USDC to wallet <input id="frogProfitWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>

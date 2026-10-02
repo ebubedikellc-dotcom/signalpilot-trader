@@ -1099,6 +1099,32 @@ async function ownerWithdraw(profile = "frog", options = {}) {
   }
 }
 
+async function ownerSellToken(profile = "frog") {
+  const prefix = profile === "truenest" ? "truenest" : "frog";
+  const resultNode = $(`${prefix}SellTokenResult`);
+  if (resultNode) resultNode.textContent = "Selling token to USDC...";
+  try {
+    const result = await api("/api/owner/sell-token", {
+      method: "POST",
+      body: JSON.stringify({
+        profile,
+        mint: value(`${prefix}SellMint`)
+      })
+    });
+    renderState(result.status);
+    const signature = result.trade?.execution?.txid || result.trade?.signature || "";
+    if (resultNode) {
+      resultNode.innerHTML = signature
+        ? `Manual sell sent. <a href="https://solscan.io/tx/${encodeURIComponent(signature)}" target="_blank" rel="noopener">Open Solscan receipt</a>`
+        : "Manual sell sent.";
+    }
+    showBusinessMessage("Manual sell sent.");
+  } catch (error) {
+    if (resultNode) resultNode.textContent = error.message;
+    showBusinessMessage(error.message, true);
+  }
+}
+
 async function copyTextFromNode(id, label) {
   const text = $(id)?.textContent?.trim() || "";
   if (!text || text === "Wallet not connected yet") return;
@@ -1132,6 +1158,7 @@ on("frogWithdrawButton", "click", () => ownerWithdraw("frog"));
 on("truenestWithdrawButton", "click", () => ownerWithdraw("truenest"));
 on("frogProfitWithdrawButton", "click", () => ownerWithdraw("frog", { profitOnly: true }));
 on("truenestProfitWithdrawButton", "click", () => ownerWithdraw("truenest", { profitOnly: true }));
+on("frogSellTokenButton", "click", () => ownerSellToken("frog"));
 on("copyManualFrogWallet", "click", () => copyTextFromNode("manualFrogWallet", "Smart Win wallet"));
 on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "Risk Win wallet"));
 on("ownerLogin", "click", ownerLogin);

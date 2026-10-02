@@ -20,7 +20,7 @@ const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
 const dataDir = process.env.DATA_DIR || path.join(__dirname, ".data");
 const dataFile = path.join(dataDir, "signalpilot-state.json");
-const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 1000);
+const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 500);
 const maxSignalAgeMs = Number(process.env.MAX_SIGNAL_AGE_MS || 5000);
 const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
 const sessionMaxAge = 60 * 60 * 24 * 30;
@@ -650,7 +650,7 @@ function buyUsdAmount(state, profile, sourceUsd = 0) {
     usd = maxUsd || Math.min(deposit || 0, 50);
   }
 
-  if (profileProtectionEnabled(state, profile) && maxUsd) usd = Math.min(usd, maxUsd);
+  if (maxUsd) usd = Math.min(usd, maxUsd);
   if (deposit) usd = Math.min(usd, deposit);
   return Number.isFinite(usd) && usd > 0 ? usd : 0;
 }
@@ -1058,6 +1058,26 @@ async function tokenBalanceRaw(connection, owner, mint) {
   return total > 0n ? String(total) : "";
 }
 
+async function latestHeldCopiedToken(connection, state, profile, wallet) {
+  const roomTrades = (state.trades || []).filter((trade) => {
+    const text = String(trade.profile || "").toLowerCase();
+    return profile === "frog"
+      ? text.includes("smart win") || text.includes("frog")
+      : text.includes("risk win") || text.includes("truenest") || text.includes("big win");
+  });
+
+  for (const trade of roomTrades) {
+    const action = String(trade.action || trade.execution?.action || "").toLowerCase();
+    const status = String(trade.status || "").toLowerCase();
+    const mint = trade.tradedTokenMint || trade.execution?.outputMint || trade.token;
+    if (!action.includes("buy") || !status.includes("executed") || !mint || isQuoteMint(mint)) continue;
+    const amount = await tokenBalanceRaw(connection, wallet, mint);
+    if (amount) return { mint, amount };
+  }
+
+  return null;
+}
+
 async function executeCopiedSwap(profile, transaction, state) {
   const leg = primarySwapLeg(transaction, profile, state);
   if (!leg?.inputMint || !leg?.outputMint || !leg?.amount) {
@@ -1088,13 +1108,21 @@ async function executeCopiedSwap(profile, transaction, state) {
   }
 
   if (leg.action === "sell") {
-    const heldAmount = await tokenBalanceRaw(connection, wallet, leg.inputMint);
-    if (!heldAmount) return { status: `Skipped - no ${leg.inputSymbol || "token"} balance to sell` };
-    inputMint = leg.inputMint;
+    let heldAmount = await tokenBalanceRaw(connection, wallet, leg.inputMint);
+    let sellNote = "Sell current copied token balance back to USDC";
+    if (!heldAmount) {
+      const fallback = await latestHeldCopiedToken(connection, state, profile, wallet);
+      if (!fallback) return { status: `Skipped - no ${leg.inputSymbol || "token"} balance to sell` };
+      inputMint = fallback.mint;
+      heldAmount = fallback.amount;
+      sellNote = `Frog sell detected; sold last held copied token ${fallback.mint} because direct sell token was not in wallet`;
+    } else {
+      inputMint = leg.inputMint;
+    }
     outputMint = usdcMint;
     copyAmount = {
       amount: heldAmount,
-      note: "Sell current copied token balance back to USDC"
+      note: sellNote
     };
   }
 
@@ -1144,6 +1172,62 @@ async function executeCopiedSwap(profile, transaction, state) {
     copySizingNote: copyAmount.note,
     copiedSourceAmount: String(leg.amount),
     copiedTradeAmount: copyAmount.amount,
+    signedWith: signed.signWith,
+    requestId: order.requestId,
+    swapUsdValue: order.swapUsdValue,
+    outAmount: order.outAmount,
+    txid: executed.signature || executed.txid || executed.transactionId || executed.swapTransaction || ""
+  };
+}
+
+async function executeManualTokenSell(state, { profile, mint }) {
+  const wallet = tradeWallet(state, profile);
+  const signer = signerId(state, profile) || wallet;
+  const tokenMint = solanaAddress(mint)?.toBase58();
+  if (!wallet || !signer) throw new Error(`${profileLabel(profile)} trading wallet or signer is missing.`);
+  if (!tokenMint || isQuoteMint(tokenMint)) throw new Error("Enter the held token mint to sell.");
+  if (!liveTradingAllowed(state, profile)) throw new Error(`${profileLabel(profile)} live trading is not enabled.`);
+
+  const connection = solanaConnection(state.settings);
+  const heldAmount = await tokenBalanceRaw(connection, wallet, tokenMint);
+  if (!heldAmount) throw new Error(`${profileLabel(profile)} does not hold this token anymore.`);
+
+  const order = await jupiterJson("/swap/v2/order", {
+    apiKey: jupiterApiKey(state.settings),
+    query: {
+      inputMint: tokenMint,
+      outputMint: usdcMint,
+      amount: heldAmount,
+      taker: wallet,
+      swapMode: "ExactIn",
+      slippageBps: 500
+    }
+  });
+
+  if (!order.transaction) {
+    throw new Error(`Jupiter could not build sell transaction${order.errorCode ? ` (${order.errorCode})` : ""}.`);
+  }
+
+  const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
+  const executed = await jupiterJson("/swap/v2/execute", {
+    apiKey: jupiterApiKey(state.settings),
+    method: "POST",
+    body: {
+      signedTransaction: signed.signedTransactionBase64,
+      requestId: order.requestId,
+      lastValidBlockHeight: order.lastValidBlockHeight
+    }
+  });
+
+  return {
+    status: "Executed",
+    action: "sell",
+    inputMint: tokenMint,
+    outputMint: usdcMint,
+    inputSymbol: tokenMint,
+    outputSymbol: "USDC",
+    copySizingNote: "Manual emergency sell of held token to USDC; SOL gas remains in wallet",
+    copiedTradeAmount: heldAmount,
     signedWith: signed.signWith,
     requestId: order.requestId,
     swapUsdValue: order.swapUsdValue,
@@ -1655,6 +1739,50 @@ async function handleApi(request, response, url) {
       });
       state.activity = [
         line(`${profileLabel(profile)} withdrawal failed: ${error.message}`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+      await saveState(state);
+      send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
+    }
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/owner/sell-token") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    const body = await readBody(request);
+    const profile = body.profile === "truenest" ? "truenest" : "frog";
+    const mint = String(body.mint || "").trim();
+
+    try {
+      const result = await executeManualTokenSell(state, { profile, mint });
+      const trade = {
+        id: result.txid || randomUUID(),
+        signature: result.txid || "",
+        time: new Date().toLocaleString("en-US", { hour12: false }),
+        profile: profileLabel(profile),
+        action: "Manual sell",
+        token: result.inputMint,
+        tradedToken: result.inputMint,
+        tradedTokenMint: result.inputMint,
+        amount: Number(result.swapUsdValue || 0),
+        sourceUsd: 0,
+        sourceReceivedUsd: Number(result.swapUsdValue || 0),
+        traderPnlUsd: 0,
+        pnl: 0,
+        status: "Executed",
+        execution: result
+      };
+      state.trades = [trade, ...(state.trades || [])].slice(0, 80);
+      state.activity = [
+        line(`${profileLabel(profile)} manual sell sent ${result.inputMint.slice(0, 6)}...${result.inputMint.slice(-4)} to USDC. SOL gas was left in the wallet.`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+      await saveState(state);
+      send(response, 200, { trade, status: statusPayload(state, { role: "owner", id: "owner" }) });
+    } catch (error) {
+      state.activity = [
+        line(`${profileLabel(profile)} manual sell failed: ${error.message}`),
         ...(state.activity || [])
       ].slice(0, 20);
       await saveState(state);
