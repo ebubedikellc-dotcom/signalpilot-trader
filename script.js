@@ -20,6 +20,12 @@ const fields = [
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
+  "frogWalletSync",
+  "frogRiskControl",
+  "frogLiveTradingSwitch",
+  "truenestWalletSync",
+  "truenestRiskControl",
+  "truenestLiveTradingSwitch",
   "vaultMode",
   "vaultFeePercent",
   "ownerProfitSharePercent",
@@ -30,6 +36,7 @@ const fields = [
 const page = document.body.dataset.page || "customer";
 const $ = (id) => document.getElementById(id);
 let activeCustomerToken = "";
+let latestState = { settings: {}, profiles: {}, trades: [], backend: {} };
 
 function money(value) {
   const amount = Number(value || 0);
@@ -167,11 +174,63 @@ function localReady(data = payload()) {
   );
 }
 
+function profileName(profile) {
+  return profile === "frog" ? "Frog" : "Big Win";
+}
+
+function profileStatusName(profile) {
+  return profile === "frog" ? "Frog beginner" : "Truenest Big Win";
+}
+
+function profileSetting(settings, profile, key, fallback = "") {
+  const prefix = profile === "frog" ? "frog" : "truenest";
+  const profileKey = `${prefix}${key[0].toUpperCase()}${key.slice(1)}`;
+  return settings[profileKey] || settings[key] || fallback;
+}
+
+function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
+  const label = profileName(profile);
+  const statusLabel = profileStatusName(profile).toLowerCase();
+  const roomTrades = trades.filter((trade) => String(trade.profile || "").toLowerCase().includes(statusLabel.toLowerCase()));
+  const wins = roomTrades.filter((trade) => Number(trade.pnl || 0) > 0 || /\bwin\b|\bprofit\b/i.test(String(trade.status || ""))).length;
+  const riskControl = profileSetting(settings, profile, "riskControl", "on");
+  const liveSwitch = profileSetting(settings, profile, "liveTradingSwitch", "on");
+  const walletSync = profileSetting(settings, profile, "walletSync", "Turnkey server wallet");
+  const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
+
+  setText(`${profile}Wins`, String(wins));
+  setText(`${profile}Signals`, String(roomTrades.length));
+  setText(`${profile}SafeStatus`, riskControl === "off" ? "Exact copy only" : "Protect me ON");
+  setText(`${profile}WalletStatus`, walletSync === "Turnkey server wallet"
+    ? `Turnkey server wallet is selected for ${label}.`
+    : `Manual wallet only is selected for ${label}.`);
+
+  if (walletSync !== "Turnkey server wallet") {
+    setText(`${profile}LiveStatus`, "Manual wallet means the site can watch and show signals, but it cannot sign automatic buy/sell.");
+  } else if (liveSwitch !== "on") {
+    setText(`${profile}LiveStatus`, `${label} is monitor-only until you change Allow live trading to ON.`);
+  } else if (productionExecution) {
+    setText(`${profile}LiveStatus`, `${label} can execute when you press Start and the copied trader makes a swap.`);
+  } else {
+    setText(`${profile}LiveStatus`, `${label} switch is ON, but Render production execution is still locked.`);
+  }
+}
+
 function renderState(state) {
-  const settings = state.settings || {};
-  const profiles = state.profiles || {};
-  const liveTradingEnv = state.backend?.liveTradingEnv === true;
-  const productionExecution = state.backend?.productionExecution === true || state.backend?.liveTrading === true;
+  latestState = {
+    ...latestState,
+    ...state,
+    settings: { ...(latestState.settings || {}), ...(state.settings || {}) },
+    profiles: { ...(latestState.profiles || {}), ...(state.profiles || {}) },
+    trades: state.trades || latestState.trades || [],
+    backend: { ...(latestState.backend || {}), ...(state.backend || {}) }
+  };
+  const settings = latestState.settings || {};
+  const profiles = latestState.profiles || {};
+  const trades = latestState.trades || [];
+  const backend = latestState.backend || {};
+  const liveTradingEnv = backend.liveTradingEnv === true;
+  const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
 
   fields.forEach((id) => {
     const node = $(id);
@@ -188,9 +247,11 @@ function renderState(state) {
   setText("truenestProfit", money(profiles.truenest?.profit));
   setText("frogBalance", `Deposit: ${money(settings.frogDeposit)}`);
   setText("truenestBalance", `Deposit: ${money(settings.truenestDeposit)}`);
+  renderRoomStatus("frog", settings, trades, backend);
+  renderRoomStatus("truenest", settings, trades, backend);
   renderManualDeposit(settings);
   renderVault(settings, profiles);
-  renderTrades(state.trades || []);
+  renderTrades(trades);
   setText("liveEnvStatus", productionExecution
     ? "Production execution is enabled in Render and the required wallet details are saved."
     : liveTradingEnv
@@ -230,8 +291,8 @@ function renderState(state) {
 
   setText("engineStatus", running.length ? "Production copy engine running" : "Production execution enabled");
   setText("engineSubtext", running.length
-    ? `${settings.walletSync || "Turnkey server wallet"} is selected. Render is watching the trader and execution is enabled.`
-    : `Wallet sync: ${settings.walletSync || "Turnkey server wallet"}. Press Start on Frog or Truenest.`);
+    ? "Each room uses its own wallet engine and safety switch. Render is watching the trader and execution is enabled."
+    : "Press Start inside Frog or Big Win. Each room has its own safety and live trading switch.");
   setLog(state.activity?.length ? state.activity : ["Ready. Press Start Frog or Start Truenest."]);
 }
 
@@ -658,6 +719,8 @@ on("saveProfitShare", "click", saveSettings);
 on("saveManualDeposit", "click", saveManualDeposit);
 on("saveFrogDeposit", "click", saveManualDeposit);
 on("saveTruenestDeposit", "click", saveManualDeposit);
+on("saveFrogSafety", "click", saveSettings);
+on("saveTruenestSafety", "click", saveSettings);
 on("ownerWithdrawButton", "click", () => ownerWithdraw(value("ownerWithdrawProfile") || "frog"));
 on("frogWithdrawButton", "click", () => ownerWithdraw("frog"));
 on("truenestWithdrawButton", "click", () => ownerWithdraw("truenest"));
@@ -671,7 +734,10 @@ on("ownerCreateCustomer", "click", ownerCreateCustomer);
 on("saveCustomerPlan", "click", saveCustomerPlan);
 on("requestWithdraw", "click", requestWithdrawal);
 on("logoutButton", "click", logout);
-fields.forEach((id) => on(id, "input", () => renderState({ settings: payload(), profiles: {}, activity: [] })));
+fields.forEach((id) => {
+  on(id, "input", () => renderState({ settings: payload(), profiles: {}, activity: [] }));
+  on(id, "change", () => renderState({ settings: payload(), profiles: {}, activity: [] }));
+});
 on("frogStart", "click", () => startProfile("frog"));
 on("frogStop", "click", () => stopProfile("frog"));
 on("truenestStart", "click", () => startProfile("truenest"));
