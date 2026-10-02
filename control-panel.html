@@ -86,38 +86,7 @@
                 <div class="room-stat-grid">
                   <div><span>Wins</span><strong id="frogWins">0</strong></div>
                   <div><span>Copied signals</span><strong id="frogSignals">0</strong></div>
-                  <div><span>Safety</span><strong id="frogSafeStatus">Protect me ON</strong></div>
-                </div>
-
-                <div class="safety-panel">
-                  <h4>Playing safe for Smart Win</h4>
-                  <label>Protection
-                    <select id="frogRiskControl">
-                      <option value="off">OFF - copy exact amount</option>
-                      <option value="on">ON - protect me with max buy</option>
-                    </select>
-                  </label>
-                  <label>Allow live trading
-                    <select id="frogLiveTradingSwitch">
-                      <option value="on">ON - allow live trading</option>
-                      <option value="off">OFF - monitor only</option>
-                    </select>
-                  </label>
-                  <label>Wallet engine
-                    <select id="frogWalletSync">
-                      <option>Turnkey server wallet</option>
-                      <option>Manual wallet only</option>
-                    </select>
-                  </label>
-                  <label>Trader copied wallet <input id="frogWallet" value="4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh"></label>
-                  <label>Maximum single buy <input id="frogMax" value="420"></label>
-                  <label>Trade instruction <select id="frogMode"><option value="Copy exact amount">Copy exact amount</option><option value="Copy exact amount after safety check">Copy with Protect me</option></select></label>
-                  <button id="saveFrogSafety" class="secondary-action" type="button">Save Smart Win safety</button>
-                  <div class="room-help">
-                    <strong id="frogWalletStatus">Turnkey server wallet selected.</strong>
-                    <span>Turnkey signs automatic buys, sells, and withdrawals from this Smart Win wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
-                    <span id="frogLiveStatus">Live trading follows this Smart Win switch plus Render production lock.</span>
-                  </div>
+                  <div><span>Profit made</span><strong id="frogRoomProfit">$0.00</strong></div>
                 </div>
 
                 <div class="room-copy-thread">
@@ -163,38 +132,7 @@
                 <div class="room-stat-grid">
                   <div><span>Wins</span><strong id="truenestWins">0</strong></div>
                   <div><span>Copied signals</span><strong id="truenestSignals">0</strong></div>
-                  <div><span>Safety</span><strong id="truenestSafeStatus">Protect me ON</strong></div>
-                </div>
-
-                <div class="safety-panel">
-                  <h4>Playing safe for Risk Win</h4>
-                  <label>Protection
-                    <select id="truenestRiskControl">
-                      <option value="off">OFF - copy exact amount</option>
-                      <option value="on">ON - protect me with max buy</option>
-                    </select>
-                  </label>
-                  <label>Allow live trading
-                    <select id="truenestLiveTradingSwitch">
-                      <option value="on">ON - allow live trading</option>
-                      <option value="off">OFF - monitor only</option>
-                    </select>
-                  </label>
-                  <label>Wallet engine
-                    <select id="truenestWalletSync">
-                      <option>Turnkey server wallet</option>
-                      <option>Manual wallet only</option>
-                    </select>
-                  </label>
-                  <label>Trader copied wallet <input id="truenestWallet" value="ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT"></label>
-                  <label>Maximum single buy <input id="truenestMax" value="750"></label>
-                  <label>Trade instruction <select id="truenestMode"><option value="Copy exact amount">Copy exact amount</option><option value="Copy exact amount after safety check">Copy with Protect me</option></select></label>
-                  <button id="saveTruenestSafety" class="secondary-action" type="button">Save Risk Win safety</button>
-                  <div class="room-help">
-                    <strong id="truenestWalletStatus">Turnkey server wallet selected.</strong>
-                    <span>Turnkey signs automatic buys, sells, and withdrawals from this Risk Win wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
-                    <span id="truenestLiveStatus">Live trading follows this Risk Win switch plus Render production lock.</span>
-                  </div>
+                  <div><span>Profit made</span><strong id="truenestRoomProfit">$0.00</strong></div>
                 </div>
 
                 <div class="room-copy-thread">
@@ -308,6 +246,72 @@
                 <article><span>1</span><strong>Backend</strong><p>Already running on Render. This watches traders and serves accounts.</p></article>
                 <article><span>2</span><strong>Keys and wallets</strong><p>Paste Helius, Jupiter, Turnkey, Smart Win wallet, and Risk Win wallet details here only.</p></article>
                 <article><span>3</span><strong>Production execution lock</strong><p id="liveEnvStatus">Render execution status will show here.</p></article>
+              </div>
+
+              <div class="settings-room-grid" aria-label="Trading room controls">
+                <div class="safety-panel">
+                  <h4>Smart Win settings</h4>
+                  <label>Protection
+                    <select id="frogRiskControl">
+                      <option value="off">OFF - copy exact amount</option>
+                      <option value="on">ON - protect me with max buy</option>
+                    </select>
+                  </label>
+                  <label>Allow live trading
+                    <select id="frogLiveTradingSwitch">
+                      <option value="on">ON - allow live trading</option>
+                      <option value="off">OFF - monitor only</option>
+                    </select>
+                  </label>
+                  <label>Wallet engine
+                    <select id="frogWalletSync">
+                      <option>Turnkey server wallet</option>
+                      <option>Manual wallet only</option>
+                    </select>
+                  </label>
+                  <label>Trader copied wallet <input id="frogWallet" value="4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh"></label>
+                  <label>Maximum single buy <input id="frogMax" value="420"></label>
+                  <label>Trade instruction <select id="frogMode"><option value="Copy exact amount">Copy exact amount</option><option value="Copy exact amount after safety check">Copy with Protect me</option></select></label>
+                  <button id="saveFrogSafety" class="secondary-action" type="button">Save Smart Win settings</button>
+                  <div class="room-help">
+                    <strong id="frogWalletStatus">Turnkey server wallet selected.</strong>
+                    <span>Turnkey signs automatic buys, sells, and withdrawals from this Smart Win wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
+                    <span id="frogLiveStatus">Live trading follows this Smart Win switch plus Render production lock.</span>
+                    <span id="frogSafeStatus">Protect me ON</span>
+                  </div>
+                </div>
+
+                <div class="safety-panel">
+                  <h4>Risk Win settings</h4>
+                  <label>Protection
+                    <select id="truenestRiskControl">
+                      <option value="off">OFF - copy exact amount</option>
+                      <option value="on">ON - protect me with max buy</option>
+                    </select>
+                  </label>
+                  <label>Allow live trading
+                    <select id="truenestLiveTradingSwitch">
+                      <option value="on">ON - allow live trading</option>
+                      <option value="off">OFF - monitor only</option>
+                    </select>
+                  </label>
+                  <label>Wallet engine
+                    <select id="truenestWalletSync">
+                      <option>Turnkey server wallet</option>
+                      <option>Manual wallet only</option>
+                    </select>
+                  </label>
+                  <label>Trader copied wallet <input id="truenestWallet" value="ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT"></label>
+                  <label>Maximum single buy <input id="truenestMax" value="750"></label>
+                  <label>Trade instruction <select id="truenestMode"><option value="Copy exact amount">Copy exact amount</option><option value="Copy exact amount after safety check">Copy with Protect me</option></select></label>
+                  <button id="saveTruenestSafety" class="secondary-action" type="button">Save Risk Win settings</button>
+                  <div class="room-help">
+                    <strong id="truenestWalletStatus">Turnkey server wallet selected.</strong>
+                    <span>Turnkey signs automatic buys, sells, and withdrawals from this Risk Win wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
+                    <span id="truenestLiveStatus">Live trading follows this Risk Win switch plus Render production lock.</span>
+                    <span id="truenestSafeStatus">Protect me ON</span>
+                  </div>
+                </div>
               </div>
 
               <div class="form-grid">
