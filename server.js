@@ -1059,12 +1059,7 @@ async function tokenBalanceRaw(connection, owner, mint) {
 }
 
 async function latestHeldCopiedToken(connection, state, profile, wallet) {
-  const roomTrades = (state.trades || []).filter((trade) => {
-    const text = String(trade.profile || "").toLowerCase();
-    return profile === "frog"
-      ? text.includes("smart win") || text.includes("frog")
-      : text.includes("risk win") || text.includes("truenest") || text.includes("big win");
-  });
+  const roomTrades = (state.trades || []).filter((trade) => roomMatchesProfile(trade, profile));
 
   for (const trade of roomTrades) {
     const action = String(trade.action || trade.execution?.action || "").toLowerCase();
@@ -1236,6 +1231,58 @@ async function executeManualTokenSell(state, { profile, mint }) {
   };
 }
 
+function roomMatchesProfile(trade = {}, profile = "") {
+  const text = String(trade.profile || "").toLowerCase();
+  return profile === "frog"
+    ? text.includes("smart win") || text.includes("frog")
+    : text.includes("risk win") || text.includes("truenest") || text.includes("big win");
+}
+
+async function autoSellStuckTokenAfterSellSignal(state, profile, leg, sourceTrade = {}) {
+  if (leg?.action !== "sell" || !liveTradingAllowed(state, profile)) return null;
+  const wallet = tradeWallet(state, profile);
+  if (!wallet) return null;
+
+  const connection = solanaConnection(state.settings);
+  const candidates = [];
+  if (leg.inputMint && !isQuoteMint(leg.inputMint)) candidates.push(leg.inputMint);
+
+  const normalSellExecuted = String(sourceTrade.status || "").toLowerCase().includes("executed");
+  if (!normalSellExecuted) {
+    const fallback = await latestHeldCopiedToken(connection, state, profile, wallet);
+    if (fallback?.mint && !candidates.includes(fallback.mint)) candidates.push(fallback.mint);
+  }
+
+  for (const mint of candidates) {
+    const balance = await tokenBalanceRaw(connection, wallet, mint);
+    if (!balance) continue;
+
+    const result = await executeManualTokenSell(state, { profile, mint });
+    return {
+      id: result.txid || randomUUID(),
+      signature: result.txid || "",
+      time: new Date().toLocaleString("en-US", { hour12: false }),
+      profile: profileLabel(profile),
+      action: "Auto stuck sell",
+      token: result.inputMint,
+      tradedToken: result.inputMint,
+      tradedTokenMint: result.inputMint,
+      amount: Number(result.swapUsdValue || 0),
+      sourceUsd: 0,
+      sourceReceivedUsd: Number(result.swapUsdValue || 0),
+      traderPnlUsd: 0,
+      pnl: 0,
+      status: "Executed",
+      execution: {
+        ...result,
+        copySizingNote: `Auto stuck sell after Frog sell signal${sourceTrade.signature ? ` ${sourceTrade.signature}` : ""}; token was still in wallet`
+      }
+    };
+  }
+
+  return null;
+}
+
 function tradeFromTransaction(profile, transaction, state) {
   const status = liveTradingAllowed(state, profile)
     ? "Observed - execution pending"
@@ -1333,8 +1380,8 @@ async function runCopyWorkerOnce() {
 
     for (const transaction of signalTransactions) {
       const trade = tradeFromTransaction(profile, transaction, state);
+      const leg = primarySwapLeg(transaction, profile, state);
       if (liveTradingAllowed(state, profile)) {
-        const leg = primarySwapLeg(transaction, profile, state);
         const staleSignal = !freshEnoughToCopy(transaction);
         if (staleSignal && leg?.action !== "sell") {
           const seconds = Math.round(signalAgeMs(transaction) / 1000);
@@ -1351,6 +1398,24 @@ async function runCopyWorkerOnce() {
         }
       }
       newTrades.push(trade);
+
+      if (liveTradingAllowed(state, profile) && leg?.action === "sell") {
+        try {
+          const stuckSellTrade = await autoSellStuckTokenAfterSellSignal(state, profile, leg, trade);
+          if (stuckSellTrade) {
+            newTrades.push(stuckSellTrade);
+            state.activity = [
+              line(`${profileLabel(profile)} auto-sold stuck token ${stuckSellTrade.tradedTokenMint.slice(0, 6)}...${stuckSellTrade.tradedTokenMint.slice(-4)} after Frog sell.`),
+              ...(state.activity || [])
+            ].slice(0, 20);
+          }
+        } catch (error) {
+          state.activity = [
+            line(`${profileLabel(profile)} stuck token auto-sell failed: ${error.message}`),
+            ...(state.activity || [])
+          ].slice(0, 20);
+        }
+      }
     }
 
     state.profiles[profile].lastSignature = newest;
