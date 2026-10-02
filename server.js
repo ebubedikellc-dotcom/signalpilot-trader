@@ -739,7 +739,7 @@ async function executeSolWithdrawal(state, { profile, destination, amountSol }) 
     .toString("base64");
   const signed = await signSolanaTransaction(state, signer, sourceWallet, unsignedTransaction);
 
-  const signature = await connection.sendRawTransaction(Buffer.from(signed.signedTransaction, "base64"), {
+  const signature = await connection.sendRawTransaction(Buffer.from(signed.signedTransactionBase64, "base64"), {
     skipPreflight: false,
     maxRetries: 3
   });
@@ -800,8 +800,17 @@ function turnkeyClient(settings = {}) {
   }).apiClient();
 }
 
-async function signSolanaTransaction(state, preferredSigner, wallet, unsignedTransaction) {
+function base64ToHex(value = "") {
+  return Buffer.from(value, "base64").toString("hex");
+}
+
+function hexToBase64(value = "") {
+  return Buffer.from(value, "hex").toString("base64");
+}
+
+async function signSolanaTransaction(state, preferredSigner, wallet, unsignedTransactionBase64) {
   const candidates = [...new Set([preferredSigner, wallet].filter(Boolean))];
+  const unsignedTransaction = base64ToHex(unsignedTransactionBase64);
   let lastError = null;
   for (const signWith of candidates) {
     try {
@@ -810,7 +819,14 @@ async function signSolanaTransaction(state, preferredSigner, wallet, unsignedTra
         unsignedTransaction,
         type: "TRANSACTION_TYPE_SOLANA"
       });
-      if (signed?.signedTransaction) return { ...signed, signWith };
+      if (signed?.signedTransaction) {
+        return {
+          ...signed,
+          signWith,
+          signedTransactionHex: signed.signedTransaction,
+          signedTransactionBase64: hexToBase64(signed.signedTransaction)
+        };
+      }
       lastError = new Error(`Turnkey did not return a signed Solana transaction for ${signWith}`);
     } catch (error) {
       lastError = error;
@@ -918,7 +934,7 @@ async function executeCopiedSwap(profile, transaction, state) {
     apiKey,
     method: "POST",
     body: {
-      signedTransaction: signed.signedTransaction,
+      signedTransaction: signed.signedTransactionBase64,
       requestId: order.requestId,
       lastValidBlockHeight: order.lastValidBlockHeight
     }
