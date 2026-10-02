@@ -173,6 +173,123 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .withdraw-inline h4 { margin: 0; font-size: 1.05rem; }
 .withdraw-inline small { color: var(--muted); overflow-wrap: anywhere; line-height: 1.45; }
 .withdraw-inline a { color: var(--green); font-weight: 900; }
+.live-watch-panel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(46,230,166,.36);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(46,230,166,.14), rgba(246,201,92,.08)),
+    rgba(0,0,0,.22);
+  box-shadow: 0 20px 55px rgba(0,0,0,.25);
+}
+.watch-top, .chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.watch-top h2 { margin-bottom: 6px; font-size: 1.85rem; }
+.watch-top p { margin: 0; color: var(--muted); line-height: 1.5; }
+.watch-live-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  min-width: 130px;
+  padding: 0 14px;
+  border: 1px solid rgba(246,201,92,.45);
+  border-radius: 999px;
+  color: var(--gold);
+  background: rgba(246,201,92,.12);
+  font-weight: 950;
+}
+.watch-live-badge.is-live {
+  border-color: rgba(46,230,166,.58);
+  color: var(--green);
+  background: rgba(46,230,166,.16);
+}
+.watch-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.watch-grid article {
+  display: grid;
+  gap: 5px;
+  min-height: 118px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0,0,0,.2);
+}
+.watch-grid span, .chart-head span {
+  color: var(--muted);
+  font-size: .84rem;
+  font-weight: 850;
+}
+.watch-grid strong { font-size: 1.35rem; overflow-wrap: anywhere; }
+.watch-grid small { color: var(--muted); line-height: 1.4; overflow-wrap: anywhere; }
+.watch-chart-card, .watch-tape {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0,0,0,.2);
+}
+.chart-head strong { font-size: 1.05rem; }
+.watch-chart {
+  min-height: 220px;
+  overflow: hidden;
+  border: 1px solid rgba(46,230,166,.2);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(46,230,166,.12), transparent 58%),
+    rgba(3,8,13,.7);
+}
+.watch-chart svg { display: block; width: 100%; height: 220px; }
+.chart-grid-line {
+  fill: none;
+  stroke: rgba(255,255,255,.09);
+  stroke-width: 1;
+}
+.chart-path {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 12px rgba(46,230,166,.42));
+}
+.chart-dot {
+  fill: var(--gold);
+  stroke: #061118;
+  stroke-width: 4;
+}
+.watch-tape ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.watch-tape li {
+  display: grid;
+  grid-template-columns: minmax(92px, .38fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(255,255,255,.04);
+}
+.watch-tape strong { color: var(--green); }
+.watch-tape span { overflow-wrap: anywhere; }
+.watch-tape em { color: var(--muted); font-style: normal; font-size: .82rem; }
+.watch-tape .tape-loss strong { color: var(--red); }
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .metric-grid article { display: grid; gap: 6px; min-height: 112px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.18); }
 .metric-grid span { color: var(--muted); font-size: .85rem; font-weight: 800; }
@@ -334,12 +451,14 @@ td { color: var(--muted); }
 .loss-row td:nth-child(6) { color: var(--red); font-weight: 900; }
 
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row {
+  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .watch-grid {
     grid-template-columns: 1fr;
   }
 
   .owner-tabs { grid-template-columns: 1fr; }
   .facts { grid-template-columns: 1fr; }
+  .watch-top, .chart-head { align-items: stretch; flex-direction: column; }
+  .watch-tape li { grid-template-columns: 1fr; }
   .section-title { align-items: stretch; flex-direction: column; }
   .secondary-action { width: 100%; }
 }
