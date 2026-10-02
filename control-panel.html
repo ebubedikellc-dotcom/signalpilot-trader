@@ -14,7 +14,7 @@
         <div>
           <p class="eyebrow">Owner Control Panel</p>
           <h1>My trading room.</h1>
-          <p class="lede">Deposit, start trading, watch profit, and withdraw from one clean page. Frog and Big Win each have their own room so the money does not mix.</p>
+          <p class="lede">Deposit, start trading, watch profit, and withdraw from one clean page. Smart Win and Risk Win each have their own room so the money does not mix.</p>
           <div class="hero-actions">
             <a class="secondary-link" href="#tradePage">Go to trade page</a>
           </div>
@@ -65,21 +65,21 @@
 
           <section id="tradePage" class="owner-page" data-owner-page="trade" aria-label="Trade page">
             <div class="metric-grid trading-summary">
-              <article><span>Frog deposit</span><strong id="frogBalance">Deposit: $0.00</strong></article>
-              <article><span>Frog profit</span><strong id="frogProfit">$0.00</strong></article>
-              <article><span>Big Win deposit</span><strong id="truenestBalance">Deposit: $0.00</strong></article>
-              <article><span>Big Win profit</span><strong id="truenestProfit">$0.00</strong></article>
+              <article><span>Smart Win deposit</span><strong id="frogBalance">Deposit: $0.00</strong></article>
+              <article><span>Smart Win profit</span><strong id="frogProfit">$0.00</strong></article>
+              <article><span>Risk Win deposit</span><strong id="truenestBalance">Deposit: $0.00</strong></article>
+              <article><span>Risk Win profit</span><strong id="truenestProfit">$0.00</strong></article>
               <article><span>Total saved deposit</span><strong id="manualDepositTotal">$0.00</strong></article>
             </div>
 
             <div class="trade-room-grid">
               <article class="trader-card trade-room-card beginner">
                 <div class="trader-head">
-                  <div class="avatar frog-face" aria-hidden="true">F</div>
+                  <div class="avatar frog-face" aria-hidden="true">S</div>
                   <div>
-                    <span class="slot">Frog Room</span>
-                    <h2>Frog</h2>
-                    <p>Deposit here, start Frog, withdraw from Frog.</p>
+                    <span class="slot">Smart Win Room</span>
+                    <h2>Smart Win</h2>
+                    <p>Deposit here, start Smart Win, withdraw from Smart Win.</p>
                   </div>
                 </div>
 
@@ -90,11 +90,11 @@
                 </div>
 
                 <div class="safety-panel">
-                  <h4>Playing safe for Frog</h4>
-                  <label>Protect me
+                  <h4>Playing safe for Smart Win</h4>
+                  <label>Protection
                     <select id="frogRiskControl">
-                      <option value="on">ON - protect me</option>
-                      <option value="off">OFF - exact copy only</option>
+                      <option value="off">OFF - copy exact amount</option>
+                      <option value="on">ON - protect me with max buy</option>
                     </select>
                   </label>
                   <label>Allow live trading
@@ -111,45 +111,52 @@
                   </label>
                   <label>Trader copied wallet <input id="frogWallet" value="4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh"></label>
                   <label>Maximum single buy <input id="frogMax" value="420"></label>
-                  <label>Copy mode <select id="frogMode"><option>Copy exact amount</option><option>Copy exact amount after safety check</option><option>Copy smaller percentage</option></select></label>
-                  <button id="saveFrogSafety" class="secondary-action" type="button">Save Frog safety</button>
+                  <label>Trade instruction <select id="frogMode"><option value="Copy exact amount">Copy exact amount</option><option value="Copy exact amount after safety check">Copy with Protect me</option></select></label>
+                  <button id="saveFrogSafety" class="secondary-action" type="button">Save Smart Win safety</button>
                   <div class="room-help">
                     <strong id="frogWalletStatus">Turnkey server wallet selected.</strong>
-                    <span>Turnkey signs automatic buys, sells, and withdrawals from this Frog wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
-                    <span id="frogLiveStatus">Live trading follows this Frog switch plus Render production lock.</span>
+                    <span>Turnkey signs automatic buys, sells, and withdrawals from this Smart Win wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
+                    <span id="frogLiveStatus">Live trading follows this Smart Win switch plus Render production lock.</span>
                   </div>
                 </div>
 
-                <div class="address-card">
-                  <span>Deposit to Frog wallet</span>
-                  <strong id="manualFrogWallet">Wallet not connected yet</strong>
-                  <button id="copyManualFrogWallet" type="button" disabled>Copy Frog wallet</button>
+                <div class="room-copy-thread">
+                  <h4>Copy thread</h4>
+                  <ul id="frogRoomThread">
+                    <li>No Smart Win copied trade yet.</li>
+                  </ul>
                 </div>
 
-                <label>Frog deposit confirmed <input id="manualFrogDeposit" inputmode="decimal" placeholder="0"></label>
-                <button id="saveFrogDeposit" class="primary-action" type="button">Save Frog deposit</button>
+                <div class="address-card">
+                  <span>Deposit to Smart Win wallet</span>
+                  <strong id="manualFrogWallet">Wallet not connected yet</strong>
+                  <button id="copyManualFrogWallet" type="button" disabled>Copy Smart Win wallet</button>
+                </div>
+
+                <label>Smart Win deposit confirmed <input id="manualFrogDeposit" inputmode="decimal" placeholder="0"></label>
+                <button id="saveFrogDeposit" class="primary-action" type="button">Save Smart Win deposit</button>
 
                 <div class="button-row">
-                  <button class="primary-action" id="frogStart" disabled>Start Frog</button>
+                  <button class="primary-action" id="frogStart" disabled>Start Smart Win</button>
                   <button class="stop-action" id="frogStop" disabled>Stop</button>
                 </div>
 
                 <div class="withdraw-inline">
-                  <h4>Withdraw from Frog</h4>
+                  <h4>Withdraw from Smart Win</h4>
                   <label>Send to Solana wallet <input id="frogWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
                   <label>Amount in SOL <input id="frogWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
-                  <button id="frogWithdrawButton" class="secondary-action" type="button">Withdraw Frog SOL</button>
-                  <small id="frogWithdrawResult">No Frog withdrawal sent yet.</small>
+                  <button id="frogWithdrawButton" class="secondary-action" type="button">Withdraw Smart Win SOL</button>
+                  <small id="frogWithdrawResult">No Smart Win withdrawal sent yet.</small>
                 </div>
               </article>
 
               <article class="trader-card trade-room-card bigwin">
                 <div class="trader-head">
-                  <div class="avatar truenest-face" aria-hidden="true">B</div>
+                  <div class="avatar truenest-face" aria-hidden="true">R</div>
                   <div>
-                    <span class="slot">Big Win Room</span>
-                    <h2>Big Win</h2>
-                    <p>Deposit here, start Big Win, withdraw from Big Win.</p>
+                    <span class="slot">Risk Win Room</span>
+                    <h2>Risk Win</h2>
+                    <p>Deposit here, start Risk Win, withdraw from Risk Win.</p>
                   </div>
                 </div>
 
@@ -160,11 +167,11 @@
                 </div>
 
                 <div class="safety-panel">
-                  <h4>Playing safe for Big Win</h4>
-                  <label>Protect me
+                  <h4>Playing safe for Risk Win</h4>
+                  <label>Protection
                     <select id="truenestRiskControl">
-                      <option value="on">ON - protect me</option>
-                      <option value="off">OFF - exact copy only</option>
+                      <option value="off">OFF - copy exact amount</option>
+                      <option value="on">ON - protect me with max buy</option>
                     </select>
                   </label>
                   <label>Allow live trading
@@ -181,35 +188,42 @@
                   </label>
                   <label>Trader copied wallet <input id="truenestWallet" value="ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT"></label>
                   <label>Maximum single buy <input id="truenestMax" value="750"></label>
-                  <label>Copy mode <select id="truenestMode"><option>Copy exact amount</option><option>Copy exact amount after safety check</option><option>Copy smaller percentage</option></select></label>
-                  <button id="saveTruenestSafety" class="secondary-action" type="button">Save Big Win safety</button>
+                  <label>Trade instruction <select id="truenestMode"><option value="Copy exact amount">Copy exact amount</option><option value="Copy exact amount after safety check">Copy with Protect me</option></select></label>
+                  <button id="saveTruenestSafety" class="secondary-action" type="button">Save Risk Win safety</button>
                   <div class="room-help">
                     <strong id="truenestWalletStatus">Turnkey server wallet selected.</strong>
-                    <span>Turnkey signs automatic buys, sells, and withdrawals from this Big Win wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
-                    <span id="truenestLiveStatus">Live trading follows this Big Win switch plus Render production lock.</span>
+                    <span>Turnkey signs automatic buys, sells, and withdrawals from this Risk Win wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
+                    <span id="truenestLiveStatus">Live trading follows this Risk Win switch plus Render production lock.</span>
                   </div>
                 </div>
 
-                <div class="address-card">
-                  <span>Deposit to Big Win wallet</span>
-                  <strong id="manualTruenestWallet">Wallet not connected yet</strong>
-                  <button id="copyManualTruenestWallet" type="button" disabled>Copy Big Win wallet</button>
+                <div class="room-copy-thread">
+                  <h4>Copy thread</h4>
+                  <ul id="truenestRoomThread">
+                    <li>No Risk Win copied trade yet.</li>
+                  </ul>
                 </div>
 
-                <label>Big Win deposit confirmed <input id="manualTruenestDeposit" inputmode="decimal" placeholder="0"></label>
-                <button id="saveTruenestDeposit" class="primary-action" type="button">Save Big Win deposit</button>
+                <div class="address-card">
+                  <span>Deposit to Risk Win wallet</span>
+                  <strong id="manualTruenestWallet">Wallet not connected yet</strong>
+                  <button id="copyManualTruenestWallet" type="button" disabled>Copy Risk Win wallet</button>
+                </div>
+
+                <label>Risk Win deposit confirmed <input id="manualTruenestDeposit" inputmode="decimal" placeholder="0"></label>
+                <button id="saveTruenestDeposit" class="primary-action" type="button">Save Risk Win deposit</button>
 
                 <div class="button-row">
-                  <button class="primary-action" id="truenestStart" disabled>Start Big Win</button>
+                  <button class="primary-action" id="truenestStart" disabled>Start Risk Win</button>
                   <button class="stop-action" id="truenestStop" disabled>Stop</button>
                 </div>
 
                 <div class="withdraw-inline">
-                  <h4>Withdraw from Big Win</h4>
+                  <h4>Withdraw from Risk Win</h4>
                   <label>Send to Solana wallet <input id="truenestWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
                   <label>Amount in SOL <input id="truenestWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
-                  <button id="truenestWithdrawButton" class="secondary-action" type="button">Withdraw Big Win SOL</button>
-                  <small id="truenestWithdrawResult">No Big Win withdrawal sent yet.</small>
+                  <button id="truenestWithdrawButton" class="secondary-action" type="button">Withdraw Risk Win SOL</button>
+                  <small id="truenestWithdrawResult">No Risk Win withdrawal sent yet.</small>
                 </div>
               </article>
             </div>
@@ -241,13 +255,13 @@
               <div class="simple-steps">
                 <article class="active-step">
                   <span>Now</span>
-                  <strong>Create Frog wallet</strong>
-                  <p>In Turnkey Company Wallets, create <b>SignalPilot Frog Beginner</b>, then add <b>Frog Solana Account</b>.</p>
+                  <strong>Create Smart Win wallet</strong>
+                  <p>In Turnkey Company Wallets, create <b>SignalPilot Smart Win</b>, then add <b>Smart Win Solana Account</b>.</p>
                 </article>
                 <article>
                   <span>Next</span>
-                  <strong>Create Big Win wallet</strong>
-                  <p>Create a second Company Wallet named <b>SignalPilot Truenest Big Win</b> with a Solana account.</p>
+                  <strong>Create Risk Win wallet</strong>
+                  <p>Create a second Company Wallet named <b>SignalPilot Risk Win</b> with a Solana account.</p>
                 </article>
                 <article>
                   <span>Last</span>
@@ -268,7 +282,7 @@
 
               <div class="vault-summary">
                 <article><span>Total deposited</span><strong id="vaultDeposited">$0.00</strong><small>Money still goes into your Solana trading wallets.</small></article>
-                <article><span>Total profit</span><strong id="vaultProfit">$0.00</strong><small>Profit from Frog and Big Win trades.</small></article>
+                <article><span>Total profit</span><strong id="vaultProfit">$0.00</strong><small>Profit from Smart Win and Risk Win trades.</small></article>
                 <article><span>SignalPilot fee</span><strong id="vaultFee">$0.00</strong><small id="vaultFeeNote">Fee is for future business mode.</small></article>
                 <article><span>You can withdraw</span><strong id="vaultWithdrawable">$0.00</strong><small>Deposit plus profit, after fee.</small></article>
               </div>
@@ -292,7 +306,7 @@
 
               <div class="unlock-guide" aria-label="Unlock checklist">
                 <article><span>1</span><strong>Backend</strong><p>Already running on Render. This watches traders and serves accounts.</p></article>
-                <article><span>2</span><strong>Keys and wallets</strong><p>Paste Helius, Jupiter, Turnkey, Frog wallet, and Big Win wallet details here only.</p></article>
+                <article><span>2</span><strong>Keys and wallets</strong><p>Paste Helius, Jupiter, Turnkey, Smart Win wallet, and Risk Win wallet details here only.</p></article>
                 <article><span>3</span><strong>Production execution lock</strong><p id="liveEnvStatus">Render execution status will show here.</p></article>
               </div>
 
@@ -308,12 +322,12 @@
                   <button id="saveSettingsInline" class="secondary-action">Save private key / settings</button>
                 </div>
                 <label>Turnkey policy ID <input id="turnkeyPolicyId" autocomplete="off" placeholder="Optional policy ID for trade approvals"></label>
-                <label>Beginner Frog wallet address <input id="frogTradeWallet" autocomplete="off" placeholder="Frog deposit/copy wallet"></label>
-                <label>Big Win wallet address <input id="truenestTradeWallet" autocomplete="off" placeholder="Big Win deposit/copy wallet"></label>
-                <label>Frog Turnkey wallet ID <input id="frogSignerToken" type="password" autocomplete="off" placeholder="Frog wallet ID from Turnkey, not seed phrase"></label>
-                <label>Big Win Turnkey wallet ID <input id="truenestSignerToken" type="password" autocomplete="off" placeholder="Big Win wallet ID from Turnkey, not seed phrase"></label>
-                <label>Frog deposit amount <input id="frogDeposit" inputmode="decimal" placeholder="Money for Frog account, e.g. 395"></label>
-                <label>Big Win deposit amount <input id="truenestDeposit" inputmode="decimal" placeholder="Money for Big Win account"></label>
+                <label>Smart Win wallet address <input id="frogTradeWallet" autocomplete="off" placeholder="Smart Win deposit/copy wallet"></label>
+                <label>Risk Win wallet address <input id="truenestTradeWallet" autocomplete="off" placeholder="Risk Win deposit/copy wallet"></label>
+                <label>Smart Win Turnkey wallet ID <input id="frogSignerToken" type="password" autocomplete="off" placeholder="Smart Win wallet ID from Turnkey, not seed phrase"></label>
+                <label>Risk Win Turnkey wallet ID <input id="truenestSignerToken" type="password" autocomplete="off" placeholder="Risk Win wallet ID from Turnkey, not seed phrase"></label>
+                <label>Smart Win deposit amount <input id="frogDeposit" inputmode="decimal" placeholder="Money for Smart Win account, e.g. 395"></label>
+                <label>Risk Win deposit amount <input id="truenestDeposit" inputmode="decimal" placeholder="Money for Risk Win account"></label>
               </div>
             </section>
           </section>
