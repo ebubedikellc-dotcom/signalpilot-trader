@@ -111,6 +111,33 @@ function traderPnlFromTrades(trades = [], profile = "frog") {
     .reduce((sum, trade) => sum + traderSignalUsd(trade), 0);
 }
 
+function tradeDateValue(trade = {}) {
+  const value = Date.parse(trade.time || trade.createdAt || "");
+  return Number.isFinite(value) ? value : 0;
+}
+
+function sameLocalDay(leftMs, rightMs = Date.now()) {
+  if (!leftMs) return false;
+  const left = new Date(leftMs);
+  const right = new Date(rightMs);
+  return left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate();
+}
+
+function traderTodayPnlFromTrades(trades = [], profile = "frog") {
+  return trades
+    .filter((trade) => profileTradeMatches(profile, trade) && sameLocalDay(tradeDateValue(trade)))
+    .reduce((sum, trade) => sum + traderSignalUsd(trade), 0);
+}
+
+function todayPnlLabel(value, name = "Trader") {
+  const amount = Number(value || 0);
+  if (amount > 0) return `${name} today profit: ${signedMoney(amount)}`;
+  if (amount < 0) return `${name} today loss: ${signedMoney(amount)}`;
+  return `${name} today: ${money(0)}`;
+}
+
 function tradeSide(trade = {}) {
   const action = String(trade.action || trade.execution?.action || "").toLowerCase();
   if (action.includes("sell")) return "sell";
@@ -417,6 +444,8 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   const walletSync = profileSetting(settings, profile, "walletSync", "Turnkey server wallet");
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
   const lastTraderResult = latestTraderClosedResult(trades, profile);
+  const todayTraderPnl = traderTodayPnlFromTrades(trades, profile);
+  const traderName = profile === "frog" ? "Frog" : "Risk guy";
 
   setText(`${profile}Wins`, String(wins));
   setText(`${profile}Signals`, String(roomTrades.length));
@@ -425,7 +454,9 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   setText(`${profile}RoomTradeable`, money(profileTradeableUsdc(settings, profile)));
   setText(`${profile}RoomLoss`, money(profileLoss(settings, profile)));
   setText(`${profile}RoomTraderPnl`, signedMoney(traderPnlFromTrades(trades, profile)));
+  setText(`${profile}RoomTraderToday`, signedMoney(todayTraderPnl));
   setText(`${profile}RoomTraderLast`, lastTraderResult.label);
+  setText(`${profile}RoomTraderTodayNote`, todayPnlLabel(todayTraderPnl, traderName));
   renderRoomThread(profile, roomTrades);
   setText(`${profile}SafeStatus`, riskControl === "off" ? "Exact copy, no protection" : "Protect me ON");
   setText(`${profile}WalletStatus`, walletSync === "Turnkey server wallet"
@@ -518,6 +549,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   const usdcNow = balanceUsdc(profile);
   const lossNow = profileLoss(settings, profile);
   const traderPnl = traderPnlFromTrades(trades, profile);
+  const traderTodayPnl = traderTodayPnlFromTrades(trades, profile);
   const lastTraderResult = latestTraderClosedResult(trades, profile);
   const running = Boolean(profiles[profile]?.running);
   const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
@@ -533,6 +565,8 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   setText("watchLossNow", `Loss from deposit: ${money(lossNow)}`);
   setText("watchTraderPnl", signedMoney(traderPnl));
   setText("watchTraderNote", `${label === "Smart Win" ? "Frog" : "Copied trader"} total visible made/lost from buy and sell signals.`);
+  setText("watchTraderToday", signedMoney(traderTodayPnl));
+  setText("watchTraderTodayNote", todayPnlLabel(traderTodayPnl, label === "Smart Win" ? "Frog" : "Risk guy"));
   setText("watchTraderLast", lastTraderResult.label);
   setText("watchLastAction", lastTrade?.action || "Waiting");
   setText("watchLastToken", lastTrade ? `${lastTrade.token || "-"} - ${lastTrade.status || "Observed"}` : "No buy or sell shown yet.");
@@ -597,6 +631,8 @@ function renderState(state) {
   setText("truenestSolBalance", solAmount(walletBalance("truenest").sol));
   setText("frogTraderPnl", signedMoney(traderPnlFromTrades(trades, "frog")));
   setText("truenestTraderPnl", signedMoney(traderPnlFromTrades(trades, "truenest")));
+  setText("frogTraderTodayPnl", signedMoney(traderTodayPnlFromTrades(trades, "frog")));
+  setText("truenestTraderTodayPnl", signedMoney(traderTodayPnlFromTrades(trades, "truenest")));
   renderRoomStatus("frog", settings, trades, backend);
   renderRoomStatus("truenest", settings, trades, backend);
   renderLiveWatch(settings, profiles, trades);
