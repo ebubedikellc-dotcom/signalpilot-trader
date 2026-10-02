@@ -369,11 +369,13 @@ function renderWatchTape(profile, trades = []) {
 
   roomTrades.forEach((trade) => {
     const pnl = Number(trade.pnl || 0);
+    const detail = trade.executionError || trade.execution?.copySizingNote || "";
     const li = document.createElement("li");
     li.className = pnl >= 0 ? "tape-win" : "tape-loss";
     li.innerHTML = `
       <strong>${escapeHtml(trade.action || "Copied signal")}</strong>
       <span>${escapeHtml(trade.token || "-")} - ${money(trade.amount)} - ${escapeHtml(trade.status || "Observed")}</span>
+      ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
       <em>${trade.time ? escapeHtml(trade.time) : "live"}</em>
     `;
     tape.appendChild(li);
