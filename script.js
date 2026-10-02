@@ -1182,6 +1182,7 @@ on("truenestWithdrawButton", "click", () => ownerWithdraw("truenest"));
 on("frogProfitWithdrawButton", "click", () => ownerWithdraw("frog", { profitOnly: true }));
 on("truenestProfitWithdrawButton", "click", () => ownerWithdraw("truenest", { profitOnly: true }));
 on("frogSellTokenButton", "click", () => ownerSellToken("frog"));
+on("truenestSellTokenButton", "click", () => ownerSellToken("truenest"));
 on("copyManualFrogWallet", "click", () => copyTextFromNode("manualFrogWallet", "Smart Win wallet"));
 on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "Risk Win wallet"));
 on("ownerLogin", "click", ownerLogin);
