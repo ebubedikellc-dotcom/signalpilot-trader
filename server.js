@@ -78,6 +78,14 @@ const defaultState = {
   withdrawals: [],
   sessions: {},
   activity: ["Site engine created. Add API and wallet details, then press Save."],
+  strategy: {
+    activeProfile: "frog",
+    frogLosses: 0,
+    truenestLosses: 0,
+    paused: false,
+    pauseReason: "",
+    processedClosedTrades: []
+  },
   trades: []
 };
 
@@ -198,6 +206,14 @@ function normalizeState(state) {
   state.withdrawals = Array.isArray(state.withdrawals) ? state.withdrawals : [];
   state.sessions = state.sessions && typeof state.sessions === "object" ? state.sessions : {};
   state.activity = Array.isArray(state.activity) ? state.activity : [];
+  state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
+  state.strategy.activeProfile = state.strategy.activeProfile === "truenest" ? "truenest" : "frog";
+  state.strategy.frogLosses = Math.max(0, Number(state.strategy.frogLosses || 0));
+  state.strategy.truenestLosses = Math.max(0, Number(state.strategy.truenestLosses || 0));
+  state.strategy.paused = state.strategy.paused === true;
+  state.strategy.processedClosedTrades = Array.isArray(state.strategy.processedClosedTrades)
+    ? state.strategy.processedClosedTrades.slice(0, 50)
+    : [];
   state.trades = Array.isArray(state.trades) ? state.trades : [];
   return state;
 }
@@ -567,6 +583,95 @@ function liveTradingAllowed(state, profile = "") {
 
 function profileLabel(profile) {
   return profile === "frog" ? "Decu Win" : "Risk Win";
+}
+
+function strategyLossKey(profile) {
+  return profile === "frog" ? "frogLosses" : "truenestLosses";
+}
+
+function tradeSide(trade = {}) {
+  const action = String(trade.action || trade.execution?.action || "").toLowerCase();
+  if (action.includes("sell")) return "sell";
+  if (action.includes("buy")) return "buy";
+  return "";
+}
+
+function tradeTokenKey(trade = {}) {
+  return String(trade.tradedTokenMint || trade.tokenMint || trade.token || "").trim().toLowerCase();
+}
+
+function closedTraderPnlUsd(trades = [], sellTrade = {}, profile = "frog") {
+  if (tradeSide(sellTrade) !== "sell" || !roomMatchesProfile(sellTrade, profile)) return null;
+  const sellReceived = Number(sellTrade.sourceReceivedUsd || sellTrade.traderPnlUsd || 0);
+  if (!Number.isFinite(sellReceived) || sellReceived <= 0) return null;
+
+  const sellIndex = trades.findIndex((trade) => (trade.signature || trade.id) === (sellTrade.signature || sellTrade.id));
+  const olderTrades = sellIndex === -1 ? trades : trades.slice(sellIndex + 1);
+  const tokenKey = tradeTokenKey(sellTrade);
+  const priorBuy = olderTrades.find((trade) => {
+    return roomMatchesProfile(trade, profile)
+      && tradeSide(trade) === "buy"
+      && (!tokenKey || tradeTokenKey(trade) === tokenKey)
+      && Number(trade.sourceUsd || 0) > 0;
+  });
+
+  const buyUsed = Number(priorBuy?.sourceUsd || 0);
+  if (!Number.isFinite(buyUsed) || buyUsed <= 0) return null;
+  return sellReceived - buyUsed;
+}
+
+function applyAutoSwitchStrategy(state, newTrades = []) {
+  state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
+  if (state.strategy.paused) return;
+
+  const combinedTrades = state.trades || [];
+  const processed = new Set(state.strategy.processedClosedTrades || []);
+  const strategyEvents = [];
+
+  for (const trade of newTrades) {
+    const profile = trade.profile === "Risk Win" || trade.profile === "truenest" ? "truenest" : "frog";
+    const tradeId = trade.signature || trade.id;
+    if (!tradeId || processed.has(tradeId) || tradeSide(trade) !== "sell") continue;
+
+    const closedPnl = closedTraderPnlUsd(combinedTrades, trade, profile);
+    if (closedPnl === null) continue;
+    processed.add(tradeId);
+
+    const lossKey = strategyLossKey(profile);
+    if (closedPnl < 0) {
+      state.strategy[lossKey] = Number(state.strategy[lossKey] || 0) + 1;
+      strategyEvents.push(`${profileLabel(profile)} closed loss ${state.strategy[lossKey]}/3 (${closedPnl.toFixed(2)}).`);
+    } else {
+      state.strategy[lossKey] = 0;
+      strategyEvents.push(`${profileLabel(profile)} closed profit ${closedPnl.toFixed(2)}; loss count reset.`);
+    }
+
+    if (profile === "frog" && state.strategy.frogLosses >= 3) {
+      state.profiles.frog.running = false;
+      state.profiles.truenest.running = true;
+      state.profiles.truenest.lastAction = new Date().toISOString();
+      state.strategy.activeProfile = "truenest";
+      state.strategy.truenestLosses = 0;
+      strategyEvents.push("Deku reached 3 losses. SignalPilot switched to Trunoest.");
+    }
+
+    if (profile === "truenest" && state.strategy.truenestLosses >= 3) {
+      state.profiles.frog.running = false;
+      state.profiles.truenest.running = false;
+      state.strategy.paused = true;
+      state.strategy.pauseReason = "Trunoest reached 3 losses. Trading paused until owner restarts.";
+      strategyEvents.push(state.strategy.pauseReason);
+      break;
+    }
+  }
+
+  state.strategy.processedClosedTrades = Array.from(processed).slice(-50);
+  if (strategyEvents.length) {
+    state.activity = [
+      ...strategyEvents.reverse().map((message) => line(message)),
+      ...(state.activity || [])
+    ].slice(0, 20);
+  }
 }
 
 function targetWallet(state, profile) {
@@ -1370,7 +1475,9 @@ function freshEnoughToCopy(transaction = {}) {
 
 async function runCopyWorkerOnce() {
   const state = await readState();
-  const runningProfiles = ["frog", "truenest"].filter((profile) => state.profiles?.[profile]?.running);
+  if (state.strategy?.paused) return;
+  const activeProfile = state.strategy?.activeProfile === "truenest" ? "truenest" : "frog";
+  const runningProfiles = state.profiles?.[activeProfile]?.running ? [activeProfile] : [];
   if (!runningProfiles.length) return;
 
   if (!state.settings?.heliusKey) {
@@ -1456,6 +1563,7 @@ async function runCopyWorkerOnce() {
     state.profiles[profile].lastSignature = newest;
     if (newTrades.length) {
       state.trades = [...newTrades, ...(state.trades || [])].slice(0, 100);
+      applyAutoSwitchStrategy(state, newTrades);
       state.activity = [
         line(`${profileLabel(profile)} worker found ${newTrades.length} new swap signal${newTrades.length === 1 ? "" : "s"}${liveTradingAllowed(state, profile) ? " and attempted execution" : ""}.`),
         ...(state.activity || [])
@@ -1900,10 +2008,20 @@ async function handleApi(request, response, url) {
       return true;
     }
     const profile = startMatch[1];
+    state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
+    state.strategy.activeProfile = profile;
+    state.strategy.paused = false;
+    state.strategy.pauseReason = "";
+    state.strategy.frogLosses = profile === "frog" ? 0 : Number(state.strategy.frogLosses || 0);
+    state.strategy.truenestLosses = profile === "truenest" ? 0 : 0;
+    state.strategy.processedClosedTrades = [];
+    for (const item of ["frog", "truenest"]) {
+      state.profiles[item].running = item === profile;
+    }
     state.profiles[profile].running = true;
     state.profiles[profile].lastAction = new Date().toISOString();
     state.activity = [
-      line(`${profileLabel(profile)} started.`),
+      line(`${profileLabel(profile)} started in one-chart auto switch mode.`),
       line(liveTradingAllowed(state, profile)
         ? "Production execution is enabled. Copy worker can execute with the connected signer."
         : "Monitoring is active. Real swap execution stays locked until EXECUTE_REAL_SWAPS=true is set in Render."),
@@ -1921,6 +2039,11 @@ async function handleApi(request, response, url) {
     const profile = stopMatch[1];
     state.profiles[profile].running = false;
     state.profiles[profile].lastAction = new Date().toISOString();
+    if (!state.profiles.frog.running && !state.profiles.truenest.running) {
+      state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
+      state.strategy.paused = false;
+      state.strategy.pauseReason = "";
+    }
     state.activity = [
       line(`${profileLabel(profile)} stopped.`),
       ...(state.activity || [])
