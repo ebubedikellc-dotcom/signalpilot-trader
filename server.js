@@ -731,20 +731,14 @@ function tradeFromTransaction(profile, transaction, state) {
 }
 
 async function fetchTransactionsForAddress(apiKey, address) {
-  const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "signalpilot-copy-worker",
-      method: "getTransactionsForAddress",
-      params: [address, { limit: 10 }]
-    })
-  });
+  const url = new URL(`https://api.helius.xyz/v0/addresses/${encodeURIComponent(address)}/transactions`);
+  url.searchParams.set("api-key", apiKey);
+  url.searchParams.set("limit", "10");
+  const response = await fetch(url);
   if (!response.ok) throw new Error(`Helius returned ${response.status}`);
   const payload = await response.json();
-  if (payload.error) throw new Error(payload.error.message || "Helius transaction lookup failed");
-  return Array.isArray(payload.result) ? payload.result : [];
+  if (payload.error) throw new Error(payload.error.message || payload.error || "Helius transaction lookup failed");
+  return Array.isArray(payload) ? payload : [];
 }
 
 async function runCopyWorkerOnce() {
