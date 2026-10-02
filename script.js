@@ -148,7 +148,8 @@ function localReady(data = payload()) {
 function renderState(state) {
   const settings = state.settings || {};
   const profiles = state.profiles || {};
-  const liveTradingUnlocked = state.backend?.liveTrading === true;
+  const liveTradingEnv = state.backend?.liveTradingEnv === true;
+  const productionExecution = state.backend?.productionExecution === true || state.backend?.liveTrading === true;
 
   fields.forEach((id) => {
     const node = $(id);
@@ -167,9 +168,11 @@ function renderState(state) {
   setText("truenestBalance", `Deposit: ${money(settings.truenestDeposit)}`);
   renderVault(settings, profiles);
   renderTrades(state.trades || []);
-  setText("liveEnvStatus", liveTradingUnlocked
-    ? "Render live trading is unlocked. If the site switch is ON, SignalPilot can move from monitoring into execution."
-    : "Render live trading is locked. Set ENABLE_LIVE_TRADING to true in Render Environment when you are ready.");
+  setText("liveEnvStatus", productionExecution
+    ? "Production execution is enabled in Render and the required wallet details are saved."
+    : liveTradingEnv
+      ? "Render monitoring is on. Real buy/sell execution is still locked until EXECUTE_REAL_SWAPS=true is set in Render."
+      : "Render monitoring is locked. Real trading cannot run until the Render environment is enabled.");
 
   if (!ready) {
     setText("engineStatus", "Trading locked - keys missing");
@@ -184,7 +187,7 @@ function renderState(state) {
     if (!settings.truenestTradeWallet) missing.push("Waiting for Truenest Big Win wallet.");
     if (!settings.frogSignerToken) missing.push("Waiting for Frog Turnkey wallet ID.");
     if (!settings.truenestSignerToken) missing.push("Waiting for Truenest Turnkey wallet ID.");
-    missing.push(liveTradingUnlocked ? "Render unlock: ON." : "Render unlock: OFF - real trading stays locked.");
+    missing.push(productionExecution ? "Production execution: ON." : "Production execution: OFF - real trading stays locked.");
     setLog(missing);
     return;
   }
@@ -193,18 +196,18 @@ function renderState(state) {
   if (profiles.frog?.running) running.push("Frog beginner is running.");
   if (profiles.truenest?.running) running.push("Truenest Big Win is running.");
 
-  if (!liveTradingUnlocked) {
+  if (!productionExecution) {
     setText("engineStatus", running.length ? "Monitoring running" : "Ready to monitor");
     setText("engineSubtext", running.length
-      ? "SignalPilot is watching the trader wallet. Real trading is still locked in Render."
-      : "Keys are saved. To allow real trades, set ENABLE_LIVE_TRADING=true in Render Environment.");
-    setLog(state.activity?.length ? state.activity : ["Keys are ready. Render live trading is still locked."]);
+      ? "SignalPilot is watching the trader wallet. Real buy/sell execution is still locked in Render."
+      : "Keys are saved. To allow real trades, set EXECUTE_REAL_SWAPS=true in Render Environment.");
+    setLog(state.activity?.length ? state.activity : ["Keys are ready. Production execution is still locked."]);
     return;
   }
 
-  setText("engineStatus", running.length ? "Live copy engine running" : "Live trading unlocked");
+  setText("engineStatus", running.length ? "Production copy engine running" : "Production execution enabled");
   setText("engineSubtext", running.length
-    ? `${settings.walletSync || "Turnkey server wallet"} is selected. Render is watching the trader and live execution is unlocked.`
+    ? `${settings.walletSync || "Turnkey server wallet"} is selected. Render is watching the trader and execution is enabled.`
     : `Wallet sync: ${settings.walletSync || "Turnkey server wallet"}. Press Start on Frog or Truenest.`);
   setLog(state.activity?.length ? state.activity : ["Ready. Press Start Frog or Start Truenest."]);
 }
