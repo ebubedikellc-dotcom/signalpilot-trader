@@ -737,12 +737,7 @@ async function executeSolWithdrawal(state, { profile, destination, amountSol }) 
   const unsignedTransaction = transaction
     .serialize({ requireAllSignatures: false, verifySignatures: false })
     .toString("base64");
-  const signed = await turnkeyClient(state.settings).signTransaction({
-    signWith: signer,
-    unsignedTransaction,
-    type: "TRANSACTION_TYPE_SOLANA"
-  });
-  if (!signed?.signedTransaction) throw new Error("Turnkey did not return a signed withdrawal transaction.");
+  const signed = await signSolanaTransaction(state, signer, sourceWallet, unsignedTransaction);
 
   const signature = await connection.sendRawTransaction(Buffer.from(signed.signedTransaction, "base64"), {
     skipPreflight: false,
@@ -803,6 +798,25 @@ function turnkeyClient(settings = {}) {
     apiPrivateKey: settings.turnkeyApiPrivateKey,
     defaultOrganizationId: settings.turnkeyOrgId
   }).apiClient();
+}
+
+async function signSolanaTransaction(state, preferredSigner, wallet, unsignedTransaction) {
+  const candidates = [...new Set([preferredSigner, wallet].filter(Boolean))];
+  let lastError = null;
+  for (const signWith of candidates) {
+    try {
+      const signed = await turnkeyClient(state.settings).signTransaction({
+        signWith,
+        unsignedTransaction,
+        type: "TRANSACTION_TYPE_SOLANA"
+      });
+      if (signed?.signedTransaction) return { ...signed, signWith };
+      lastError = new Error(`Turnkey did not return a signed Solana transaction for ${signWith}`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Turnkey did not return a signed Solana transaction");
 }
 
 async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {}) {
@@ -898,12 +912,7 @@ async function executeCopiedSwap(profile, transaction, state) {
     }
   }
 
-  const signed = await turnkeyClient(state.settings).signTransaction({
-    signWith: signer,
-    unsignedTransaction: order.transaction,
-    type: "TRANSACTION_TYPE_SOLANA"
-  });
-  if (!signed?.signedTransaction) throw new Error("Turnkey did not return a signed Solana transaction");
+  const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
 
   const executed = await jupiterJson("/swap/v2/execute", {
     apiKey,
@@ -926,6 +935,7 @@ async function executeCopiedSwap(profile, transaction, state) {
     copySizingNote: copyAmount.note,
     copiedSourceAmount: String(leg.amount),
     copiedTradeAmount: copyAmount.amount,
+    signedWith: signed.signWith,
     requestId: order.requestId,
     swapUsdValue: order.swapUsdValue,
     outAmount: order.outAmount,
