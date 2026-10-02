@@ -81,7 +81,7 @@ h1 {
   line-height: 1.65;
 }
 
-.system-card, .trader-card, .engine-room, .activity, .vault-panel, .easy-setup, .business-portal {
+.system-card, .trader-card, .engine-room, .activity, .vault-panel, .hosting-panel, .easy-setup, .business-portal {
   border: 1px solid var(--line);
   background: linear-gradient(145deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
   box-shadow: 0 20px 50px rgba(0,0,0,.22);
@@ -132,7 +132,7 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .bigwin .primary-action { background: var(--gold); }
 .stop-action { background: rgba(255,107,107,.16); color: #ffd4d4; border: 1px solid rgba(255,107,107,.4); }
 .primary-action:disabled, .stop-action:disabled { cursor: not-allowed; opacity: .48; }
-.engine-room, .activity, .vault-panel, .easy-setup, .business-portal { padding: 22px; border-radius: 8px; margin-bottom: 18px; }
+.engine-room, .activity, .vault-panel, .hosting-panel, .easy-setup, .business-portal { padding: 22px; border-radius: 8px; margin-bottom: 18px; }
 .hidden { display: none !important; }
 .business-portal { background: linear-gradient(145deg, rgba(46,230,166,.14), rgba(255,255,255,.04)), rgba(0,0,0,.22); }
 .auth-grid, .owner-tools, .customer-tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
@@ -287,6 +287,8 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .section-title h2, .activity h2 { margin-bottom: 0; font-size: 1.8rem; }
 .secondary-action { width: auto; background: #24374a; color: var(--text); border: 1px solid var(--line); }
 .vault-panel { background: linear-gradient(145deg, rgba(46,230,166,.12), rgba(246,201,92,.08)), rgba(0,0,0,.18); }
+.hosting-panel { background: linear-gradient(145deg, rgba(246,201,92,.14), rgba(46,230,166,.08)), rgba(0,0,0,.18); }
+.hosting-panel p { margin: 0; color: var(--muted); line-height: 1.5; }
 .vault-badge { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border: 1px solid rgba(46,230,166,.34); border-radius: 999px; color: var(--green); background: rgba(46,230,166,.1); font-weight: 900; }
 .vault-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .vault-summary article { display: grid; gap: 6px; min-height: 132px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.2); }
