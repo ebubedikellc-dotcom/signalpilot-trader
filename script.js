@@ -16,11 +16,13 @@ const fields = [
   "frogMode",
   "frogCopySizing",
   "frogTraderBankroll",
+  "frogUseProfit",
   "truenestWallet",
   "truenestMax",
   "truenestMode",
   "truenestCopySizing",
   "truenestTraderBankroll",
+  "truenestUseProfit",
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
@@ -81,6 +83,8 @@ function profileLockedProfit(settings = {}, profile = "frog") {
 }
 
 function profileTradeableUsdc(settings = {}, profile = "frog") {
+  const prefix = roomPrefix(profile);
+  if (settings[`${prefix}UseProfit`] === "on") return Math.max(0, balanceUsdc(profile));
   return Math.max(0, Math.min(balanceUsdc(profile), profileDeposit(settings, profile)));
 }
 
@@ -603,6 +607,8 @@ function renderManualDeposit(settings = {}) {
   setText("manualDepositTotal", money(frogDeposit + truenestDeposit));
   if ($("manualFrogDeposit") && document.activeElement !== $("manualFrogDeposit")) $("manualFrogDeposit").value = settings.frogDeposit || "";
   if ($("manualTruenestDeposit") && document.activeElement !== $("manualTruenestDeposit")) $("manualTruenestDeposit").value = settings.truenestDeposit || "";
+  if ($("manualFrogUseProfit") && document.activeElement !== $("manualFrogUseProfit")) $("manualFrogUseProfit").value = settings.frogUseProfit || "off";
+  if ($("manualTruenestUseProfit") && document.activeElement !== $("manualTruenestUseProfit")) $("manualTruenestUseProfit").value = settings.truenestUseProfit || "off";
   if ($("copyManualFrogWallet")) $("copyManualFrogWallet").disabled = !frogWallet;
   if ($("copyManualTruenestWallet")) $("copyManualTruenestWallet").disabled = !truenestWallet;
 }
@@ -956,7 +962,9 @@ async function saveManualDeposit() {
   const data = {
     ...currentPayload(),
     frogDeposit: value("manualFrogDeposit"),
-    truenestDeposit: value("manualTruenestDeposit")
+    truenestDeposit: value("manualTruenestDeposit"),
+    frogUseProfit: value("manualFrogUseProfit"),
+    truenestUseProfit: value("manualTruenestUseProfit")
   };
   renderState({ settings: data, profiles: {}, activity: ["Saving manual deposit..."] });
   renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
