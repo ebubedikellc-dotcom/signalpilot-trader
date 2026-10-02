@@ -216,14 +216,31 @@ function syncRoomProtectionFromMode(profile) {
   const riskNode = $(`${prefix}RiskControl`);
   if (modeNode) modeNode.value = mode;
   if (riskNode) riskNode.value = modeUsesProtection(mode) ? "on" : "off";
+  updateProtectionUi(profile);
 }
 
 function syncRoomModeFromProtection(profile) {
   const prefix = roomPrefix(profile);
   const riskNode = $(`${prefix}RiskControl`);
   const modeNode = $(`${prefix}Mode`);
-  if (!riskNode || !modeNode) return;
-  modeNode.value = riskNode.value === "on" ? "Copy exact amount after safety check" : "Copy exact amount";
+  if (!riskNode) return;
+  if (modeNode) modeNode.value = riskNode.value === "on" ? "Copy exact amount after safety check" : "Copy exact amount";
+  updateProtectionUi(profile);
+}
+
+function updateProtectionUi(profile) {
+  const prefix = roomPrefix(profile);
+  const riskNode = $(`${prefix}RiskControl`);
+  const maxNode = $(`${prefix}Max`);
+  const maxLabel = $(`${prefix}MaxLabel`);
+  if (!riskNode) return;
+  const protectedMode = riskNode.value === "on";
+  if (maxNode) maxNode.disabled = !protectedMode;
+  if (maxLabel) {
+    maxLabel.childNodes[0].textContent = protectedMode
+      ? "Protect me max buy "
+      : "Exact copy ignores max buy ";
+  }
 }
 
 function syncAllRoomControlsFromProtection() {
