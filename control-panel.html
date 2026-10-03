@@ -14,7 +14,7 @@
         <div>
           <p class="eyebrow">Owner Control Panel</p>
           <h1>My trading room.</h1>
-          <p class="lede">Deposit, start trading, watch profit, and withdraw from one clean page. Decu Win and Risk Win each have their own room so the money does not mix.</p>
+          <p class="lede">Deposit once, start trading, watch profit, and withdraw from one clean page. Decu Win and Risk Win are separate watcher rooms, but they use the same funded trading wallet.</p>
           <div class="hero-actions">
             <a class="secondary-link" href="#tradePage">Go to trade page</a>
           </div>
@@ -72,7 +72,7 @@
               <article><span>Decu Win profit</span><strong id="frogProfit">$0.00</strong></article>
               <article><span>Decu made / lost</span><strong id="frogTraderPnl">$0.00</strong></article>
               <article><span>Decu today</span><strong id="frogTraderTodayPnl">$0.00</strong></article>
-              <article><span>Risk Win deposit</span><strong id="truenestBalance">Deposit: $0.00</strong></article>
+              <article><span>Risk Win shared deposit</span><strong id="truenestBalance">Shared: $0.00</strong></article>
               <article><span>Risk Win USDC now</span><strong id="truenestUsdcNow">$0.00</strong></article>
               <article><span>Risk Win loss</span><strong id="truenestLoss">$0.00</strong></article>
               <article><span>Risk Win SOL gas</span><strong id="truenestSolBalance">Checking...</strong></article>
@@ -245,7 +245,7 @@
                   <div>
                     <span class="slot">Risk Win Room</span>
                     <h2>Risk Win</h2>
-                    <p>Deposit here, start Risk Win, withdraw from Risk Win.</p>
+                    <p>Risk Win watches the risk trader, but buys and sells from the same funded Decu Win wallet.</p>
                   </div>
                 </div>
 
@@ -270,14 +270,14 @@
                 </div>
 
                 <div class="address-card">
-                  <span>Deposit to Risk Win wallet</span>
+                  <span>Risk Win uses main trading wallet</span>
                   <strong id="manualTruenestWallet">Wallet not connected yet</strong>
                   <small id="manualTruenestGas">SOL gas: checking...</small>
                   <small id="manualTruenestUsdc">USDC balance: checking...</small>
-                  <button id="copyManualTruenestWallet" type="button" disabled>Copy Risk Win wallet</button>
+                  <button id="copyManualTruenestWallet" type="button" disabled>Copy main wallet</button>
                 </div>
 
-                <label>Risk Win trading budget <input id="manualTruenestDeposit" inputmode="decimal" placeholder="0"></label>
+                <label>Shared trading budget <input id="manualTruenestDeposit" inputmode="decimal" placeholder="Same as Decu Win"></label>
                 <input id="truenestTradeMode" type="hidden" value="both">
                 <label>Use locked profit to trade
                   <select id="manualTruenestUseProfit">
@@ -285,7 +285,7 @@
                     <option value="on">ON - allow profit trade</option>
                   </select>
                 </label>
-                <button id="saveTruenestDeposit" class="primary-action" type="button">Save Risk Win budget</button>
+                <button id="saveTruenestDeposit" class="primary-action" type="button">Save shared budget</button>
 
                 <div class="button-row">
                   <button class="primary-action" id="truenestStart" disabled>Start Risk Win</button>
@@ -296,23 +296,23 @@
                 <small id="truenestTradeModeStatus">Risk Win can buy and sell.</small>
 
                 <div class="withdraw-inline danger-box">
-                  <h4>Manual sell from Risk Win</h4>
-                  <p>Use this when a coin is stuck. It sells the coin back to USDC and leaves SOL gas in the wallet.</p>
+                  <h4>Manual sell while Risk Win is active</h4>
+                  <p>Use this when a coin is stuck. It sells from the main trading wallet back to USDC and leaves SOL gas in the wallet.</p>
                   <label>Token to sell <input id="truenestSellMint" autocomplete="off" placeholder="Paste token mint address"></label>
                   <small>Keep about 0.02 to 0.03 SOL for gas. Do not sell the SOL gas unless you are closing everything.</small>
-                  <button id="truenestSellTokenButton" class="stop-action" type="button">Sell Risk Win token to USDC</button>
+                  <button id="truenestSellTokenButton" class="stop-action" type="button">Sell main-wallet token to USDC</button>
                   <small id="truenestSellTokenResult">No manual sell sent yet.</small>
                 </div>
 
                 <div class="withdraw-inline">
-                  <h4>Withdraw from Risk Win</h4>
+                  <h4>Withdraw from main wallet</h4>
                   <label>Profit USDC to wallet <input id="truenestProfitWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
                   <label>Profit amount in USDC <input id="truenestProfitWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
-                  <button id="truenestProfitWithdrawButton" class="primary-action" type="button">Withdraw Risk Win profit</button>
+                  <button id="truenestProfitWithdrawButton" class="primary-action" type="button">Withdraw main-wallet profit</button>
                   <small id="truenestProfitWithdrawResult">Profit stays locked until you withdraw it.</small>
                   <label>Send to Solana wallet <input id="truenestWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
                   <label>Amount in SOL <input id="truenestWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
-                  <button id="truenestWithdrawButton" class="secondary-action" type="button">Withdraw Risk Win SOL</button>
+                  <button id="truenestWithdrawButton" class="secondary-action" type="button">Withdraw main-wallet SOL</button>
                   <small id="truenestWithdrawResult">No Risk Win withdrawal sent yet.</small>
                 </div>
               </article>
@@ -363,8 +363,8 @@
                 </article>
                 <article>
                   <span>Next</span>
-                  <strong>Create Risk Win wallet</strong>
-                  <p>Create a second Company Wallet named <b>SignalPilot Risk Win</b> with a Solana account.</p>
+                  <strong>Risk Win uses same wallet</strong>
+                  <p>No second deposit wallet is needed. Risk Win only changes the trader being watched; buys and sells still use <b>SignalPilot Decu Win</b>.</p>
                 </article>
                 <article>
                   <span>Last</span>
@@ -409,7 +409,7 @@
 
               <div class="unlock-guide" aria-label="Unlock checklist">
                 <article><span>1</span><strong>Backend</strong><p>Already running on Render. This watches traders and serves accounts.</p></article>
-                <article><span>2</span><strong>Keys and wallets</strong><p>Paste Helius, Jupiter, Turnkey, Decu Win wallet, and Risk Win wallet details here only.</p></article>
+                <article><span>2</span><strong>Keys and wallet</strong><p>Paste Helius, Jupiter, Turnkey, and the main Decu Win trading wallet here only. Risk Win uses that same funded wallet.</p></article>
                 <article><span>3</span><strong>Production execution lock</strong><p id="liveEnvStatus">Render execution status will show here.</p></article>
               </div>
 
@@ -487,7 +487,7 @@
                   <button id="saveTruenestSafety" class="secondary-action" type="button">Save Risk Win settings</button>
                   <div class="room-help">
                     <strong id="truenestWalletStatus">Turnkey server wallet selected.</strong>
-                    <span>Turnkey signs automatic buys, sells, and withdrawals from this Risk Win wallet without seed phrase. Manual wallet only means watch and record, but you trade by hand.</span>
+                    <span>Risk Win uses the same main Turnkey wallet for automatic buys, sells, and withdrawals. Manual wallet only means watch and record, but you trade by hand.</span>
                     <span>Exact protected copy is best here: copy buys below $50 as-is, and cap bigger buys at $50.</span>
                     <span id="truenestLiveStatus">Live trading follows this Risk Win switch plus Render production lock.</span>
                     <span id="truenestSafeStatus">Protect me ON</span>
@@ -508,11 +508,11 @@
                 </div>
                 <label>Turnkey policy ID <input id="turnkeyPolicyId" autocomplete="off" placeholder="Optional policy ID for trade approvals"></label>
                 <label>Decu Win wallet address <input id="frogTradeWallet" autocomplete="off" placeholder="Decu Win deposit/copy wallet"></label>
-                <label>Risk Win wallet address <input id="truenestTradeWallet" autocomplete="off" placeholder="Risk Win deposit/copy wallet"></label>
+                <label>Risk Win wallet address <input id="truenestTradeWallet" autocomplete="off" placeholder="Optional legacy field; main Decu wallet is used"></label>
                 <label>Decu Win Turnkey wallet ID <input id="frogSignerToken" type="password" autocomplete="off" placeholder="Decu Win wallet ID from Turnkey, not seed phrase"></label>
-                <label>Risk Win Turnkey wallet ID <input id="truenestSignerToken" type="password" autocomplete="off" placeholder="Risk Win wallet ID from Turnkey, not seed phrase"></label>
+                <label>Risk Win Turnkey wallet ID <input id="truenestSignerToken" type="password" autocomplete="off" placeholder="Optional legacy field; main Decu signer is used"></label>
                 <label>Decu Win trading budget <input id="frogDeposit" inputmode="decimal" placeholder="Money allowed for Decu Win trades, e.g. 100"></label>
-                <label>Risk Win trading budget <input id="truenestDeposit" inputmode="decimal" placeholder="Money allowed for Risk Win trades"></label>
+                <label>Risk Win trading budget <input id="truenestDeposit" inputmode="decimal" placeholder="Optional legacy field; main budget is used"></label>
                 <label>Decu Win use profit <select id="frogUseProfit"><option value="off">OFF - protect profit</option><option value="on">ON - allow profit trade</option></select></label>
                 <label>Risk Win use profit <select id="truenestUseProfit"><option value="off">OFF - protect profit</option><option value="on">ON - allow profit trade</option></select></label>
               </div>

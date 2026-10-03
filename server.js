@@ -332,14 +332,9 @@ function publicSettings(settings = {}, includeSecrets = false) {
 }
 
 function depositAddresses(state, plan = "frog") {
-  const frog = state.settings.frogTradeWallet || "";
-  const truenest = state.settings.truenestTradeWallet || "";
-  if (plan === "truenest") return [{ label: "Risk Win", address: truenest }];
-  if (plan === "both") return [
-    { label: "Decu Win", address: frog },
-    { label: "Risk Win", address: truenest }
-  ];
-  return [{ label: "Decu Win", address: frog }];
+  const main = tradeWallet(state);
+  const label = plan === "truenest" ? "Main trading wallet (Risk watcher)" : "Main trading wallet";
+  return [{ label, address: main }];
 }
 
 function customerPublic(customer, state) {
@@ -565,9 +560,7 @@ function ready(state) {
     s.turnkeyApiPublicKey &&
     s.turnkeyApiPrivateKey &&
     s.frogTradeWallet &&
-    s.truenestTradeWallet &&
-    s.frogSignerToken &&
-    s.truenestSignerToken
+    s.frogSignerToken
   );
 }
 
@@ -578,7 +571,7 @@ function profileSetting(state, profile, key, fallback = "") {
 }
 
 function profileWalletSync(state, profile) {
-  return profileSetting(state, profile, "walletSync", "Turnkey server wallet");
+  return state.settings.frogWalletSync || state.settings.walletSync || "Turnkey server wallet";
 }
 
 function profileRiskControl(state, profile) {
@@ -975,12 +968,12 @@ function primarySwapLeg(transaction, profile, state) {
   return null;
 }
 
-function tradeWallet(state, profile) {
-  return profile === "frog" ? state.settings.frogTradeWallet : state.settings.truenestTradeWallet;
+function tradeWallet(state) {
+  return state.settings.frogTradeWallet || state.settings.truenestTradeWallet || "";
 }
 
-function signerId(state, profile) {
-  return profile === "frog" ? state.settings.frogSignerToken : state.settings.truenestSignerToken;
+function signerId(state) {
+  return state.settings.frogSignerToken || state.settings.truenestSignerToken || tradeWallet(state);
 }
 
 function solanaConnection(settings = {}) {
@@ -1115,14 +1108,14 @@ function profileMaxUsd(state, profile) {
 }
 
 function profileDepositUsd(state, profile) {
-  const value = Number(profile === "frog" ? state.settings.frogDeposit : state.settings.truenestDeposit);
+  const value = Number(state.settings.frogDeposit || state.settings.truenestDeposit);
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 async function profileTradeableUsdc(connection, state, profile, wallet) {
   const principal = profileDepositUsd(state, profile);
   const currentUsdc = await tokenUiBalance(connection, wallet, usdcMint);
-  const useProfit = (profile === "frog" ? state.settings.frogUseProfit : state.settings.truenestUseProfit) === "on";
+  const useProfit = state.settings.frogUseProfit === "on";
   if (useProfit) return currentUsdc;
   if (!principal) return currentUsdc;
   return Math.max(0, Math.min(currentUsdc, principal));

@@ -70,8 +70,7 @@ function balanceUsdc(profile) {
 }
 
 function profileDeposit(settings = {}, profile = "frog") {
-  const prefix = roomPrefix(profile);
-  return Number(settings[`${prefix}Deposit`] || 0);
+  return Number(settings.frogDeposit || settings.truenestDeposit || 0);
 }
 
 function profileNet(settings = {}, profile = "frog") {
@@ -87,8 +86,7 @@ function profileLockedProfit(settings = {}, profile = "frog") {
 }
 
 function profileTradeableUsdc(settings = {}, profile = "frog") {
-  const prefix = roomPrefix(profile);
-  if (settings[`${prefix}UseProfit`] === "on") return Math.max(0, balanceUsdc(profile));
+  if (settings.frogUseProfit === "on") return Math.max(0, balanceUsdc(profile));
   return Math.max(0, Math.min(balanceUsdc(profile), profileDeposit(settings, profile)));
 }
 
@@ -295,10 +293,9 @@ function renderTrades(trades = []) {
 
 function renderVault(settings = {}, profiles = {}) {
   const frogDeposit = Number(settings.frogDeposit || 0);
-  const truenestDeposit = Number(settings.truenestDeposit || 0);
   const frogPnl = Number(profiles.frog?.profit || 0);
   const truenestPnl = Number(profiles.truenest?.profit || 0);
-  const deposited = frogDeposit + truenestDeposit;
+  const deposited = frogDeposit;
   const profit = frogPnl + truenestPnl;
   const feePercent = Number(settings.vaultFeePercent || 0);
   const fee = Math.max(0, profit) * (feePercent / 100);
@@ -325,9 +322,7 @@ function localReady(data = payload()) {
     data.turnkeyApiPublicKey &&
     data.turnkeyApiPrivateKey &&
     data.frogTradeWallet &&
-    data.truenestTradeWallet &&
-    data.frogSignerToken &&
-    data.truenestSignerToken
+    data.frogSignerToken
   );
 }
 
@@ -450,7 +445,7 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   const mode = normalizeCopyMode(profileSetting(settings, profile, "mode", "Copy exact amount"));
   const riskControl = modeUsesProtection(mode) ? "on" : "off";
   const liveSwitch = profileSetting(settings, profile, "liveTradingSwitch", "on");
-  const walletSync = profileSetting(settings, profile, "walletSync", "Turnkey server wallet");
+  const walletSync = settings.frogWalletSync || settings.walletSync || "Turnkey server wallet";
   const tradeMode = profileSetting(settings, profile, "tradeMode", "both");
   const sellOnly = tradeMode === "sellOnly";
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
@@ -640,7 +635,7 @@ function renderState(state) {
   setText("frogRoomProfit", money(profiles.frog?.profit));
   setText("truenestRoomProfit", money(profiles.truenest?.profit));
   setText("frogBalance", `Deposit: ${money(settings.frogDeposit)}`);
-  setText("truenestBalance", `Deposit: ${money(settings.truenestDeposit)}`);
+  setText("truenestBalance", `Shared deposit: ${money(settings.frogDeposit)}`);
   setText("frogUsdcNow", money(balanceUsdc("frog")));
   setText("truenestUsdcNow", money(balanceUsdc("truenest")));
   setText("frogLoss", money(profileLoss(settings, "frog")));
@@ -673,9 +668,7 @@ function renderState(state) {
     if (!settings.turnkeyApiPublicKey) missing.push("Waiting for Turnkey API public key.");
     if (!settings.turnkeyApiPrivateKey) missing.push("Waiting for Turnkey API private key.");
     if (!settings.frogTradeWallet) missing.push("Waiting for Decu Win wallet.");
-    if (!settings.truenestTradeWallet) missing.push("Waiting for Risk Win wallet.");
     if (!settings.frogSignerToken) missing.push("Waiting for Decu Win Turnkey wallet ID.");
-    if (!settings.truenestSignerToken) missing.push("Waiting for Risk Win Turnkey wallet ID.");
     missing.push(productionExecution ? "Production execution: ON." : "Production execution: OFF - real trading stays locked.");
     setLog(missing);
     return;
@@ -707,25 +700,22 @@ function renderState(state) {
 
 function renderManualDeposit(settings = {}) {
   const frogWallet = settings.frogTradeWallet || "";
-  const truenestWallet = settings.truenestTradeWallet || "";
   const frogDeposit = Number(settings.frogDeposit || 0);
-  const truenestDeposit = Number(settings.truenestDeposit || 0);
   const frogBalance = walletBalance("frog");
-  const truenestBalance = walletBalance("truenest");
 
   setText("manualDecuWallet", frogWallet || "Wallet not connected yet");
-  setText("manualTruenestWallet", truenestWallet || "Wallet not connected yet");
+  setText("manualTruenestWallet", frogWallet || "Wallet not connected yet");
   setText("manualDecuGas", frogBalance.error ? `SOL gas: ${frogBalance.error}` : `SOL gas: ${solAmount(frogBalance.sol)}`);
-  setText("manualTruenestGas", truenestBalance.error ? `SOL gas: ${truenestBalance.error}` : `SOL gas: ${solAmount(truenestBalance.sol)}`);
+  setText("manualTruenestGas", frogBalance.error ? `SOL gas: ${frogBalance.error}` : `Same wallet gas: ${solAmount(frogBalance.sol)}`);
   setText("manualDecuUsdc", `USDC balance: ${money(frogBalance.usdc)}`);
-  setText("manualTruenestUsdc", `USDC balance: ${money(truenestBalance.usdc)}`);
-  setText("manualDepositTotal", money(frogDeposit + truenestDeposit));
+  setText("manualTruenestUsdc", `Same wallet USDC: ${money(frogBalance.usdc)}`);
+  setText("manualDepositTotal", money(frogDeposit));
   if ($("manualDecuDeposit") && document.activeElement !== $("manualDecuDeposit")) $("manualDecuDeposit").value = settings.frogDeposit || "";
-  if ($("manualTruenestDeposit") && document.activeElement !== $("manualTruenestDeposit")) $("manualTruenestDeposit").value = settings.truenestDeposit || "";
+  if ($("manualTruenestDeposit") && document.activeElement !== $("manualTruenestDeposit")) $("manualTruenestDeposit").value = settings.frogDeposit || "";
   if ($("manualDecuUseProfit") && document.activeElement !== $("manualDecuUseProfit")) $("manualDecuUseProfit").value = settings.frogUseProfit || "off";
-  if ($("manualTruenestUseProfit") && document.activeElement !== $("manualTruenestUseProfit")) $("manualTruenestUseProfit").value = settings.truenestUseProfit || "off";
+  if ($("manualTruenestUseProfit") && document.activeElement !== $("manualTruenestUseProfit")) $("manualTruenestUseProfit").value = settings.frogUseProfit || "off";
   if ($("copyManualDecuWallet")) $("copyManualDecuWallet").disabled = !frogWallet;
-  if ($("copyManualTruenestWallet")) $("copyManualTruenestWallet").disabled = !truenestWallet;
+  if ($("copyManualTruenestWallet")) $("copyManualTruenestWallet").disabled = !frogWallet;
 }
 
 async function api(path, options = {}) {
@@ -1118,12 +1108,14 @@ async function saveSettings() {
 }
 
 async function saveManualDeposit() {
+  const mainDeposit = value("manualDecuDeposit") || value("manualTruenestDeposit");
+  const mainUseProfit = value("manualDecuUseProfit") || value("manualTruenestUseProfit");
   const data = {
     ...currentPayload(),
-    frogDeposit: value("manualDecuDeposit"),
-    truenestDeposit: value("manualTruenestDeposit"),
-    frogUseProfit: value("manualDecuUseProfit"),
-    truenestUseProfit: value("manualTruenestUseProfit")
+    frogDeposit: mainDeposit,
+    truenestDeposit: mainDeposit,
+    frogUseProfit: mainUseProfit,
+    truenestUseProfit: mainUseProfit
   };
   renderState({ settings: data, profiles: {}, activity: ["Saving manual deposit..."] });
   renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
@@ -1241,7 +1233,7 @@ on("truenestProfitWithdrawButton", "click", () => ownerWithdraw("truenest", { pr
 on("frogSellTokenButton", "click", () => ownerSellToken("frog"));
 on("truenestSellTokenButton", "click", () => ownerSellToken("truenest"));
 on("copyManualDecuWallet", "click", () => copyTextFromNode("manualDecuWallet", "Decu Win wallet"));
-on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "Risk Win wallet"));
+on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWallet", "main trading wallet"));
 on("ownerLogin", "click", ownerLogin);
 on("customerLogin", "click", customerLogin);
 on("customerSignup", "click", customerSignup);
