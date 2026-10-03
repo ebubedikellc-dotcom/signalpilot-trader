@@ -1,0 +1,19 @@
+{
+  "name": "SignalPilot Control Panel",
+  "short_name": "SignalPilot",
+  "description": "Private owner control panel for SignalPilot trading.",
+  "start_url": "/control-panel.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#09161f",
+  "theme_color": "#09161f",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/signalpilot-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
