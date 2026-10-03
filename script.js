@@ -97,7 +97,7 @@ function profileLoss(settings = {}, profile = "frog") {
 }
 
 function profileLockedProfit(settings = {}, profile = "frog") {
-  return Math.max(0, profileNet(settings, profile));
+  return Math.max(0, balanceUsdc(profile) - profileDeposit(settings, profile));
 }
 
 function profileTradeableUsdc(settings = {}, profile = "frog") {
