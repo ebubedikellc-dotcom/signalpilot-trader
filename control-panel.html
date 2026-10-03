@@ -67,7 +67,7 @@
             <div class="metric-grid trading-summary">
               <article><span>Decu Win deposit</span><strong id="frogBalance">Deposit: $0.00</strong></article>
               <article><span>Decu Win USDC now</span><strong id="frogUsdcNow">$0.00</strong></article>
-              <article><span>Decu Win open coins</span><strong id="frogOpenValue">$0.00</strong></article>
+              <article><span>Decu Win bought, not sold yet</span><strong id="frogOpenValue">$0.00</strong></article>
               <article><span>Decu Win total value</span><strong id="frogTotalValue">$0.00</strong></article>
               <article><span>Decu Win real sold loss</span><strong id="frogLoss">$0.00</strong></article>
               <article><span>Decu Win SOL gas</span><strong id="frogSolBalance">Checking...</strong></article>
@@ -76,7 +76,7 @@
               <article><span>Decu today</span><strong id="frogTraderTodayPnl">$0.00</strong></article>
               <article><span>Risk Win shared deposit</span><strong id="truenestBalance">Shared: $0.00</strong></article>
               <article><span>Risk Win USDC now</span><strong id="truenestUsdcNow">$0.00</strong></article>
-              <article><span>Risk Win open coins</span><strong id="truenestOpenValue">$0.00</strong></article>
+              <article><span>Risk Win bought, not sold yet</span><strong id="truenestOpenValue">$0.00</strong></article>
               <article><span>Risk Win total value</span><strong id="truenestTotalValue">$0.00</strong></article>
               <article><span>Risk Win real sold loss</span><strong id="truenestLoss">$0.00</strong></article>
               <article><span>Risk Win SOL gas</span><strong id="truenestSolBalance">Checking...</strong></article>
@@ -85,6 +85,16 @@
               <article><span>Risk guy today</span><strong id="truenestTraderTodayPnl">$0.00</strong></article>
               <article><span>Total saved deposit</span><strong id="manualDepositTotal">$0.00</strong></article>
             </div>
+
+            <section class="watch-tape open-holdings-panel" aria-labelledby="topOpenPositionsTitle">
+              <div class="chart-head">
+                <strong id="topOpenPositionsTitle">Bought, not sold yet</strong>
+                <span>This is the coin list. These are holdings, not cash loss.</span>
+              </div>
+              <ul id="watchOpenPositions">
+                <li>No unsold coin is showing now.</li>
+              </ul>
+            </section>
 
             <section class="live-watch-panel" aria-labelledby="liveWatchTitle">
               <div class="watch-top">
@@ -118,7 +128,7 @@
                   <small id="watchLossNow">Open coins: $0.00 | Total value: $0.00 | Real sold loss: $0.00</small>
                 </article>
                 <article>
-                  <span>Open coins</span>
+                  <span>Bought, not sold yet</span>
                   <strong id="watchOpenValue">$0.00</strong>
                   <small>Coins bought but not fully sold yet.</small>
                 </article>
@@ -173,15 +183,6 @@
                 </ul>
               </div>
 
-              <div class="watch-tape">
-                <div class="chart-head">
-                  <strong>Coins bought, not sold yet</strong>
-                  <span>These are holdings. Do not count them as real loss until sold.</span>
-                </div>
-                <ul id="watchOpenPositions">
-                  <li>No unsold coin is showing now.</li>
-                </ul>
-              </div>
             </section>
 
             <section class="queue-control-card" aria-labelledby="queueControlTitle">
@@ -214,7 +215,7 @@
                   <div><span>Copied signals</span><strong id="frogSignals">0</strong></div>
                   <div><span>Profit made</span><strong id="frogRoomProfit">$0.00</strong></div>
                   <div><span>USDC now</span><strong id="frogRoomUsdc">$0.00</strong></div>
-                  <div><span>Open coins</span><strong id="frogRoomOpenValue">$0.00</strong></div>
+                  <div><span>Bought, not sold yet</span><strong id="frogRoomOpenValue">$0.00</strong></div>
                   <div><span>Total value</span><strong id="frogRoomTotalValue">$0.00</strong></div>
                   <div><span>Profit locked</span><strong id="frogRoomLockedProfit">$0.00</strong></div>
                   <div><span>Tradeable head money</span><strong id="frogRoomTradeable">$0.00</strong></div>
@@ -232,7 +233,7 @@
                 </div>
 
                 <div class="room-copy-thread">
-                  <h4>Coins bought, not sold yet</h4>
+                  <h4>Bought, not sold yet</h4>
                   <ul id="frogOpenPositions">
                     <li>No unsold coin is showing now.</li>
                   </ul>
@@ -317,7 +318,7 @@
                   <div><span>Copied signals</span><strong id="truenestSignals">0</strong></div>
                   <div><span>Profit made</span><strong id="truenestRoomProfit">$0.00</strong></div>
                   <div><span>USDC now</span><strong id="truenestRoomUsdc">$0.00</strong></div>
-                  <div><span>Open coins</span><strong id="truenestRoomOpenValue">$0.00</strong></div>
+                  <div><span>Bought, not sold yet</span><strong id="truenestRoomOpenValue">$0.00</strong></div>
                   <div><span>Total value</span><strong id="truenestRoomTotalValue">$0.00</strong></div>
                   <div><span>Profit locked</span><strong id="truenestRoomLockedProfit">$0.00</strong></div>
                   <div><span>Tradeable head money</span><strong id="truenestRoomTradeable">$0.00</strong></div>
@@ -335,7 +336,7 @@
                 </div>
 
                 <div class="room-copy-thread">
-                  <h4>Coins bought, not sold yet</h4>
+                  <h4>Bought, not sold yet</h4>
                   <ul id="truenestOpenPositions">
                     <li>No unsold coin is showing now.</li>
                   </ul>
