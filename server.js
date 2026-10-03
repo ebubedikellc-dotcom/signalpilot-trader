@@ -251,9 +251,29 @@ async function readState() {
   }
 }
 
-async function saveState(state) {
+let stateSaveQueue = Promise.resolve();
+function saveState(state) {
+  const result = stateSaveQueue.then(() => saveStateSerialized(state));
+  stateSaveQueue = result.catch(() => {});
+  return result;
+}
+
+async function saveStateSerialized(state) {
+  // Owner control changes win over a worker snapshot taken before the click.
+  try {
+    const saved = JSON.parse(await readFile(dataFile, "utf8"));
+    if (Number(saved.strategy?.controlRevision || 0) > Number(state.strategy?.controlRevision || 0)) {
+      state.strategy = saved.strategy;
+      for (const profile of supportedProfiles) {
+        state.profiles[profile].running = saved.profiles[profile].running;
+      }
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
   await mkdir(dataDir, { recursive: true });
-  await writeFile(dataFile, JSON.stringify(state, null, 2));
+  await writeFile(`${dataFile}.tmp`, JSON.stringify(state, null, 2));
+  await rename(`${dataFile}.tmp`, dataFile);
 }
 
 async function readBody(request) {
@@ -374,6 +394,8 @@ function normalizeState(state) {
   state.strategy.frogLosses = Math.max(0, Number(state.strategy.frogLosses || 0));
   state.strategy.truenestLosses = Math.max(0, Number(state.strategy.truenestLosses || 0));
   state.strategy.paused = state.strategy.paused === true;
+  state.strategy.autoSwitch = state.strategy.autoSwitch === true;
+  state.strategy.exhaustedProfiles = (state.strategy.exhaustedProfiles || []).filter((profile) => supportedProfiles.includes(profile));
   state.strategy.processedClosedTrades = Array.isArray(state.strategy.processedClosedTrades)
     ? state.strategy.processedClosedTrades.slice(0, 50)
     : [];
@@ -871,7 +893,7 @@ function profileTraderScore(state, profile) {
 }
 
 function bestRemainingProfile(state, failedProfile) {
-  const candidates = supportedProfiles.filter((profile) => profile !== failedProfile);
+  const candidates = supportedProfiles.filter((profile) => profile !== failedProfile && !(state.strategy.exhaustedProfiles || []).includes(profile));
   const scored = candidates.map((profile) => ({
     profile,
     score: profileTraderScore(state, profile)
@@ -880,7 +902,7 @@ function bestRemainingProfile(state, failedProfile) {
     if (right.score !== left.score) return right.score - left.score;
     return supportedProfiles.indexOf(left.profile) - supportedProfiles.indexOf(right.profile);
   });
-  return scored[0]?.profile || (failedProfile === "frog" ? "truenest" : "frog");
+  return scored[0]?.profile || null;
 }
 
 function closedTraderPnlUsd(trades = [], sellTrade = {}, profile = "frog") {
@@ -914,9 +936,17 @@ function tradeIsBuyExecutionFailure(trade = {}) {
 }
 
 function switchProfileAfterFailureLimit(state, profile, activeProfile, switchLimit, strategyEvents) {
+  if (!state.strategy.autoSwitch || state.strategy.paused) return;
   const lossKey = strategyLossKey(profile);
-  if (profile !== activeProfile || Number(state.strategy[lossKey] || 0) < switchLimit) return;
+  if (profile !== state.strategy.activeProfile || Number(state.strategy[lossKey] || 0) < switchLimit) return;
+  state.strategy.exhaustedProfiles = [...new Set([...(state.strategy.exhaustedProfiles || []), profile])];
   const nextProfile = bestRemainingProfile(state, profile);
+  if (!nextProfile) {
+    state.strategy.paused = true;
+    state.strategy.pauseReason = `All three traders reached ${switchLimit} consecutive failures. New buys stopped; existing coins remain watched for sells.`;
+    strategyEvents.push(`Game stopped: ${state.strategy.pauseReason}`);
+    return;
+  }
   const nextScore = profileTraderScore(state, nextProfile);
   state.strategy.activeProfile = nextProfile;
   state.strategy[strategyLossKey(nextProfile)] = 0;
@@ -929,7 +959,7 @@ function switchProfileAfterFailureLimit(state, profile, activeProfile, switchLim
 
 function applyAutoSwitchStrategy(state, newTrades = []) {
   state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
-  if (state.strategy.paused) return;
+  if (state.strategy.paused || !state.strategy.autoSwitch) return;
 
   const combinedTrades = state.trades || [];
   const switchLimit = queueFailureSwitchLimit(state);
@@ -940,6 +970,7 @@ function applyAutoSwitchStrategy(state, newTrades = []) {
 
   for (const trade of newTrades) {
     const profile = profileFromTrade(trade);
+    if (state.strategy.paused || profile !== state.strategy.activeProfile) continue;
     const tradeId = trade.signature || trade.id;
     if (!tradeId) continue;
 
@@ -1620,6 +1651,7 @@ async function executeCopiedSwapLocked(profile, transaction, state) {
   }
 
   if (leg.action === "buy") {
+    if (state.strategy?.paused) return { status: `Game stopped - ${state.strategy.pauseReason || "new buys paused"}` };
     if (profileSellOnly(state, profile)) {
       return { status: "Skipped - Sell Only mode is ON, new buys are blocked" };
     }
@@ -2298,7 +2330,7 @@ async function processSignalTransactions(state, profile, transactions, newest, c
     const leg = primarySwapLeg(transaction, profile, state);
     const activeProfile = supportedProfiles.includes(state.strategy?.activeProfile) ? state.strategy.activeProfile : "frog";
     const activeForBuys = profile === activeProfile;
-    const canExecute = liveTradingAllowed(state, profile) && (activeForBuys || leg?.action === "sell");
+    const canExecute = liveTradingAllowed(state, profile) && ((activeForBuys && !state.strategy?.paused) || leg?.action === "sell");
     if (canExecute) {
       try {
         const execution = await executeCopiedSwap(profile, transaction, state);
@@ -2348,7 +2380,6 @@ async function processSignalTransactions(state, profile, transactions, newest, c
 
 async function runCopyWorkerOnce() {
   const state = await readState();
-  if (state.strategy?.paused) return;
   const activeProfile = supportedProfiles.includes(state.strategy?.activeProfile) ? state.strategy.activeProfile : "frog";
   const queueRunning = supportedProfiles.some((profile) => Boolean(state.profiles?.[profile]?.running));
   const runningProfiles = queueRunning ? supportedProfiles : [];
@@ -2434,8 +2465,8 @@ async function runCopyWorkerOnce() {
     for (const transaction of signalTransactions) {
       const trade = tradeFromTransaction(profile, transaction, state);
       const leg = primarySwapLeg(transaction, profile, state);
-      const activeForBuys = profile === activeProfile;
-      const canExecute = liveTradingAllowed(state, profile) && (activeForBuys || leg?.action === "sell");
+      const activeForBuys = profile === state.strategy.activeProfile;
+      const canExecute = liveTradingAllowed(state, profile) && ((activeForBuys && !state.strategy?.paused) || leg?.action === "sell");
       if (canExecute) {
         try {
           const execution = await executeCopiedSwap(profile, transaction, state);
@@ -2977,6 +3008,22 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/queue/automatic") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    const body = await readBody(request);
+    state.strategy.autoSwitch = body.enabled === true;
+    state.strategy.controlRevision = Date.now();
+    state.strategy.exhaustedProfiles = [];
+    state.strategy.paused = false;
+    state.strategy.pauseReason = "";
+    for (const profile of supportedProfiles) state.strategy[strategyLossKey(profile)] = 0;
+    state.activity = [line(state.strategy.autoSwitch ? "Automatic switching enabled: each trader gets one turn before Game stopped." : "Manual copying enabled: keep the selected trader until the owner changes it."), ...(state.activity || [])].slice(0, 20);
+    await saveState(state);
+    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
+    return true;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/queue/start") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
@@ -2996,7 +3043,9 @@ async function handleApi(request, response, url) {
       return true;
     }
     state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
-    state.strategy.activeProfile = "frog";
+    state.strategy.activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "safe";
+    state.strategy.controlRevision = Date.now();
+    state.strategy.exhaustedProfiles = [];
     state.strategy.paused = false;
     state.strategy.pauseReason = "";
     state.strategy.frogLosses = 0;
@@ -3009,7 +3058,7 @@ async function handleApi(request, response, url) {
     state.profiles.frog.lastAction = new Date().toISOString();
     const switchLimit = queueFailureSwitchLimit(state);
     state.activity = [
-      line(`Trading queue started: Decu Win first. After ${switchLimit} failures, SignalPilot switches traders and keeps the old trader watched for sells.`),
+      line(`Trading queue started: ${profileLabel(state.strategy.activeProfile)} in ${state.strategy.autoSwitch ? "Automatic" : "Manual"} mode. Sell monitoring stays active.`),
       line(liveTradingAllowed(state, "frog")
         ? "Production execution is enabled. Copy worker can execute with the connected signer."
         : "Monitoring is active. Real swap execution stays locked until EXECUTE_REAL_SWAPS=true is set in Render."),
@@ -3061,6 +3110,9 @@ async function handleApi(request, response, url) {
     }
     state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
     state.strategy.activeProfile = profile;
+    state.strategy.controlRevision = Date.now();
+    state.strategy.autoSwitch = false;
+    state.strategy.exhaustedProfiles = [];
     state.strategy.paused = false;
     state.strategy.pauseReason = "";
     state.strategy[strategyLossKey(profile)] = 0;
@@ -3098,6 +3150,9 @@ async function handleApi(request, response, url) {
       return true;
     }
     state.strategy.activeProfile = activeProfile;
+    state.strategy.controlRevision = Date.now();
+    state.strategy.autoSwitch = false;
+    state.strategy.exhaustedProfiles = [];
     state.strategy.paused = false;
     state.strategy.pauseReason = "";
     state.strategy[strategyLossKey(activeProfile)] = 0;
@@ -3107,7 +3162,7 @@ async function handleApi(request, response, url) {
     state.profiles[activeProfile].lastAction = new Date().toISOString();
     const switchLimit = queueFailureSwitchLimit(state);
     state.activity = [
-      line(`${profileLabel(activeProfile)} kept active. It will stay for new buys unless it reaches ${switchLimit} failures. Other bots stay watched for sells.`),
+      line(`${profileLabel(activeProfile)} kept active in Manual mode until the owner changes it. Other bots stay watched for sells.`),
       ...(state.activity || [])
     ].slice(0, 20);
     await saveState(state);

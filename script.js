@@ -1177,15 +1177,19 @@ function renderState(state) {
   if ($("queueBuyMode") && document.activeElement !== $("queueBuyMode")) $("queueBuyMode").value = buyMode;
   if ($("queueSurviveMax") && document.activeElement !== $("queueSurviveMax")) $("queueSurviveMax").value = String(maxSurviveBuy);
   if ($("queueBuyModeSave")) $("queueBuyModeSave").textContent = `Save ${buyModeLabel(buyMode)}`;
+  if ($("automaticSwitch")) $("automaticSwitch").checked = strategy.autoSwitch === true;
+  setText("keepCurrentBot", "Keep this trader - Manual");
   setText("queueControlStatus", strategy.paused
-    ? `Paused: ${strategy.pauseReason || "restart required."}`
+    ? `Game stopped: ${strategy.pauseReason || "restart required."}`
     : queueRunning
-      ? `${queueActiveLabel} is active now. Frog failures ${Number(strategy.safeLosses || 0)}/${failureLimit}, Deku failures ${Number(strategy.frogLosses || 0)}/${failureLimit}, Trunoest failures ${Number(strategy.truenestLosses || 0)}/${failureLimit}. Other bots are watched for history and sells.`
-      : `Ready: one click starts Decu first. After ${failureLimit} consecutive failures, it switches to the best remaining watched bot.`);
+      ? strategy.autoSwitch
+        ? `Automatic: ${queueActiveLabel}. Frog failures ${Number(strategy.safeLosses || 0)}/${failureLimit}, Deku failures ${Number(strategy.frogLosses || 0)}/${failureLimit}, Trunoest failures ${Number(strategy.truenestLosses || 0)}/${failureLimit}. All three reaching the limit stops new buys. Sells stay watched.`
+        : `Manual: ${queueActiveLabel} stays selected, winning or losing, until you change it. Existing coins stay watched for sells.`
+      : `Ready: start your selected trader in ${strategy.autoSwitch ? "Automatic" : "Manual"} mode.`);
   setText("queueControlNote", buyModeNote(buyMode, maxSurviveBuy));
-  setText("topActiveTrader", strategy.paused ? "Paused" : queueRunning ? queueActiveLabel : "Not trading");
+  setText("topActiveTrader", strategy.paused ? "Game stopped" : queueRunning ? queueActiveLabel : "Not trading");
   setText("topActiveTraderNote", strategy.paused
-    ? "Trading is paused now."
+    ? strategy.pauseReason || "New buys stopped. Existing coins stay watched for sells."
     : queueRunning
       ? "This is the only bot using your money now."
       : "Start trading queue to begin.");
@@ -1271,7 +1275,7 @@ function renderState(state) {
     return;
   }
 
-  setText("engineStatus", strategy.paused ? "Auto-paused after losses" : running.length ? "Production copy engine running" : "Production execution enabled");
+  setText("engineStatus", strategy.paused ? "Game stopped" : running.length ? "Production copy engine running" : "Production execution enabled");
   setText("engineSubtext", running.length
     ? strategyLine
     : strategy.paused ? strategyLine : `Press Start trading queue to run Decu first. After ${queueFailureLimit(settings)} failures, it switches traders and still watches old sells.`);
@@ -1855,7 +1859,7 @@ async function keepCurrentBot() {
   try {
     renderState(await api("/api/queue/keep-current", { method: "POST" }));
     const active = profileName(latestState.strategy?.activeProfile || "safe");
-    showBusinessMessage(`${active} will stay active unless it reaches the failure switch number.`);
+    showBusinessMessage(`${active} stays selected in Manual mode until you change it.`);
   } catch (error) {
     if (error.payload?.status) renderState(error.payload.status);
     showBusinessMessage(error.message, true);
@@ -1917,6 +1921,19 @@ on("switchSafeBot", "click", () => switchQueueProfile("safe"));
 on("switchDekuBot", "click", () => switchQueueProfile("frog"));
 on("switchTrunoestBot", "click", () => switchQueueProfile("truenest"));
 on("keepCurrentBot", "click", keepCurrentBot);
+on("automaticSwitch", "change", async () => {
+  const toggle = $("automaticSwitch");
+  const enabled = toggle.checked;
+  toggle.disabled = true;
+  try {
+    renderState(await api("/api/queue/automatic", { method: "POST", body: JSON.stringify({ enabled }) }));
+  } catch (error) {
+    toggle.checked = latestState.strategy?.autoSwitch === true;
+    showBusinessMessage(error.message, true);
+  } finally {
+    toggle.disabled = false;
+  }
+});
 on("enableStockAlarm", "click", enableStockAlarm);
 on("clearStockAlarm", "click", clearStockAlarm);
 on("frogSellOnly", "click", () => saveTradeMode("frog", "sellOnly"));
