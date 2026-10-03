@@ -73,8 +73,8 @@ const defaultState = {
     protectedCapStrategyVersion
   },
   profiles: {
-    frog: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null, lastGmgnWarningAt: null },
-    truenest: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null, lastGmgnWarningAt: null }
+    frog: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null, lastGmgnWarningAt: null, lastNoSignalAt: null },
+    truenest: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null, lastGmgnWarningAt: null, lastNoSignalAt: null }
   },
   owner: {
     email: ownerEmail
@@ -1834,6 +1834,11 @@ function shouldLogGmgnWarning(state, profile) {
   return !last || Date.now() - last > 60_000;
 }
 
+function shouldLogNoSignal(state, profile) {
+  const last = Number(state.profiles?.[profile]?.lastNoSignalAt || 0);
+  return !last || Date.now() - last > 60_000;
+}
+
 async function processSignalTransactions(state, profile, transactions, newest, checkpointField, sourceLabel) {
   if (!newest) return [];
 
@@ -1856,7 +1861,8 @@ async function processSignalTransactions(state, profile, transactions, newest, c
     .filter((transaction) => !existing.has(transaction.signature) && copyableSignal(profile, transaction, state));
   const newTrades = [];
 
-  if (!signalTransactions.length) {
+  if (!signalTransactions.length && shouldLogNoSignal(state, profile)) {
+    state.profiles[profile].lastNoSignalAt = Date.now();
     const sample = unseen[0] ? movementSummary(unseen[0]) : "wallet movement";
     const swapLikeCount = orderedUnseen.filter(looksLikeSwap).length;
     const nonTradeReasons = orderedUnseen
@@ -1985,7 +1991,8 @@ async function runCopyWorkerOnce() {
       .filter((transaction) => !existing.has(transaction.signature) && copyableSignal(profile, transaction, state))
     const newTrades = [];
 
-    if (!signalTransactions.length) {
+    if (!signalTransactions.length && shouldLogNoSignal(state, profile)) {
+      state.profiles[profile].lastNoSignalAt = Date.now();
       const sample = unseen[0] ? movementSummary(unseen[0]) : "wallet movement";
       const swapLikeCount = orderedUnseen.filter(looksLikeSwap).length;
       const nonTradeReasons = orderedUnseen
