@@ -1851,6 +1851,17 @@ async function switchQueueProfile(profile) {
   }
 }
 
+async function keepCurrentBot() {
+  try {
+    renderState(await api("/api/queue/keep-current", { method: "POST" }));
+    const active = profileName(latestState.strategy?.activeProfile || "safe");
+    showBusinessMessage(`${active} will stay active unless it reaches the failure switch number.`);
+  } catch (error) {
+    if (error.payload?.status) renderState(error.payload.status);
+    showBusinessMessage(error.message, true);
+  }
+}
+
 async function saveQueueSwitch() {
   const data = currentPayload();
   renderState({ settings: data, profiles: {}, activity: ["Saving switch number..."] });
@@ -1905,6 +1916,7 @@ on("saveQueueSwitch", "click", saveQueueSwitch);
 on("switchSafeBot", "click", () => switchQueueProfile("safe"));
 on("switchDekuBot", "click", () => switchQueueProfile("frog"));
 on("switchTrunoestBot", "click", () => switchQueueProfile("truenest"));
+on("keepCurrentBot", "click", keepCurrentBot);
 on("enableStockAlarm", "click", enableStockAlarm);
 on("clearStockAlarm", "click", clearStockAlarm);
 on("frogSellOnly", "click", () => saveTradeMode("frog", "sellOnly"));

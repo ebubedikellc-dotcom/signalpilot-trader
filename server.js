@@ -3013,6 +3013,44 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/queue/keep-current") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
+    const activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "safe";
+    if (!ready(state)) {
+      send(response, 400, { error: "Engine Room is not complete yet." });
+      return true;
+    }
+    try {
+      await assertHeliusReadyForProfile(state, activeProfile);
+    } catch (error) {
+      state.activity = [
+        line(`${profileLabel(activeProfile)} keep button blocked: ${error.message}`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+      await saveState(state);
+      send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
+      return true;
+    }
+    state.strategy.activeProfile = activeProfile;
+    state.strategy.paused = false;
+    state.strategy.pauseReason = "";
+    state.strategy[strategyLossKey(activeProfile)] = 0;
+    supportedProfiles.forEach((profile) => {
+      state.profiles[profile].running = true;
+    });
+    state.profiles[activeProfile].lastAction = new Date().toISOString();
+    const switchLimit = queueFailureSwitchLimit(state);
+    state.activity = [
+      line(`${profileLabel(activeProfile)} kept active. It will stay for new buys unless it reaches ${switchLimit} failures. Other bots stay watched for sells.`),
+      ...(state.activity || [])
+    ].slice(0, 20);
+    await saveState(state);
+    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
+    return true;
+  }
+
   const startMatch = url.pathname.match(/^\/api\/start\/(safe|frog|truenest)$/);
   if (request.method === "POST" && startMatch) {
     const state = await readState();
