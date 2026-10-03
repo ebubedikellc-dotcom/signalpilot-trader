@@ -414,6 +414,8 @@ function publicSettings(settings = {}, includeSecrets = false) {
     truenestTradeWallet: settings.truenestTradeWallet || "",
     frogWallet: settings.frogWallet || "",
     truenestWallet: settings.truenestWallet || "",
+    frogDeposit: settings.frogDeposit || "",
+    truenestDeposit: settings.truenestDeposit || "",
     safeMax: settings.safeMax || "",
     frogMax: settings.frogMax || "",
     truenestMax: settings.truenestMax || "",

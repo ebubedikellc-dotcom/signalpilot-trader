@@ -1661,7 +1661,7 @@ async function saveManualDeposit() {
   const mainDeposit = value("manualDecuDeposit") || value("manualTruenestDeposit");
   const mainUseProfit = value("manualDecuUseProfit") || value("manualTruenestUseProfit");
   const data = {
-    ...currentPayload(),
+    ...(latestState.settings || {}),
     frogDeposit: mainDeposit,
     truenestDeposit: mainDeposit,
     frogUseProfit: mainUseProfit,
