@@ -32,6 +32,7 @@ const fields = [
   "truenestSurviveMode",
   "truenestBuyMode",
   "truenestSurviveMax",
+  "queueFailureSwitchLimit",
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
@@ -102,6 +103,11 @@ function profileLockedProfit(settings = {}, profile = "frog") {
 function profileTradeableUsdc(settings = {}, profile = "frog") {
   if (settings.frogUseProfit === "on") return Math.max(0, balanceUsdc(profile));
   return Math.max(0, Math.min(balanceUsdc(profile), profileDeposit(settings, profile)));
+}
+
+function queueFailureLimit(settings = {}) {
+  const amount = Number(settings.queueFailureSwitchLimit || 3);
+  return Number.isFinite(amount) && amount > 0 ? Math.floor(amount) : 3;
 }
 
 function signedMoney(value) {
@@ -875,6 +881,7 @@ function renderState(state) {
   const queueActiveLabel = strategy.activeProfile === "truenest" ? "Risk Win" : "Decu Win";
   const buyMode = queueBuyMode(settings);
   const maxSurviveBuy = surviveMax(settings);
+  const failureLimit = queueFailureLimit(settings);
 
   fields.forEach((id) => {
     const node = $(id);
@@ -896,8 +903,8 @@ function renderState(state) {
   setText("queueControlStatus", strategy.paused
     ? `Paused: ${strategy.pauseReason || "restart required."}`
     : queueRunning
-      ? `${queueActiveLabel} is active now. Decu losses ${Number(strategy.frogLosses || 0)}/3, Risk losses ${Number(strategy.truenestLosses || 0)}/3.`
-      : "Ready: one click starts Decu first. Risk only takes over after 3 Decu losses.");
+      ? `${queueActiveLabel} is active now. Decu failures ${Number(strategy.frogLosses || 0)}/${failureLimit}, Risk failures ${Number(strategy.truenestLosses || 0)}/${failureLimit}. Switched-from trader is still watched for sells.`
+      : `Ready: one click starts Decu first. After ${failureLimit} failures, the app switches traders and still watches the old trader for sells.`);
   setText("queueControlNote", buyModeNote(buyMode, maxSurviveBuy));
 
   setText("frogProfit", money(profiles.frog?.profit));
@@ -965,7 +972,7 @@ function renderState(state) {
   const activeStrategyLabel = strategy.activeProfile === "truenest" ? "Risk" : "Decu";
   const strategyLine = strategy.paused
     ? `Auto-paused: ${strategy.pauseReason || "restart required."}`
-    : `One-chart mode: ${activeStrategyLabel} active. Decu losses ${Number(strategy.frogLosses || 0)}/3, Risk losses ${Number(strategy.truenestLosses || 0)}/3.`;
+    : `One-chart mode: ${activeStrategyLabel} active. Decu failures ${Number(strategy.frogLosses || 0)}/${queueFailureLimit(settings)}, Risk failures ${Number(strategy.truenestLosses || 0)}/${queueFailureLimit(settings)}. Switched-from trader is still watched for sells.`;
 
   if (!productionExecution) {
     setText("engineStatus", running.length ? "Monitoring running" : "Ready to monitor");
@@ -979,7 +986,7 @@ function renderState(state) {
   setText("engineStatus", strategy.paused ? "Auto-paused after losses" : running.length ? "Production copy engine running" : "Production execution enabled");
   setText("engineSubtext", running.length
     ? strategyLine
-    : strategy.paused ? strategyLine : "Press Start trading queue to run Decu first, then auto-switch to Risk after 3 Decu losses.");
+    : strategy.paused ? strategyLine : `Press Start trading queue to run Decu first. After ${queueFailureLimit(settings)} failures, it switches traders and still watches old sells.`);
   setLog(state.activity?.length ? state.activity : ["Ready. Press Start trading queue."]);
 }
 
@@ -1534,11 +1541,18 @@ async function stopProfile(profile) {
 async function startQueue() {
   try {
     renderState(await api("/api/queue/start", { method: "POST" }));
-    showBusinessMessage("Trading queue started. Decu goes first; Risk takes over only after 3 Decu losses.");
+    showBusinessMessage(`Trading queue started. Decu goes first. After ${queueFailureLimit(latestState.settings)} failures, it switches traders and still watches old sells.`);
   } catch (error) {
     if (error.payload?.status) renderState(error.payload.status);
     showBusinessMessage(error.message, true);
   }
+}
+
+async function saveQueueSwitch() {
+  const data = currentPayload();
+  renderState({ settings: data, profiles: {}, activity: ["Saving switch number..."] });
+  renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
+  showBusinessMessage(`Switch number saved: ${queueFailureLimit(data)} failures.`);
 }
 
 async function stopQueue() {
@@ -1584,6 +1598,7 @@ on("frogStop", "click", () => stopProfile("frog"));
 on("queueStart", "click", startQueue);
 on("queueStop", "click", stopQueue);
 on("queueBuyModeSave", "click", () => saveBuyMode("queue"));
+on("saveQueueSwitch", "click", saveQueueSwitch);
 on("frogSellOnly", "click", () => saveTradeMode("frog", "sellOnly"));
 on("frogResumeBuying", "click", () => saveTradeMode("frog", "both"));
 on("frogBuyModeSave", "click", () => saveBuyMode("frog"));

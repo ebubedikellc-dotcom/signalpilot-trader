@@ -196,7 +196,7 @@
               <div>
                 <p class="eyebrow">One Button Queue</p>
                 <h2 id="queueControlTitle">Control Decu and Risk together</h2>
-                <p id="queueControlStatus">Decu starts first. If Decu loses 3 times, Risk takes over. If Risk loses 3 times, trading pauses.</p>
+                <p id="queueControlStatus">Decu starts first. After your failure number, the app switches traders but still watches the old trader for sells.</p>
               </div>
               <div class="queue-actions">
                 <button class="primary-action" id="queueStart" type="button" disabled>Start trading queue</button>
@@ -209,6 +209,8 @@
                   </select>
                 </label>
                 <label>Survive highest buy <input id="queueSurviveMax" inputmode="decimal" placeholder="5"></label>
+                <label>Number of failures before the trade has switched <input id="queueFailureSwitchLimit" inputmode="numeric" placeholder="3"></label>
+                <button class="secondary-action" id="saveQueueSwitch" type="button">Save switch number</button>
                 <button class="survive-action" id="queueBuyModeSave" type="button">Save buy mode</button>
               </div>
               <small id="queueControlNote">Highest buy $50 mode means small buys copy exact, but any bigger buy stops at $50.</small>

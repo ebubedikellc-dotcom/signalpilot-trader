@@ -60,6 +60,7 @@ const defaultState = {
     truenestSurviveMode: "off",
     truenestBuyMode: defaultBuyMode,
     truenestSurviveMax: "5",
+    queueFailureSwitchLimit: "3",
     walletSync: "Turnkey server wallet",
     riskControl: "on",
     liveTradingSwitch: "on",
@@ -134,6 +135,7 @@ const fields = [
   "truenestSurviveMode",
   "truenestBuyMode",
   "truenestSurviveMax",
+  "queueFailureSwitchLimit",
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
@@ -198,6 +200,7 @@ function syncQueueSurviveSettings(settings = {}) {
   settings.truenestSurviveMode = queueMode === "survive" ? "on" : "off";
   settings.frogSurviveMax = normalizeUsdSetting(settings.frogSurviveMax, "5");
   settings.truenestSurviveMax = normalizeUsdSetting(settings.truenestSurviveMax || settings.frogSurviveMax, settings.frogSurviveMax || "5");
+  settings.queueFailureSwitchLimit = normalizeWholeNumberSetting(settings.queueFailureSwitchLimit, "3");
 }
 
 function normalizeBuyMode(mode) {
@@ -210,6 +213,11 @@ function normalizeBuyMode(mode) {
 function normalizeUsdSetting(value, fallback) {
   const amount = Number(value);
   return Number.isFinite(amount) && amount > 0 ? String(amount) : String(fallback);
+}
+
+function normalizeWholeNumberSetting(value, fallback) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? String(Math.floor(amount)) : String(fallback);
 }
 
 function isLegacyUnsupportedSwapSkip(trade = {}) {
@@ -374,6 +382,7 @@ function publicSettings(settings = {}, includeSecrets = false) {
     truenestBuyMode: normalizeBuyMode(settings.truenestBuyMode),
     frogSurviveMax: normalizeUsdSetting(settings.frogSurviveMax, "5"),
     truenestSurviveMax: normalizeUsdSetting(settings.truenestSurviveMax, settings.frogSurviveMax || "5"),
+    queueFailureSwitchLimit: normalizeWholeNumberSetting(settings.queueFailureSwitchLimit, "3"),
     walletSync: settings.walletSync || "Turnkey server wallet",
     riskControl: settings.riskControl || "on",
     liveTradingSwitch: settings.liveTradingSwitch || "on",
@@ -706,6 +715,11 @@ function strategyLossKey(profile) {
   return profile === "frog" ? "frogLosses" : "truenestLosses";
 }
 
+function queueFailureSwitchLimit(state) {
+  const amount = Number(state.settings?.queueFailureSwitchLimit || 3);
+  return Number.isFinite(amount) && amount > 0 ? Math.floor(amount) : 3;
+}
+
 function tradeSide(trade = {}) {
   const action = String(trade.action || trade.execution?.action || "").toLowerCase();
   if (action.includes("sell")) return "sell";
@@ -742,6 +756,8 @@ function applyAutoSwitchStrategy(state, newTrades = []) {
   if (state.strategy.paused) return;
 
   const combinedTrades = state.trades || [];
+  const switchLimit = queueFailureSwitchLimit(state);
+  const activeProfile = state.strategy.activeProfile === "truenest" ? "truenest" : "frog";
   const processed = new Set(state.strategy.processedClosedTrades || []);
   const strategyEvents = [];
 
@@ -757,28 +773,28 @@ function applyAutoSwitchStrategy(state, newTrades = []) {
     const lossKey = strategyLossKey(profile);
     if (closedPnl < 0) {
       state.strategy[lossKey] = Number(state.strategy[lossKey] || 0) + 1;
-      strategyEvents.push(`${profileLabel(profile)} closed loss ${state.strategy[lossKey]}/3 (${closedPnl.toFixed(2)}).`);
+      strategyEvents.push(`${profileLabel(profile)} closed loss ${state.strategy[lossKey]}/${switchLimit} (${closedPnl.toFixed(2)}).`);
     } else {
       state.strategy[lossKey] = 0;
       strategyEvents.push(`${profileLabel(profile)} closed profit ${closedPnl.toFixed(2)}; loss count reset.`);
     }
 
-    if (profile === "frog" && state.strategy.frogLosses >= 3) {
+    if (profile === activeProfile && profile === "frog" && state.strategy.frogLosses >= switchLimit) {
       state.profiles.frog.running = false;
       state.profiles.truenest.running = true;
       state.profiles.truenest.lastAction = new Date().toISOString();
       state.strategy.activeProfile = "truenest";
       state.strategy.truenestLosses = 0;
-      strategyEvents.push("Decu reached 3 losses. SignalPilot switched to Risk.");
+      strategyEvents.push(`Decu reached ${switchLimit} failures. SignalPilot switched to Risk, while Decu stays watched for sells.`);
     }
 
-    if (profile === "truenest" && state.strategy.truenestLosses >= 3) {
-      state.profiles.frog.running = false;
+    if (profile === activeProfile && profile === "truenest" && state.strategy.truenestLosses >= switchLimit) {
+      state.profiles.frog.running = true;
       state.profiles.truenest.running = false;
-      state.strategy.paused = true;
-      state.strategy.pauseReason = "Risk reached 3 losses. Trading paused until owner restarts.";
-      strategyEvents.push(state.strategy.pauseReason);
-      break;
+      state.profiles.frog.lastAction = new Date().toISOString();
+      state.strategy.activeProfile = "frog";
+      state.strategy.frogLosses = 0;
+      strategyEvents.push(`Risk reached ${switchLimit} failures. SignalPilot switched back to Decu, while Risk stays watched for sells.`);
     }
   }
 
@@ -1939,7 +1955,7 @@ function shouldLogNoSignal(state, profile) {
   return !last || Date.now() - last > 60_000;
 }
 
-async function processSignalTransactions(state, profile, transactions, newest, checkpointField, sourceLabel) {
+async function processSignalTransactions(state, profile, transactions, newest, checkpointField, sourceLabel, options = {}) {
   if (!newest) return [];
 
   if (!state.profiles[profile][checkpointField]) {
@@ -1958,7 +1974,11 @@ async function processSignalTransactions(state, profile, transactions, newest, c
   const existing = new Set((state.trades || []).map((trade) => trade.signature || trade.id));
   const orderedUnseen = [...unseen].reverse();
   const signalTransactions = orderedUnseen
-    .filter((transaction) => !existing.has(transaction.signature) && copyableSignal(profile, transaction, state));
+    .filter((transaction) => {
+      if (existing.has(transaction.signature) || !copyableSignal(profile, transaction, state)) return false;
+      if (!options.sellOnlySignals) return true;
+      return primarySwapLeg(transaction, profile, state)?.action === "sell";
+    });
   const newTrades = [];
 
   if (!signalTransactions.length && shouldLogNoSignal(state, profile)) {
@@ -2036,7 +2056,8 @@ async function runCopyWorkerOnce() {
   const state = await readState();
   if (state.strategy?.paused) return;
   const activeProfile = state.strategy?.activeProfile === "truenest" ? "truenest" : "frog";
-  const runningProfiles = state.profiles?.[activeProfile]?.running ? [activeProfile] : [];
+  const queueRunning = Boolean(state.profiles?.frog?.running || state.profiles?.truenest?.running);
+  const runningProfiles = queueRunning ? ["frog", "truenest"] : [];
   if (!runningProfiles.length) return;
 
   if (!state.settings?.heliusKey) {
@@ -2046,6 +2067,7 @@ async function runCopyWorkerOnce() {
   }
 
   for (const profile of runningProfiles) {
+    const sellOnlySignals = profile !== activeProfile;
     const wallet = targetWallet(state, profile);
     if (!wallet) continue;
     let gmgnHandled = false;
@@ -2055,7 +2077,7 @@ async function runCopyWorkerOnce() {
         const gmgnTransactions = await fetchGmgnTransactionsForAddress(state.settings, wallet);
         const gmgnNewest = newestSignature(gmgnTransactions);
         if (gmgnNewest) {
-          await processSignalTransactions(state, profile, gmgnTransactions, gmgnNewest, "lastGmgnSignature", "GMGN");
+          await processSignalTransactions(state, profile, gmgnTransactions, gmgnNewest, "lastGmgnSignature", "GMGN", { sellOnlySignals });
           gmgnHandled = true;
         }
       } catch (error) {
@@ -2091,7 +2113,11 @@ async function runCopyWorkerOnce() {
     const existing = new Set((state.trades || []).map((trade) => trade.signature || trade.id));
     const orderedUnseen = [...unseen].reverse();
     const signalTransactions = orderedUnseen
-      .filter((transaction) => !existing.has(transaction.signature) && copyableSignal(profile, transaction, state))
+      .filter((transaction) => {
+        if (existing.has(transaction.signature) || !copyableSignal(profile, transaction, state)) return false;
+        if (!sellOnlySignals) return true;
+        return primarySwapLeg(transaction, profile, state)?.action === "sell";
+      })
     const newTrades = [];
 
     if (!signalTransactions.length && shouldLogNoSignal(state, profile)) {
@@ -2668,8 +2694,9 @@ async function handleApi(request, response, url) {
     state.profiles.frog.running = true;
     state.profiles.truenest.running = false;
     state.profiles.frog.lastAction = new Date().toISOString();
+    const switchLimit = queueFailureSwitchLimit(state);
     state.activity = [
-      line("Trading queue started: Decu Win first, Risk Win takes over after 3 Decu losses."),
+      line(`Trading queue started: Decu Win first. After ${switchLimit} failures, SignalPilot switches traders and keeps the old trader watched for sells.`),
       line(liveTradingAllowed(state, "frog")
         ? "Production execution is enabled. Copy worker can execute with the connected signer."
         : "Monitoring is active. Real swap execution stays locked until EXECUTE_REAL_SWAPS=true is set in Render."),
