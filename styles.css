@@ -273,11 +273,16 @@ dd { margin: 7px 0 0; font-weight: 800; }
 }
 .queue-control-card h2 { margin-bottom: 8px; font-size: 1.6rem; }
 .queue-control-card p, .queue-control-card small { margin: 0; color: var(--muted); line-height: 1.5; }
-.queue-actions, .manual-switch-board, .stock-alarm-board { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.queue-actions, .manual-switch-board, .watched-bot-board, .stock-alarm-board { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 .queue-actions .survive-action { grid-column: 1 / -1; }
 .manual-switch-board { grid-column: 1 / -1; margin-top: 4px; }
 .manual-switch-board button:last-child { grid-column: 1 / -1; }
 .manual-switch-board button.active-switch { background: var(--green); color: #061118; border-color: transparent; }
+.watched-bot-board { grid-column: 1 / -1; margin-top: 4px; }
+.watched-bot-board div { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.18); }
+.watched-bot-board div:last-child { grid-column: 1 / -1; }
+.watched-bot-board span { font-weight: 900; color: var(--text); }
+.watched-bot-board small { color: var(--muted); }
 .stock-alarm-board { grid-column: 1 / -1; margin-top: 4px; padding: 10px; border: 1px solid rgba(255,107,107,.38); border-radius: 8px; background: rgba(255,107,107,.1); }
 .stock-alarm-board small { grid-column: 1 / -1; color: #ffd4d4; }
 .stock-sell-action { width: 100%; margin-top: 6px; }
@@ -439,7 +444,7 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .inline-save-box span { color: var(--muted); line-height: 1.45; }
 .inline-save-box .secondary-action { width: 100%; min-height: 52px; background: var(--green); color: #061118; border: 0; }
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .emergency-actions, .queue-control-card, .queue-actions, .manual-switch-board, .stock-alarm-board { grid-template-columns: 1fr; }
+  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .emergency-actions, .queue-control-card, .queue-actions, .manual-switch-board, .watched-bot-board, .stock-alarm-board { grid-template-columns: 1fr; }
   .owner-tabs { grid-template-columns: 1fr; }
   .facts { grid-template-columns: 1fr; }
   .section-title { align-items: stretch; flex-direction: column; }
@@ -511,7 +516,7 @@ td { color: var(--muted); }
 .loss-row td:nth-child(6) { color: var(--red); font-weight: 900; }
 
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .watch-grid, .emergency-actions, .queue-control-card, .queue-actions, .manual-switch-board, .stock-alarm-board {
+  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .watch-grid, .emergency-actions, .queue-control-card, .queue-actions, .manual-switch-board, .watched-bot-board, .stock-alarm-board {
     grid-template-columns: 1fr;
   }
 

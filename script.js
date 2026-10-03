@@ -914,6 +914,17 @@ function renderRoomThread(profile, trades = []) {
   });
 }
 
+function renderWatchedBotBoard(trades = []) {
+  ["safe", "frog", "truenest"].forEach((profile) => {
+    const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
+    const latest = roomTrades[0];
+    setText(`${profile}WatcherPnl`, signedMoney(traderPnlFromTrades(trades, profile)));
+    setText(`${profile}WatcherLast`, latest
+      ? `${latest.action || "Signal"} - ${money(latest.amount)} - ${latest.status || "watched"}`
+      : "No watched trade yet.");
+  });
+}
+
 function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   const label = profileName(profile);
   const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
@@ -1154,8 +1165,8 @@ function renderState(state) {
   setText("queueControlStatus", strategy.paused
     ? `Paused: ${strategy.pauseReason || "restart required."}`
     : queueRunning
-      ? `${queueActiveLabel} is active now. Frog failures ${Number(strategy.safeLosses || 0)}/${failureLimit}, Deku failures ${Number(strategy.frogLosses || 0)}/${failureLimit}, Trunoest failures ${Number(strategy.truenestLosses || 0)}/${failureLimit}. Switched-from traders are still watched for sells.`
-      : `Ready: one click starts Decu first. After ${failureLimit} failures, the app switches traders and still watches the old trader for sells.`);
+      ? `${queueActiveLabel} is active now. Frog failures ${Number(strategy.safeLosses || 0)}/${failureLimit}, Deku failures ${Number(strategy.frogLosses || 0)}/${failureLimit}, Trunoest failures ${Number(strategy.truenestLosses || 0)}/${failureLimit}. Other bots are watched for history and sells.`
+      : `Ready: one click starts Decu first. After ${failureLimit} consecutive failures, it switches to the best remaining watched bot.`);
   setText("queueControlNote", buyModeNote(buyMode, maxSurviveBuy));
 
   setText("frogProfit", money(profiles.frog?.profit));
@@ -1180,6 +1191,7 @@ function renderState(state) {
   setText("truenestTraderTodayPnl", signedMoney(traderTodayPnlFromTrades(trades, "truenest")));
   renderRoomStatus("frog", settings, trades, backend);
   renderRoomStatus("truenest", settings, trades, backend);
+  renderWatchedBotBoard(trades);
   renderLiveWatch(settings, profiles, trades, strategy);
   renderManualDeposit(settings);
   renderVault(settings, profiles);

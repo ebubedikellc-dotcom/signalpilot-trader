@@ -805,6 +805,36 @@ function tradeTokenKey(trade = {}) {
   return String(trade.tradedTokenMint || trade.tokenMint || trade.token || "").trim().toLowerCase();
 }
 
+function traderSignalUsd(trade = {}) {
+  const explicit = Number(trade.traderPnlUsd);
+  if (Number.isFinite(explicit) && explicit !== 0) return explicit;
+  const sourceBuy = Number(trade.sourceUsd || trade.execution?.sourceUsd || 0);
+  const sourceSell = Number(trade.sourceReceivedUsd || trade.execution?.sourceReceivedUsd || 0);
+  const action = tradeSide(trade);
+  if (sourceSell) return sourceSell;
+  if (sourceBuy && action === "buy") return -Math.abs(sourceBuy);
+  return 0;
+}
+
+function profileTraderScore(state, profile) {
+  return (state.trades || [])
+    .filter((trade) => roomMatchesProfile(trade, profile))
+    .reduce((sum, trade) => sum + traderSignalUsd(trade), 0);
+}
+
+function bestRemainingProfile(state, failedProfile) {
+  const candidates = supportedProfiles.filter((profile) => profile !== failedProfile);
+  const scored = candidates.map((profile) => ({
+    profile,
+    score: profileTraderScore(state, profile)
+  }));
+  scored.sort((left, right) => {
+    if (right.score !== left.score) return right.score - left.score;
+    return supportedProfiles.indexOf(left.profile) - supportedProfiles.indexOf(right.profile);
+  });
+  return scored[0]?.profile || (failedProfile === "frog" ? "truenest" : "frog");
+}
+
 function closedTraderPnlUsd(trades = [], sellTrade = {}, profile = "frog") {
   if (tradeSide(sellTrade) !== "sell" || !roomMatchesProfile(sellTrade, profile)) return null;
   const sellReceived = Number(sellTrade.sourceReceivedUsd || sellTrade.traderPnlUsd || 0);
@@ -838,14 +868,15 @@ function tradeIsBuyExecutionFailure(trade = {}) {
 function switchProfileAfterFailureLimit(state, profile, activeProfile, switchLimit, strategyEvents) {
   const lossKey = strategyLossKey(profile);
   if (profile !== activeProfile || Number(state.strategy[lossKey] || 0) < switchLimit) return;
-  const nextProfile = profile === "truenest" ? "frog" : profile === "safe" ? "frog" : "truenest";
+  const nextProfile = bestRemainingProfile(state, profile);
+  const nextScore = profileTraderScore(state, nextProfile);
   state.strategy.activeProfile = nextProfile;
   state.strategy[strategyLossKey(nextProfile)] = 0;
   supportedProfiles.forEach((item) => {
     state.profiles[item].running = true;
   });
   state.profiles[nextProfile].lastAction = new Date().toISOString();
-  strategyEvents.push(`${profileLabel(profile)} reached ${switchLimit} failures. SignalPilot switched to ${profileLabel(nextProfile)}, while old traders stay watched for sells.`);
+  strategyEvents.push(`${profileLabel(profile)} reached ${switchLimit} failures. SignalPilot switched to ${profileLabel(nextProfile)} because it has the best watched result among the remaining bots (${nextScore.toFixed(2)}), while old traders stay watched for sells.`);
 }
 
 function applyAutoSwitchStrategy(state, newTrades = []) {
@@ -871,6 +902,12 @@ function applyAutoSwitchStrategy(state, newTrades = []) {
       state.strategy[lossKey] = Number(state.strategy[lossKey] || 0) + 1;
       strategyEvents.push(`${profileLabel(profile)} buy execution failed ${state.strategy[lossKey]}/${switchLimit}.`);
       switchProfileAfterFailureLimit(state, profile, activeProfile, switchLimit, strategyEvents);
+      continue;
+    }
+
+    if (tradeSide(trade) === "buy" && String(trade.status || "").toLowerCase().includes("executed")) {
+      state.strategy[strategyLossKey(profile)] = 0;
+      strategyEvents.push(`${profileLabel(profile)} buy executed; failure count reset.`);
       continue;
     }
 
@@ -2156,8 +2193,7 @@ async function processSignalTransactions(state, profile, transactions, newest, c
   const signalTransactions = orderedUnseen
     .filter((transaction) => {
       if (existing.has(transaction.signature) || !copyableSignal(profile, transaction, state)) return false;
-      if (!options.sellOnlySignals) return true;
-      return primarySwapLeg(transaction, profile, state)?.action === "sell";
+      return true;
     });
   const newTrades = [];
 
@@ -2183,7 +2219,10 @@ async function processSignalTransactions(state, profile, transactions, newest, c
   for (const transaction of signalTransactions) {
     const trade = tradeFromTransaction(profile, transaction, state);
     const leg = primarySwapLeg(transaction, profile, state);
-    if (liveTradingAllowed(state, profile)) {
+    const activeProfile = supportedProfiles.includes(state.strategy?.activeProfile) ? state.strategy.activeProfile : "frog";
+    const activeForBuys = profile === activeProfile;
+    const canExecute = liveTradingAllowed(state, profile) && (activeForBuys || leg?.action === "sell");
+    if (canExecute) {
       const staleSignal = !freshEnoughToCopy(transaction);
       if (staleSignal && leg?.action !== "sell") {
         const seconds = Math.round(signalAgeMs(transaction) / 1000);
@@ -2198,10 +2237,12 @@ async function processSignalTransactions(state, profile, transactions, newest, c
         trade.status = "Execution failed";
         trade.executionError = error.message;
       }
+    } else if (liveTradingAllowed(state, profile) && leg?.action === "buy" && !activeForBuys) {
+      trade.status = "Watched - inactive bot, no buy";
     }
     newTrades.push(trade);
 
-    if (liveTradingAllowed(state, profile) && leg?.action === "sell") {
+    if (canExecute && leg?.action === "sell") {
       try {
         const stuckSellTrade = await autoSellStuckTokenAfterSellSignal(state, profile, leg, trade);
         if (stuckSellTrade) {
@@ -2247,7 +2288,6 @@ async function runCopyWorkerOnce() {
   }
 
   for (const profile of runningProfiles) {
-    const sellOnlySignals = profile !== activeProfile;
     const wallet = targetWallet(state, profile);
     if (!wallet) continue;
     let gmgnHandled = false;
@@ -2257,7 +2297,7 @@ async function runCopyWorkerOnce() {
         const gmgnTransactions = await fetchGmgnTransactionsForAddress(state.settings, wallet);
         const gmgnNewest = newestSignature(gmgnTransactions);
         if (gmgnNewest) {
-          await processSignalTransactions(state, profile, gmgnTransactions, gmgnNewest, "lastGmgnSignature", "GMGN", { sellOnlySignals });
+          await processSignalTransactions(state, profile, gmgnTransactions, gmgnNewest, "lastGmgnSignature", "GMGN");
           gmgnHandled = true;
         }
       } catch (error) {
@@ -2295,8 +2335,7 @@ async function runCopyWorkerOnce() {
     const signalTransactions = orderedUnseen
       .filter((transaction) => {
         if (existing.has(transaction.signature) || !copyableSignal(profile, transaction, state)) return false;
-        if (!sellOnlySignals) return true;
-        return primarySwapLeg(transaction, profile, state)?.action === "sell";
+        return true;
       })
     const newTrades = [];
 
@@ -2322,7 +2361,9 @@ async function runCopyWorkerOnce() {
     for (const transaction of signalTransactions) {
       const trade = tradeFromTransaction(profile, transaction, state);
       const leg = primarySwapLeg(transaction, profile, state);
-      if (liveTradingAllowed(state, profile)) {
+      const activeForBuys = profile === activeProfile;
+      const canExecute = liveTradingAllowed(state, profile) && (activeForBuys || leg?.action === "sell");
+      if (canExecute) {
         const staleSignal = !freshEnoughToCopy(transaction);
         if (staleSignal && leg?.action !== "sell") {
           const seconds = Math.round(signalAgeMs(transaction) / 1000);
@@ -2337,10 +2378,12 @@ async function runCopyWorkerOnce() {
           trade.status = "Execution failed";
           trade.executionError = error.message;
         }
+      } else if (liveTradingAllowed(state, profile) && leg?.action === "buy" && !activeForBuys) {
+        trade.status = "Watched - inactive bot, no buy";
       }
       newTrades.push(trade);
 
-      if (liveTradingAllowed(state, profile) && leg?.action === "sell") {
+      if (canExecute && leg?.action === "sell") {
         try {
           const stuckSellTrade = await autoSellStuckTokenAfterSellSignal(state, profile, leg, trade);
           if (stuckSellTrade) {
