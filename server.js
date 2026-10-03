@@ -61,7 +61,8 @@ const defaultState = {
     truenestLiveTradingSwitch: "on",
     vaultMode: "private",
     vaultFeePercent: "0",
-    ownerProfitSharePercent: "0",
+    ownerProfitSharePercent: "30",
+    referralRewardPercent: "5",
     ownerFeeWallet: "",
     vaultNote: "Private vault first. Open to users later.",
     protectedCapStrategyVersion
@@ -128,6 +129,7 @@ const fields = [
   "vaultMode",
   "vaultFeePercent",
   "ownerProfitSharePercent",
+  "referralRewardPercent",
   "ownerFeeWallet",
   "vaultNote"
 ];
@@ -201,7 +203,14 @@ function normalizeState(state) {
   state.customers.forEach((customer) => {
     if (!customer.id) customer.id = randomUUID();
     if (!customer.accessToken) customer.accessToken = customer.id;
+    if (!customer.referralToken) customer.referralToken = randomUUID();
   });
+  if (!state.settings.ownerProfitSharePercent || state.settings.ownerProfitSharePercent === "0") {
+    state.settings.ownerProfitSharePercent = defaultState.settings.ownerProfitSharePercent;
+  }
+  if (!state.settings.referralRewardPercent) {
+    state.settings.referralRewardPercent = defaultState.settings.referralRewardPercent;
+  }
   state.deposits = Array.isArray(state.deposits) ? state.deposits : [];
   state.withdrawals = Array.isArray(state.withdrawals) ? state.withdrawals : [];
   state.sessions = state.sessions && typeof state.sessions === "object" ? state.sessions : {};
@@ -337,10 +346,23 @@ function customerPublic(customer, state) {
   const deposited = Number(customer.deposited || 0);
   const profit = Number(customer.profit || 0);
   const ownerProfitSharePercent = clampPercent(state.settings.ownerProfitSharePercent);
-  const ownerProfitShare = Math.max(0, profit) * (ownerProfitSharePercent / 100);
+  const referralRewardPercent = clampPercent(state.settings.referralRewardPercent);
+  const grossGain = Math.max(0, profit);
+  const ownerProfitShare = grossGain * (ownerProfitSharePercent / 100);
+  const referralReward = customer.referredBy
+    ? grossGain * (referralRewardPercent / 100)
+    : 0;
+  const ownerNetProfitShare = Math.max(0, ownerProfitShare - referralReward);
+  const referralRewards = (state.customers || []).reduce((sum, item) => {
+    if (item.referredBy !== customer.id) return sum;
+    return sum + (Math.max(0, Number(item.profit || 0)) * (referralRewardPercent / 100));
+  }, 0);
   const customerNetProfit = profit - ownerProfitShare;
   const withdrawn = Number(customer.withdrawn || 0);
-  const withdrawable = deposited + customerNetProfit - withdrawn;
+  const withdrawable = deposited + customerNetProfit + referralRewards - withdrawn;
+  const referrer = customer.referredBy
+    ? (state.customers || []).find((item) => item.id === customer.referredBy)
+    : null;
   return {
     id: customer.id,
     name: customer.name,
@@ -348,12 +370,20 @@ function customerPublic(customer, state) {
     phone: customer.phone || "",
     accessToken: customer.accessToken,
     accessPath: `/player/${customer.accessToken}`,
+    referralToken: customer.referralToken,
+    referralPath: `/join/${customer.referralToken}`,
+    referredBy: customer.referredBy || "",
+    referredByName: referrer ? (referrer.name || referrer.email || "") : "",
     plan: customer.plan || "frog",
     status: customer.status || "active",
     deposited,
     profit,
     ownerProfitSharePercent,
+    referralRewardPercent,
     ownerProfitShare,
+    ownerNetProfitShare,
+    referralReward,
+    referralRewards,
     customerNetProfit,
     withdrawn,
     withdrawable,
@@ -372,8 +402,13 @@ function businessSummary(state) {
   const deposited = customers.reduce((sum, customer) => sum + Number(customer.deposited || 0), 0);
   const profit = customers.reduce((sum, customer) => sum + Number(customer.profit || 0), 0);
   const ownerProfitSharePercent = clampPercent(state.settings.ownerProfitSharePercent);
+  const referralRewardPercent = clampPercent(state.settings.referralRewardPercent);
   const ownerProfitShare = customers.reduce((sum, customer) => {
     return sum + (Math.max(0, Number(customer.profit || 0)) * (ownerProfitSharePercent / 100));
+  }, 0);
+  const referralRewards = customers.reduce((sum, customer) => {
+    if (!customer.referredBy) return sum;
+    return sum + (Math.max(0, Number(customer.profit || 0)) * (referralRewardPercent / 100));
   }, 0);
   const pendingWithdrawals = (state.withdrawals || []).filter((item) => item.status === "pending").length;
   return {
@@ -381,7 +416,10 @@ function businessSummary(state) {
     deposited,
     profit,
     ownerProfitSharePercent,
+    referralRewardPercent,
     ownerProfitShare,
+    referralRewards,
+    ownerNetProfitShare: Math.max(0, ownerProfitShare - referralRewards),
     customerNetProfit: profit - ownerProfitShare,
     pendingWithdrawals
   };
@@ -1646,8 +1684,14 @@ async function handleApi(request, response, url) {
       send(response, 409, { error: "This email already has an account." });
       return true;
     }
+    const referralToken = String(body.referralToken || "").trim();
+    const referrer = referralToken
+      ? state.customers.find((item) => item.referralToken === referralToken && item.status !== "paused")
+      : null;
     const customer = existingCustomer || {
       id: randomUUID(),
+      accessToken: randomUUID(),
+      referralToken: randomUUID(),
       email,
       plan: "frog",
       status: "active",
@@ -1656,11 +1700,17 @@ async function handleApi(request, response, url) {
       withdrawn: 0,
       createdAt: new Date().toISOString()
     };
+    if (referrer && referrer.id !== customer.id && !customer.referredBy) {
+      customer.referredBy = referrer.id;
+    }
     customer.name = String(body.name || customer.name || email.split("@")[0]).trim().slice(0, 80);
     customer.passwordHash = makePasswordHash(password);
     if (!existingCustomer) state.customers.push(customer);
     const token = createSession(state, "customer", customer.id);
-    state.activity = [line(`Customer account created for ${email}.`), ...(state.activity || [])].slice(0, 20);
+    state.activity = [
+      line(referrer ? `Customer account created for ${email} from ${referrer.name || referrer.email || "a customer"} referral.` : `Customer account created for ${email}.`),
+      ...(state.activity || [])
+    ].slice(0, 20);
     await saveState(state);
     send(response, 200, { user: { role: "customer", ...customerPublic(customer, state) } }, { "Set-Cookie": cookieFor(token) });
     return true;
@@ -1751,6 +1801,7 @@ async function handleApi(request, response, url) {
       customer = {
         id: randomUUID(),
         accessToken: randomUUID(),
+        referralToken: randomUUID(),
         name,
         email: email.includes("@") ? email : "",
         phone,
@@ -1798,6 +1849,40 @@ async function handleApi(request, response, url) {
     if (body.withdrawn !== undefined) customer.withdrawn = Number(body.withdrawn || 0);
     await saveState(state);
     send(response, 200, { summary: businessSummary(state), customers: state.customers.map((item) => customerPublic(item, state)) });
+    return true;
+  }
+
+  const customerReferralLinkMatch = url.pathname.match(/^\/api\/customer\/link\/([^/]+)\/referral$/);
+  if (request.method === "POST" && customerReferralLinkMatch) {
+    const state = await readState();
+    const customer = state.customers.find((item) => item.accessToken === customerReferralLinkMatch[1]);
+    if (!customer || customer.status === "paused") {
+      send(response, 404, { error: "Customer link is not active." });
+      return true;
+    }
+    if (!customer.referralToken) customer.referralToken = randomUUID();
+    state.activity = [line(`${customer.name || customer.email || "Customer"} created a referral link.`), ...(state.activity || [])].slice(0, 20);
+    await saveState(state);
+    send(response, 200, { customer: customerPublic(customer, state) });
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/customer/referral") {
+    const state = await readState();
+    const session = sessionFromRequest(request, state);
+    if (session?.role !== "customer") {
+      send(response, 401, { error: "Customer login required." });
+      return true;
+    }
+    const customer = state.customers.find((item) => item.id === session.id);
+    if (!customer || customer.status === "paused") {
+      send(response, 404, { error: "Customer account is not active." });
+      return true;
+    }
+    if (!customer.referralToken) customer.referralToken = randomUUID();
+    state.activity = [line(`${customer.name || customer.email || "Customer"} created a referral link.`), ...(state.activity || [])].slice(0, 20);
+    await saveState(state);
+    send(response, 200, { customer: customerPublic(customer, state) });
     return true;
   }
 

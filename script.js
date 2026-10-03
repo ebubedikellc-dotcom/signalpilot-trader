@@ -37,6 +37,7 @@ const fields = [
   "vaultMode",
   "vaultFeePercent",
   "ownerProfitSharePercent",
+  "referralRewardPercent",
   "ownerFeeWallet",
   "vaultNote"
 ];
@@ -44,6 +45,7 @@ const fields = [
 const page = document.body.dataset.page || "customer";
 const $ = (id) => document.getElementById(id);
 let activeCustomerToken = "";
+let activeReferralToken = "";
 let latestState = { settings: {}, profiles: {}, trades: [], backend: {} };
 
 function money(value) {
@@ -235,6 +237,11 @@ function tokenFromLink(input) {
 
 function tokenFromLocation() {
   const match = window.location.pathname.match(/^\/player\/([^/]+)/);
+  return match ? match[1] : "";
+}
+
+function referralFromLocation() {
+  const match = window.location.pathname.match(/^\/join\/([^/]+)/);
   return match ? match[1] : "";
 }
 
@@ -791,13 +798,20 @@ function renderAddresses(addresses = []) {
 function renderCustomer(customer) {
   if (!customer) return;
   activeCustomerToken = customer.accessToken || activeCustomerToken;
+  activeReferralToken = customer.referralToken || activeReferralToken;
   setText("customerWelcome", `${customer.name || customer.email || "Customer"} account`);
   setText("customerDeposited", money(customer.deposited));
   setText("customerProfit", money(customer.profit));
   setText("customerOwnerShare", money(customer.ownerProfitShare));
+  setText("customerReferralRewards", money(customer.referralRewards));
   setText("customerNetProfit", money(customer.customerNetProfit));
   setText("customerWithdrawable", money(customer.withdrawable));
-  setText("customerShareRule", `Business share: ${percent(customer.ownerProfitSharePercent)} of gain only.`);
+  setText("customerShareRule", `Business share: ${percent(customer.ownerProfitSharePercent)} of gain only. Referral reward: ${percent(customer.referralRewardPercent)} from profit when your link brings a user.`);
+  setText("customerReferralRule", `Your referral link pays ${percent(customer.referralRewardPercent)} from profit only. Deposits do not pay referral.`);
+  setText("customerReferredBy", customer.referredByName ? `Invited by ${customer.referredByName}.` : "Direct owner/customer account.");
+  const referralLink = customer.referralPath ? publicUrl(customer.referralPath) : "";
+  const referralOutput = $("customerReferralLink");
+  if (referralOutput) referralOutput.value = referralLink;
   setText("customerStatus", customer.status || "active");
   if ($("customerPlan")) $("customerPlan").value = customer.plan || "frog";
   renderAddresses(customer.depositAddresses || []);
@@ -809,7 +823,9 @@ function renderOwner(data) {
   setText("ownerTotalDeposits", money(data.summary?.deposited));
   setText("ownerTotalProfit", money(data.summary?.profit));
   setText("ownerProfitShare", money(data.summary?.ownerProfitShare));
-  setText("ownerProfitShareRule", `${percent(data.summary?.ownerProfitSharePercent)} of customer gain`);
+  setText("ownerReferralRewards", money(data.summary?.referralRewards));
+  setText("ownerNetProfitShare", money(data.summary?.ownerNetProfitShare));
+  setText("ownerProfitShareRule", `${percent(data.summary?.ownerProfitSharePercent)} platform share. Customer referrals earn ${percent(data.summary?.referralRewardPercent)}; direct owner invites keep full platform share.`);
   setText("ownerPendingWithdrawals", data.summary?.pendingWithdrawals || 0);
 
   const list = $("customerList");
@@ -828,6 +844,7 @@ function renderOwner(data) {
       <div>
         <strong>${escapeHtml(customer.name || customer.email || "Customer")}</strong>
         <span>${escapeHtml(customer.phone || customer.email || "Private link customer")}</span>
+        <span>${customer.referredByName ? `Referred by ${escapeHtml(customer.referredByName)}` : "Owner/direct invite"}</span>
         <a class="mini-link" href="${escapeHtml(customerLink)}" target="_blank" rel="noreferrer">Open link</a>
       </div>
       <label>Plan
@@ -880,6 +897,13 @@ async function loadBusiness() {
   try {
     if (page === "customer" && tokenFromLocation()) {
       await loadCustomerLink(tokenFromLocation());
+      return;
+    }
+    if (page === "customer" && referralFromLocation()) {
+      activeReferralToken = referralFromLocation();
+      setMode(null);
+      setHidden("referralSignupCard", false);
+      showBusinessMessage("Referral link opened. Register and your trading account will be created automatically.");
       return;
     }
     const data = await api("/api/business");
@@ -954,11 +978,38 @@ async function customerSignup() {
       body: JSON.stringify({
         name: value("signupName"),
         email: value("signupEmail"),
-        password: value("signupPassword")
+        password: value("signupPassword"),
+        referralToken: activeReferralToken || referralFromLocation()
       })
     });
     showBusinessMessage("Customer account created. Your deposit wallet is below.");
     await loadBusiness();
+  } catch (error) {
+    showBusinessMessage(error.message, true);
+  }
+}
+
+async function createReferralLink() {
+  try {
+    const path = activeCustomerToken
+      ? `/api/customer/link/${encodeURIComponent(activeCustomerToken)}/referral`
+      : "/api/customer/referral";
+    const result = await api(path, { method: "POST" });
+    renderCustomer(result.customer);
+    const link = publicUrl(result.customer.referralPath);
+    await navigator.clipboard.writeText(link);
+    showBusinessMessage("Referral link created and copied.");
+  } catch (error) {
+    showBusinessMessage(error.message, true);
+  }
+}
+
+async function copyReferralLink() {
+  try {
+    const link = value("customerReferralLink");
+    if (!link) throw new Error("Create your referral link first.");
+    await navigator.clipboard.writeText(link);
+    showBusinessMessage("Referral link copied.");
   } catch (error) {
     showBusinessMessage(error.message, true);
   }
@@ -1194,6 +1245,8 @@ on("copyManualTruenestWallet", "click", () => copyTextFromNode("manualTruenestWa
 on("ownerLogin", "click", ownerLogin);
 on("customerLogin", "click", customerLogin);
 on("customerSignup", "click", customerSignup);
+on("createReferralLink", "click", createReferralLink);
+on("copyReferralLink", "click", copyReferralLink);
 on("openCustomerLink", "click", openCustomerLink);
 on("ownerCreateCustomer", "click", ownerCreateCustomer);
 on("saveCustomerPlan", "click", saveCustomerPlan);

@@ -46,10 +46,14 @@
           </article>
 
           <article class="login-card" id="createAccount">
-            <span class="login-badge">No Signup</span>
-            <h3>How your account works</h3>
-            <p>The owner prints your link after payment. That link carries your account detail, deposit wallet, balance, profit, and withdrawal room.</p>
-            <p class="muted">Keep the link private. Anyone with the link can open that customer room.</p>
+            <span class="login-badge">Invite Signup</span>
+            <h3>Create your account</h3>
+            <p>Open an invite/referral link, register, and your trading account is created automatically.</p>
+            <label>Name <input id="signupName" autocomplete="name" placeholder="Your name"></label>
+            <label>Email <input id="signupEmail" autocomplete="email" placeholder="you@example.com"></label>
+            <label>Password <input id="signupPassword" autocomplete="new-password" type="password" placeholder="At least 6 characters"></label>
+            <button id="customerSignup" class="primary-action" type="button">Register and create wallet</button>
+            <p id="referralSignupCard" class="muted hidden">This signup is linked to a referral. Your deposit wallet appears after registration.</p>
           </article>
         </div>
 
@@ -70,9 +74,11 @@
           <div class="customer-profit-line">
             <span>Gain: <strong id="customerProfit">$0.00</strong></span>
             <span>Business share: <strong id="customerOwnerShare">$0.00</strong></span>
+            <span>Referral earned: <strong id="customerReferralRewards">$0.00</strong></span>
             <span>You keep: <strong id="customerNetProfit">$0.00</strong></span>
           </div>
           <p id="customerShareRule" class="share-rule">Business share: 0% of gain only.</p>
+          <p id="customerReferredBy" class="share-rule">Direct owner/customer account.</p>
 
           <div class="customer-tools">
             <article class="tool-card deposit-card">
@@ -102,6 +108,15 @@
               <label>Amount <input id="withdrawAmount" inputmode="decimal" placeholder="0"></label>
               <label>Your Solana wallet <input id="withdrawWallet" placeholder="Paste wallet address"></label>
               <button id="requestWithdraw" class="primary-action" type="button">Request withdrawal</button>
+            </article>
+
+            <article class="tool-card">
+              <span class="login-badge">Referral</span>
+              <h4>Invite people</h4>
+              <p class="muted" id="customerReferralRule">Your referral link pays 5% from profit only.</p>
+              <label>Your referral link <input id="customerReferralLink" readonly placeholder="Create your referral link"></label>
+              <button id="createReferralLink" class="primary-action" type="button">Create referral link</button>
+              <button id="copyReferralLink" class="secondary-action" type="button">Copy referral link</button>
             </article>
           </div>
         </div>
