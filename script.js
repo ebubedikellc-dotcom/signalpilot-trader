@@ -83,7 +83,7 @@ function profileDeposit(settings = {}, profile = "frog") {
 }
 
 function profileNet(settings = {}, profile = "frog") {
-  return balanceUsdc(profile) - profileDeposit(settings, profile);
+  return profileTotalWalletValue(settings, profile) - profileDeposit(settings, profile);
 }
 
 function profileLoss(settings = {}, profile = "frog") {
@@ -158,6 +158,136 @@ function tradeSide(trade = {}) {
 
 function tradeTokenKey(trade = {}) {
   return String(trade.tradedTokenMint || trade.tokenMint || trade.token || "").trim().toLowerCase();
+}
+
+function tradeStatusText(trade = {}) {
+  return String(trade.status || trade.execution?.status || trade.executionError || "").toLowerCase();
+}
+
+function tradeDetailText(trade = {}) {
+  return [
+    trade.status,
+    trade.executionError,
+    trade.execution?.copySizingNote,
+    trade.execution?.message,
+    trade.note
+  ].filter(Boolean).join(" ");
+}
+
+function tradeWasExecuted(trade = {}) {
+  const text = tradeStatusText(trade);
+  return text.includes("executed") || text.includes("manual sell sent") || Boolean(trade.execution?.txid || trade.signature);
+}
+
+function tradeUsdAmount(trade = {}) {
+  const values = [
+    trade.amount,
+    trade.usd,
+    trade.sourceUsd,
+    trade.execution?.amount,
+    trade.execution?.usd,
+    trade.execution?.sourceUsd,
+    trade.sourceReceivedUsd,
+    trade.execution?.sourceReceivedUsd
+  ];
+  for (const value of values) {
+    const amount = Number(value);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+  return 0;
+}
+
+function soldTokenKey(trade = {}) {
+  const direct = tradeTokenKey(trade);
+  const detail = tradeDetailText(trade);
+  const heldMatch = detail.match(/sold last held copied token\s+([1-9A-HJ-NP-Za-km-z]{32,44})/i);
+  if (heldMatch) return heldMatch[1].toLowerCase();
+  return direct;
+}
+
+function openPositionsFromTrades(trades = [], profile = "frog") {
+  const roomTrades = trades
+    .filter((trade) => profileTradeMatches(profile, trade) && tradeWasExecuted(trade))
+    .slice()
+    .sort((left, right) => tradeDateValue(left) - tradeDateValue(right));
+  const positions = new Map();
+
+  roomTrades.forEach((trade) => {
+    const side = tradeSide(trade);
+    const amount = tradeUsdAmount(trade);
+    if (!amount) return;
+
+    if (side === "buy") {
+      const key = tradeTokenKey(trade) || `unknown-${positions.size + 1}`;
+      const existing = positions.get(key) || {
+        token: trade.token || trade.tradedTokenMint || trade.tokenMint || "Unknown coin",
+        tokenKey: key,
+        boughtUsd: 0,
+        soldUsd: 0,
+        buys: 0,
+        lastBuyTime: ""
+      };
+      existing.boughtUsd += amount;
+      existing.buys += 1;
+      existing.lastBuyTime = trade.time || existing.lastBuyTime;
+      positions.set(key, existing);
+    }
+
+    if (side === "sell") {
+      const key = soldTokenKey(trade);
+      const target = positions.get(key);
+      if (target) {
+        target.soldUsd += amount;
+        return;
+      }
+
+      const fallback = Array.from(positions.values()).find((position) => {
+        return Math.max(0, position.boughtUsd - position.soldUsd) > 0;
+      });
+      if (fallback) fallback.soldUsd += amount;
+    }
+  });
+
+  return Array.from(positions.values())
+    .map((position) => ({
+      ...position,
+      openUsd: Math.max(0, position.boughtUsd - position.soldUsd)
+    }))
+    .filter((position) => position.openUsd > 0.01)
+    .sort((left, right) => right.openUsd - left.openUsd);
+}
+
+function profileOpenValue(trades = [], profile = "frog") {
+  return openPositionsFromTrades(trades, profile).reduce((sum, position) => sum + position.openUsd, 0);
+}
+
+function profileTotalWalletValue(settings = {}, profile = "frog") {
+  return balanceUsdc(profile) + profileOpenValue(latestState.trades || [], profile);
+}
+
+function renderOpenPositions(listId, summaryId, trades = [], profile = "frog") {
+  const list = $(listId);
+  const positions = openPositionsFromTrades(trades, profile);
+  const openValue = positions.reduce((sum, position) => sum + position.openUsd, 0);
+  setText(summaryId, money(openValue));
+  if (!list) return;
+  list.innerHTML = "";
+  if (!positions.length) {
+    const li = document.createElement("li");
+    li.textContent = "No unsold coin is showing now.";
+    list.appendChild(li);
+    return;
+  }
+
+  positions.forEach((position) => {
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <strong>${escapeHtml(position.token)}</strong>
+      <span>Bought: ${money(position.boughtUsd)} | Sold: ${money(position.soldUsd)} | Still open: ${money(position.openUsd)}</span>
+      <em>${position.buys} buy${position.buys === 1 ? "" : "s"} not fully sold yet${position.lastBuyTime ? ` · ${escapeHtml(position.lastBuyTime)}` : ""}</em>
+    `;
+    list.appendChild(li);
+  });
 }
 
 function latestTraderClosedResult(trades = [], profile = "frog") {
@@ -470,6 +600,8 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   setText(`${profile}Wins`, String(wins));
   setText(`${profile}Signals`, String(roomTrades.length));
   setText(`${profile}RoomUsdc`, money(balanceUsdc(profile)));
+  setText(`${profile}RoomOpenValue`, money(profileOpenValue(trades, profile)));
+  setText(`${profile}RoomTotalValue`, money(profileTotalWalletValue(settings, profile)));
   setText(`${profile}RoomLockedProfit`, money(profileLockedProfit(settings, profile)));
   setText(`${profile}RoomTradeable`, money(profileTradeableUsdc(settings, profile)));
   setText(`${profile}RoomLoss`, money(profileLoss(settings, profile)));
@@ -477,6 +609,7 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   setText(`${profile}RoomTraderToday`, signedMoney(todayTraderPnl));
   setText(`${profile}RoomTraderLast`, lastTraderResult.label);
   setText(`${profile}RoomTraderTodayNote`, todayPnlLabel(todayTraderPnl, traderName));
+  renderOpenPositions(`${profile}OpenPositions`, `${profile}RoomOpenValue`, trades, profile);
   const modeStatus = sellOnly
     ? `${label} is SELL ONLY: new buys are blocked, sells still work.`
     : surviveMode
@@ -582,6 +715,8 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   const gasText = balance.error ? `Gas check: ${balance.error}` : `SOL gas: ${solAmount(balance.sol)}`;
   const profit = Number(profiles[profile]?.profit || 0);
   const usdcNow = balanceUsdc(profile);
+  const openValue = profileOpenValue(trades, profile);
+  const totalWalletValue = profileTotalWalletValue(settings, profile);
   const lossNow = profileLoss(settings, profile);
   const traderPnl = traderPnlFromTrades(trades, profile);
   const traderTodayPnl = traderTodayPnlFromTrades(trades, profile);
@@ -602,7 +737,9 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   setText("watchProfit", money(profit));
   setText("watchProfitNote", profit > 0 ? "Profit is positive." : profit < 0 ? "Profit is negative." : "No profit recorded yet.");
   setText("watchUsdcNow", money(usdcNow));
-  setText("watchLossNow", `Loss from deposit: ${money(lossNow)}`);
+  setText("watchLossNow", `Open coins: ${money(openValue)} | Total value: ${money(totalWalletValue)} | Real sold loss: ${money(lossNow)}`);
+  setText("watchOpenValue", money(openValue));
+  setText("watchTotalValue", money(totalWalletValue));
   setText("watchTraderPnl", signedMoney(traderPnl));
   setText("watchTraderNote", `${label === "Decu Win" ? "Decu" : "Copied trader"} total visible made/lost from buy and sell signals.`);
   setText("watchTraderToday", signedMoney(traderTodayPnl));
@@ -615,6 +752,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
 
   const badge = $("watchLiveBadge");
   if (badge) badge.classList.toggle("is-live", running);
+  renderOpenPositions("watchOpenPositions", "watchOpenValue", trades, profile);
 
   const points = chartPointsFromTrades(trades, profile, profit);
   const path = $("watchChartPath");
@@ -685,6 +823,10 @@ function renderState(state) {
   setText("truenestBalance", `Shared deposit: ${money(settings.frogDeposit)}`);
   setText("frogUsdcNow", money(balanceUsdc("frog")));
   setText("truenestUsdcNow", money(balanceUsdc("truenest")));
+  setText("frogOpenValue", money(profileOpenValue(trades, "frog")));
+  setText("truenestOpenValue", money(profileOpenValue(trades, "truenest")));
+  setText("frogTotalValue", money(profileTotalWalletValue(settings, "frog")));
+  setText("truenestTotalValue", money(profileTotalWalletValue(settings, "truenest")));
   setText("frogLoss", money(profileLoss(settings, "frog")));
   setText("truenestLoss", money(profileLoss(settings, "truenest")));
   setText("frogSolBalance", solAmount(walletBalance("frog").sol));
