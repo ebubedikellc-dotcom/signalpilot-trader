@@ -96,6 +96,47 @@ h1 {
   border-radius: 8px;
 }
 
+.top-trading-controls {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.top-trading-controls .compact-auto-switch,
+.top-trading-controls .compact-manual-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  width: auto;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #102b28;
+  color: var(--text);
+  font: inherit;
+  font-size: .8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.top-trading-controls input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #76e2ac;
+}
+
+.top-trading-controls :focus-visible {
+  outline: 2px solid #76e2ac;
+  outline-offset: 3px;
+}
+
 .system-label, .slot, .profit-box span {
   color: var(--muted);
   font-size: .88rem;
