@@ -181,6 +181,10 @@ function syncQueueSurviveSettings(settings = {}) {
   settings.truenestSurviveMode = queueSurvive ? "on" : "off";
 }
 
+function isLegacyUnsupportedSwapSkip(trade = {}) {
+  return String(trade.status || "") === "Skipped - unsupported swap format";
+}
+
 function normalizeState(state) {
   const incomingSettings = state.settings || {};
   state.settings = { ...defaultState.settings, ...incomingSettings };
@@ -235,7 +239,9 @@ function normalizeState(state) {
   state.strategy.processedClosedTrades = Array.isArray(state.strategy.processedClosedTrades)
     ? state.strategy.processedClosedTrades.slice(0, 50)
     : [];
-  state.trades = Array.isArray(state.trades) ? state.trades : [];
+  state.trades = Array.isArray(state.trades)
+    ? state.trades.filter((trade) => !isLegacyUnsupportedSwapSkip(trade)).slice(0, 100)
+    : [];
   return state;
 }
 
@@ -752,7 +758,7 @@ function looksLikeSwap(transaction) {
 }
 
 function copyableSignal(profile, transaction, state) {
-  return looksLikeSwap(transaction) || Boolean(extractCopySignal(profile, transaction, state));
+  return Boolean(extractCopySignal(profile, transaction, state));
 }
 
 function movementSummary(transaction = {}) {
@@ -810,8 +816,19 @@ function transferEntersWallet(transfer = {}, wallet = "") {
 }
 
 function accountTokenChanges(transaction = {}, wallet = "") {
-  const account = (transaction.accountData || []).find((item) => sameAddress(item.account, wallet));
-  const changes = Array.isArray(account?.tokenBalanceChanges) ? account.tokenBalanceChanges : [];
+  const changes = (transaction.accountData || []).flatMap((item) => {
+    const accountMatchesWallet =
+      sameAddress(item.account, wallet) ||
+      sameAddress(item.owner, wallet) ||
+      sameAddress(item.userAccount, wallet);
+    const tokenChanges = Array.isArray(item?.tokenBalanceChanges) ? item.tokenBalanceChanges : [];
+    return tokenChanges.filter((change) =>
+      accountMatchesWallet ||
+      sameAddress(change.owner, wallet) ||
+      sameAddress(change.userAccount, wallet) ||
+      sameAddress(change.tokenAccountOwner, wallet)
+    );
+  });
   return changes
     .map((change) => ({
       mint: transferMint(change),
@@ -1517,7 +1534,7 @@ function tradeFromTransaction(profile, transaction, state) {
     signature: transaction.signature,
     time: transaction.timestamp ? new Date(transaction.timestamp * 1000).toLocaleString("en-US", { hour12: false }) : new Date().toLocaleString("en-US", { hour12: false }),
     profile: profileLabel(profile),
-    action: leg?.action === "sell" ? "Sell signal" : "Buy signal",
+    action: leg?.action === "sell" ? "Sell signal" : leg?.action === "buy" ? "Buy signal" : "Observed movement",
     token: tradedToken,
     tradedToken,
     tradedTokenMint: leg?.action === "sell" ? leg?.inputMint : leg?.outputMint,
@@ -1604,15 +1621,19 @@ async function runCopyWorkerOnce() {
 
     if (!unseen.length) continue;
     const existing = new Set((state.trades || []).map((trade) => trade.signature || trade.id));
-    const signalTransactions = unseen
-      .reverse()
+    const orderedUnseen = [...unseen].reverse();
+    const signalTransactions = orderedUnseen
       .filter((transaction) => !existing.has(transaction.signature) && copyableSignal(profile, transaction, state))
     const newTrades = [];
 
     if (!signalTransactions.length) {
       const sample = unseen[0] ? movementSummary(unseen[0]) : "wallet movement";
+      const swapLikeCount = orderedUnseen.filter(looksLikeSwap).length;
+      const note = swapLikeCount
+        ? `${profileLabel(profile)} saw ${swapLikeCount} swap-like movement${swapLikeCount === 1 ? "" : "s"}, but none showed a safe ${profileLabel(profile)} token-in/token-out trade, so it did not copy blindly. Latest was ${sample}.`
+        : `${profileLabel(profile)} saw ${unseen.length} new Decu movement${unseen.length === 1 ? "" : "s"}, but no buy/sell swap was found. Latest was ${sample}.`;
       state.activity = [
-        line(`${profileLabel(profile)} saw ${unseen.length} new Decu movement${unseen.length === 1 ? "" : "s"}, but no buy/sell swap was found. Latest was ${sample}; use the exact GMGN trade feed or signer wallet to copy this.`),
+        line(`${note} Use the exact GMGN trade feed or signer wallet if these are real trades that Helius cannot decode.`),
         ...(state.activity || [])
       ].slice(0, 20);
     }
