@@ -95,11 +95,31 @@
 
             <section class="watch-tape open-holdings-panel" aria-labelledby="topOpenPositionsTitle">
               <div class="chart-head">
-                <strong id="topOpenPositionsTitle">Bought, not sold yet</strong>
-                <span>This is the coin list. These are holdings, not cash loss.</span>
+                <strong id="topOpenPositionsTitle">He has not sold yet</strong>
+                <span>Coins Decu/Risk bought and the trader has not fully sold yet.</span>
               </div>
               <ul id="watchOpenPositions">
-                <li>No unsold coin is showing now.</li>
+                <li>No coin he has not sold yet is showing now.</li>
+              </ul>
+            </section>
+
+            <section class="watch-tape stock-coins-panel" aria-labelledby="topStockCoinsTitle">
+              <div class="chart-head">
+                <strong id="topStockCoinsTitle">Stock coins</strong>
+                <span>Trader sold, but this coin may still be open on our side.</span>
+              </div>
+              <ul id="watchStockCoins">
+                <li>No stock coin is showing now.</li>
+              </ul>
+            </section>
+
+            <section class="watch-tape closed-trades-panel" aria-labelledby="topClosedTradesTitle">
+              <div class="chart-head">
+                <strong id="topClosedTradesTitle">Closed trades</strong>
+                <span>Bought and sold successfully.</span>
+              </div>
+              <ul id="watchClosedTrades">
+                <li>No closed trade is showing now.</li>
               </ul>
             </section>
 
@@ -132,17 +152,17 @@
                 <article>
                   <span>USDC now</span>
                   <strong id="watchUsdcNow">$0.00</strong>
-                  <small id="watchLossNow">Open coins: $0.00 | Total value: $0.00 | Real sold loss: $0.00</small>
+                  <small id="watchLossNow">He has not sold yet: $0.00 | Total value: $0.00 | Real sold loss: $0.00</small>
                 </article>
                 <article>
-                  <span>Bought, not sold yet</span>
+                  <span>He has not sold yet</span>
                   <strong id="watchOpenValue">$0.00</strong>
-                  <small>Coins bought but not fully sold yet.</small>
+                  <small>Coins the trader has not fully sold yet.</small>
                 </article>
                 <article>
                   <span>Total wallet value</span>
                   <strong id="watchTotalValue">$0.00</strong>
-                  <small>USDC cash plus open coin value.</small>
+                  <small>USDC cash plus coin value he has not sold yet.</small>
                 </article>
                 <article>
                   <span>Copied trader total</span>
@@ -232,7 +252,7 @@
                   <div><span>Copied signals</span><strong id="frogSignals">0</strong></div>
                   <div><span>Profit made</span><strong id="frogRoomProfit">$0.00</strong></div>
                   <div><span>USDC now</span><strong id="frogRoomUsdc">$0.00</strong></div>
-                  <div><span>Bought, not sold yet</span><strong id="frogRoomOpenValue">$0.00</strong></div>
+                  <div><span>He has not sold yet</span><strong id="frogRoomOpenValue">$0.00</strong></div>
                   <div><span>Total value</span><strong id="frogRoomTotalValue">$0.00</strong></div>
                   <div><span>Profit locked as USDC cash</span><strong id="frogRoomLockedProfit">$0.00</strong></div>
                   <div><span>Tradeable head money</span><strong id="frogRoomTradeable">$0.00</strong></div>
@@ -250,9 +270,24 @@
                 </div>
 
                 <div class="room-copy-thread">
-                  <h4>Bought, not sold yet</h4>
+                  <h4>He has not sold yet</h4>
                   <ul id="frogOpenPositions">
-                    <li>No unsold coin is showing now.</li>
+                    <li>No coin he has not sold yet is showing now.</li>
+                  </ul>
+                </div>
+
+                <div class="room-copy-thread stock-coins-panel">
+                  <h4>Stock coins</h4>
+                  <ul id="frogStockCoins">
+                    <li>No stock coin is showing now.</li>
+                  </ul>
+                </div>
+
+                <div class="room-copy-thread closed-trades-panel">
+                  <h4>Closed trades</h4>
+                  <p>Bought and sold successfully.</p>
+                  <ul id="frogClosedTrades">
+                    <li>No closed trade is showing now.</li>
                   </ul>
                 </div>
 
@@ -343,7 +378,7 @@
                   <div><span>Copied signals</span><strong id="truenestSignals">0</strong></div>
                   <div><span>Profit made</span><strong id="truenestRoomProfit">$0.00</strong></div>
                   <div><span>USDC now</span><strong id="truenestRoomUsdc">$0.00</strong></div>
-                  <div><span>Bought, not sold yet</span><strong id="truenestRoomOpenValue">$0.00</strong></div>
+                  <div><span>He has not sold yet</span><strong id="truenestRoomOpenValue">$0.00</strong></div>
                   <div><span>Total value</span><strong id="truenestRoomTotalValue">$0.00</strong></div>
                   <div><span>Profit locked as USDC cash</span><strong id="truenestRoomLockedProfit">$0.00</strong></div>
                   <div><span>Tradeable head money</span><strong id="truenestRoomTradeable">$0.00</strong></div>
@@ -361,9 +396,24 @@
                 </div>
 
                 <div class="room-copy-thread">
-                  <h4>Bought, not sold yet</h4>
+                  <h4>He has not sold yet</h4>
                   <ul id="truenestOpenPositions">
-                    <li>No unsold coin is showing now.</li>
+                    <li>No coin he has not sold yet is showing now.</li>
+                  </ul>
+                </div>
+
+                <div class="room-copy-thread stock-coins-panel">
+                  <h4>Stock coins</h4>
+                  <ul id="truenestStockCoins">
+                    <li>No stock coin is showing now.</li>
+                  </ul>
+                </div>
+
+                <div class="room-copy-thread closed-trades-panel">
+                  <h4>Closed trades</h4>
+                  <p>Bought and sold successfully.</p>
+                  <ul id="truenestClosedTrades">
+                    <li>No closed trade is showing now.</li>
                   </ul>
                 </div>
 

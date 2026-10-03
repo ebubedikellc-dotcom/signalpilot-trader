@@ -216,11 +216,21 @@ function soldTokenKey(trade = {}) {
   return direct;
 }
 
-function openPositionsFromTrades(trades = [], profile = "frog") {
+function positionSummariesFromTrades(trades = [], profile = "frog") {
   const roomTrades = trades
     .filter((trade) => profileTradeMatches(profile, trade) && tradeWasExecuted(trade))
     .slice()
     .sort((left, right) => tradeDateValue(left) - tradeDateValue(right));
+  const sellSignals = trades
+    .filter((trade) => profileTradeMatches(profile, trade) && tradeSide(trade) === "sell")
+    .map((trade) => ({
+      tokenKey: soldTokenKey(trade),
+      time: trade.time || "",
+      dateValue: tradeDateValue(trade),
+      amount: tradeUsdAmount(trade),
+      executed: tradeWasExecuted(trade),
+      status: trade.status || trade.execution?.status || ""
+    }));
   const positions = new Map();
 
   roomTrades.forEach((trade) => {
@@ -236,10 +246,13 @@ function openPositionsFromTrades(trades = [], profile = "frog") {
         boughtUsd: 0,
         soldUsd: 0,
         buys: 0,
+        sells: 0,
+        firstBuyDateValue: 0,
         lastBuyTime: ""
       };
       existing.boughtUsd += amount;
       existing.buys += 1;
+      if (!existing.firstBuyDateValue) existing.firstBuyDateValue = tradeDateValue(trade);
       existing.lastBuyTime = trade.time || existing.lastBuyTime;
       positions.set(key, existing);
     }
@@ -249,23 +262,54 @@ function openPositionsFromTrades(trades = [], profile = "frog") {
       const target = positions.get(key);
       if (target) {
         target.soldUsd += amount;
+        target.sells += 1;
         return;
       }
 
       const fallback = Array.from(positions.values()).find((position) => {
         return Math.max(0, position.boughtUsd - position.soldUsd) > 0;
       });
-      if (fallback) fallback.soldUsd += amount;
+      if (fallback) {
+        fallback.soldUsd += amount;
+        fallback.sells += 1;
+      }
     }
   });
 
   return Array.from(positions.values())
-    .map((position) => ({
-      ...position,
-      openUsd: Math.max(0, position.boughtUsd - position.soldUsd)
-    }))
+    .map((position) => {
+      const relatedSells = sellSignals.filter((sell) => {
+        const sameToken = sell.tokenKey && sell.tokenKey === position.tokenKey;
+        const afterBuy = !position.firstBuyDateValue || !sell.dateValue || sell.dateValue >= position.firstBuyDateValue;
+        return sameToken && afterBuy;
+      });
+      return {
+        ...position,
+        openUsd: Math.max(0, position.boughtUsd - position.soldUsd),
+        traderSellSignals: relatedSells.length,
+        failedSellSignals: relatedSells.filter((sell) => !sell.executed).length,
+        lastSellSignalTime: relatedSells.at(-1)?.time || ""
+      };
+    })
+    .sort((left, right) => right.openUsd - left.openUsd);
+}
+
+function openPositionsFromTrades(trades = [], profile = "frog") {
+  return positionSummariesFromTrades(trades, profile)
     .filter((position) => position.openUsd > 0.01)
     .sort((left, right) => right.openUsd - left.openUsd);
+}
+
+function stockCoinsFromTrades(trades = [], profile = "frog") {
+  return positionSummariesFromTrades(trades, profile)
+    .filter((position) => position.openUsd > 0.01 && position.traderSellSignals > position.sells)
+    .sort((left, right) => right.failedSellSignals - left.failedSellSignals || right.openUsd - left.openUsd);
+}
+
+function closedTradesFromTrades(trades = [], profile = "frog") {
+  return positionSummariesFromTrades(trades, profile)
+    .filter((position) => position.boughtUsd > 0.01 && position.soldUsd >= position.boughtUsd - 0.01)
+    .sort((left, right) => right.soldUsd - left.soldUsd);
 }
 
 function profileOpenValue(trades = [], profile = "frog") {
@@ -285,7 +329,7 @@ function renderOpenPositions(listId, summaryId, trades = [], profile = "frog") {
   list.innerHTML = "";
   if (!positions.length) {
     const li = document.createElement("li");
-    li.textContent = "No unsold coin is showing now.";
+    li.textContent = "No coin he has not sold yet is showing now.";
     list.appendChild(li);
     return;
   }
@@ -295,7 +339,55 @@ function renderOpenPositions(listId, summaryId, trades = [], profile = "frog") {
     li.innerHTML = `
       <strong>${escapeHtml(position.token)}</strong>
       <span>Bought: ${money(position.boughtUsd)} | Sold: ${money(position.soldUsd)} | Still open: ${money(position.openUsd)}</span>
-      <em>${position.buys} buy${position.buys === 1 ? "" : "s"} not fully sold yet${position.lastBuyTime ? ` · ${escapeHtml(position.lastBuyTime)}` : ""}</em>
+      <em>He has not sold this one fully yet. ${position.buys} buy${position.buys === 1 ? "" : "s"}${position.lastBuyTime ? ` · ${escapeHtml(position.lastBuyTime)}` : ""}</em>
+    `;
+    list.appendChild(li);
+  });
+}
+
+function renderStockCoins(listId, trades = [], profile = "frog") {
+  const list = $(listId);
+  if (!list) return;
+  const positions = stockCoinsFromTrades(trades, profile);
+  list.innerHTML = "";
+  if (!positions.length) {
+    const li = document.createElement("li");
+    li.textContent = "No stock coin is showing now.";
+    list.appendChild(li);
+    return;
+  }
+
+  positions.forEach((position) => {
+    const li = document.createElement("li");
+    li.className = "tape-loss";
+    li.innerHTML = `
+      <strong>${escapeHtml(position.token)}</strong>
+      <span>Still open: ${money(position.openUsd)} | Trader sell signals seen: ${position.traderSellSignals}</span>
+      <em>Check this coin. He has sold before, but our side may still be holding it${position.lastSellSignalTime ? ` · ${escapeHtml(position.lastSellSignalTime)}` : ""}</em>
+    `;
+    list.appendChild(li);
+  });
+}
+
+function renderClosedTradesList(listId, trades = [], profile = "frog") {
+  const list = $(listId);
+  if (!list) return;
+  const positions = closedTradesFromTrades(trades, profile).slice(0, 8);
+  list.innerHTML = "";
+  if (!positions.length) {
+    const li = document.createElement("li");
+    li.textContent = "No closed trade is showing now.";
+    list.appendChild(li);
+    return;
+  }
+
+  positions.forEach((position) => {
+    const li = document.createElement("li");
+    li.className = "tape-win";
+    li.innerHTML = `
+      <strong>${escapeHtml(position.token)}</strong>
+      <span>Bought: ${money(position.boughtUsd)} | Sold: ${money(position.soldUsd)}</span>
+      <em>Bought and sold successfully.</em>
     `;
     list.appendChild(li);
   });
@@ -708,6 +800,8 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   setText(`${profile}RoomTraderLast`, lastTraderResult.label);
   setText(`${profile}RoomTraderTodayNote`, todayPnlLabel(todayTraderPnl, traderName));
   renderOpenPositions(`${profile}OpenPositions`, `${profile}RoomOpenValue`, trades, profile);
+  renderStockCoins(`${profile}StockCoins`, trades, profile);
+  renderClosedTradesList(`${profile}ClosedTrades`, trades, profile);
   const modeStatus = sellOnly
     ? `${label} is SELL ONLY: new buys are blocked, sells still work.`
     : `${label} can buy and sell. ${buyModeNote(buyMode, maxSurviveBuy)} Sells still follow.`;
@@ -830,7 +924,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   setText("watchProfit", money(profit));
   setText("watchProfitNote", profit > 0 ? "Profit is positive." : profit < 0 ? "Profit is negative." : "No profit recorded yet.");
   setText("watchUsdcNow", money(usdcNow));
-  setText("watchLossNow", `Bought, not sold yet: ${money(openValue)} | Total value: ${money(totalWalletValue)} | Real sold loss: ${money(lossNow)}`);
+  setText("watchLossNow", `He has not sold yet: ${money(openValue)} | Total value: ${money(totalWalletValue)} | Real sold loss: ${money(lossNow)}`);
   setText("watchOpenValue", money(openValue));
   setText("watchTotalValue", money(totalWalletValue));
   setText("watchTraderPnl", signedMoney(traderPnl));
@@ -846,6 +940,8 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   const badge = $("watchLiveBadge");
   if (badge) badge.classList.toggle("is-live", running);
   renderOpenPositions("watchOpenPositions", "watchOpenValue", trades, profile);
+  renderStockCoins("watchStockCoins", trades, profile);
+  renderClosedTradesList("watchClosedTrades", trades, profile);
 
   const points = chartPointsFromTrades(trades, profile, profit);
   const path = $("watchChartPath");

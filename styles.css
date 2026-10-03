@@ -175,6 +175,7 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .room-help span { color: var(--muted); line-height: 1.45; }
 .room-copy-thread { display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(46,230,166,.3); border-radius: 8px; background: rgba(0,0,0,.2); }
 .room-copy-thread h4 { margin: 0; font-size: 1.05rem; }
+.room-copy-thread p { margin: 0; color: var(--muted); line-height: 1.4; }
 .room-copy-thread ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .room-copy-thread li { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.04); }
 .room-copy-thread strong { color: var(--text); }
@@ -325,6 +326,20 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .open-holdings-panel li {
   border-color: rgba(246,201,92,.24);
   background: rgba(246,201,92,.07);
+}
+.stock-coins-panel {
+  border-color: rgba(255,103,103,.42);
+  background: linear-gradient(145deg, rgba(255,103,103,.12), rgba(0,0,0,.22));
+}
+.stock-coins-panel .chart-head strong, .stock-coins-panel h4 {
+  color: var(--red);
+}
+.closed-trades-panel {
+  border-color: rgba(46,230,166,.34);
+  background: linear-gradient(145deg, rgba(46,230,166,.1), rgba(0,0,0,.22));
+}
+.closed-trades-panel .chart-head strong, .closed-trades-panel h4 {
+  color: var(--green);
 }
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .metric-grid article { display: grid; gap: 6px; min-height: 112px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.18); }
