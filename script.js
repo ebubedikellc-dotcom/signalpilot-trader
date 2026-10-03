@@ -54,6 +54,7 @@ const $ = (id) => document.getElementById(id);
 let activeCustomerToken = "";
 let activeReferralToken = "";
 let latestState = { settings: {}, profiles: {}, trades: [], backend: {} };
+let deferredInstallPrompt = null;
 
 function money(value) {
   const amount = Number(value || 0);
@@ -358,6 +359,61 @@ function setText(id, text) {
 function setHidden(id, hidden) {
   const node = $(id);
   if (node) node.classList.toggle("hidden", hidden);
+}
+
+function runningStandalone() {
+  return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+}
+
+function isIosDevice() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+}
+
+function updateInstallButton() {
+  const button = $("installOwnerApp");
+  if (!button) return;
+  if (runningStandalone()) {
+    button.textContent = "SignalPilot App Installed";
+    button.disabled = true;
+    return;
+  }
+  button.disabled = false;
+  button.textContent = isIosDevice() ? "Add SignalPilot to iPhone" : "Install SignalPilot App";
+}
+
+async function installOwnerApp() {
+  if (runningStandalone()) {
+    showBusinessMessage("SignalPilot is already opening like an app.");
+    return;
+  }
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice.catch(() => null);
+    deferredInstallPrompt = null;
+    updateInstallButton();
+    return;
+  }
+  const message = isIosDevice()
+    ? "On iPhone: tap Share, then tap Add to Home Screen. It will open like an app."
+    : "Use your browser menu and choose Install app or Add to Home Screen.";
+  showBusinessMessage(message);
+}
+
+function setupOwnerWebAppInstall() {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(() => null);
+  }
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    updateInstallButton();
+  });
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    updateInstallButton();
+    showBusinessMessage("SignalPilot app installed.");
+  });
+  updateInstallButton();
 }
 
 function publicUrl(path) {
@@ -1522,6 +1578,7 @@ on("ownerCreateCustomer", "click", ownerCreateCustomer);
 on("saveCustomerPlan", "click", saveCustomerPlan);
 on("requestWithdraw", "click", requestWithdrawal);
 on("logoutButton", "click", logout);
+on("installOwnerApp", "click", installOwnerApp);
 on("frogStart", "click", () => startProfile("frog"));
 on("frogStop", "click", () => stopProfile("frog"));
 on("queueStart", "click", startQueue);
@@ -1558,5 +1615,6 @@ document.querySelectorAll("[data-owner-tab]").forEach((button) => {
 });
 
 setMode(null);
+if (page === "owner") setupOwnerWebAppInstall();
 loadBusiness();
 if (page === "owner") setInterval(refresh, 5000);
