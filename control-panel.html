@@ -238,6 +238,11 @@
                 <button class="secondary-action" id="switchDekuBot" type="button">Switch to Deku riskier bot</button>
                 <button class="secondary-action" id="switchTrunoestBot" type="button">Switch to Trunoest risk bot</button>
               </div>
+              <div class="stock-alarm-board" aria-label="Stock coin alarm">
+                <button class="stop-action" id="enableStockAlarm" type="button">Enable loud stock coin beep</button>
+                <button class="secondary-action" id="clearStockAlarm" type="button">I have read it, clear alarm</button>
+                <small id="stockAlarmStatus">Stock coin alarm is off until you enable it once.</small>
+              </div>
               <small id="queueControlNote">Highest buy $50 mode means small buys copy exact, but any bigger buy stops at $50.</small>
             </section>
 
@@ -705,6 +710,16 @@
               </div>
               <ul id="activityLog">
                 <li>Waiting for owner login.</li>
+              </ul>
+            </section>
+
+            <section class="activity stock-history" aria-labelledby="stockHistoryTitle">
+              <div>
+                <p class="eyebrow">Stock Coins</p>
+                <h2 id="stockHistoryTitle">This week's stock coin sells</h2>
+              </div>
+              <ul id="stockCoinHistory">
+                <li>No stock coin sell history yet.</li>
               </ul>
             </section>
 

@@ -69,6 +69,10 @@ let activeCustomerToken = "";
 let activeReferralToken = "";
 let latestState = { settings: {}, profiles: {}, trades: [], backend: {} };
 let deferredInstallPrompt = null;
+let stockAlarmEnabled = localStorage.getItem("stockAlarmEnabled") === "on";
+let stockAlarmMutedKeys = new Set(JSON.parse(localStorage.getItem("stockAlarmMutedKeys") || "[]"));
+let stockAlarmTimer = null;
+let stockAlarmAudio = null;
 
 function money(value) {
   const amount = Number(value || 0);
@@ -184,6 +188,10 @@ function tradeTokenKey(trade = {}) {
   return String(trade.tradedTokenMint || trade.tokenMint || trade.token || "").trim().toLowerCase();
 }
 
+function tradeTokenMint(trade = {}) {
+  return String(trade.tradedTokenMint || trade.tokenMint || trade.token || "").trim();
+}
+
 function tradeStatusText(trade = {}) {
   return String(trade.status || trade.execution?.status || trade.executionError || "").toLowerCase();
 }
@@ -254,8 +262,10 @@ function positionSummariesFromTrades(trades = [], profile = "frog") {
 
     if (side === "buy") {
       const key = tradeTokenKey(trade) || `unknown-${positions.size + 1}`;
+      const mint = tradeTokenMint(trade);
       const existing = positions.get(key) || {
         token: trade.token || trade.tradedTokenMint || trade.tokenMint || "Unknown coin",
+        tokenMint: mint,
         tokenKey: key,
         boughtUsd: 0,
         soldUsd: 0,
@@ -320,6 +330,15 @@ function stockCoinsFromTrades(trades = [], profile = "frog") {
     .sort((left, right) => right.failedSellSignals - left.failedSellSignals || right.openUsd - left.openUsd);
 }
 
+function allStockCoinsFromTrades(trades = []) {
+  return ["safe", "frog", "truenest"]
+    .flatMap((profile) => stockCoinsFromTrades(trades, profile).map((position) => ({ ...position, profile })));
+}
+
+function stockCoinKey(position = {}) {
+  return `${position.profile || "frog"}:${String(position.tokenKey || position.token || "").toLowerCase()}`;
+}
+
 function closedTradesFromTrades(trades = [], profile = "frog") {
   return positionSummariesFromTrades(trades, profile)
     .filter((position) => position.boughtUsd > 0.01 && position.soldUsd >= position.boughtUsd - 0.01)
@@ -374,10 +393,53 @@ function renderStockCoins(listId, trades = [], profile = "frog") {
   positions.forEach((position) => {
     const li = document.createElement("li");
     li.className = "tape-loss";
+    const resultId = `stockSellResult-${profile}-${position.tokenKey}`.replace(/[^a-z0-9_-]/gi, "-");
+    const mint = position.tokenMint || position.token;
     li.innerHTML = `
       <strong>${escapeHtml(position.token)}</strong>
       <span>Still open: ${money(position.openUsd)} | Trader sell signals seen: ${position.traderSellSignals}</span>
+      <span>How it got stock: he sold this coin, but your wallet still shows open value. Sell it here to clear it.</span>
       <em>Check this coin. He has sold before, but our side may still be holding it${position.lastSellSignalTime ? ` · ${escapeHtml(position.lastSellSignalTime)}` : ""}</em>
+      <button class="stop-action stock-sell-action" type="button">Auto sell this stock coin</button>
+      <small id="${escapeHtml(resultId)}">Not sold from this button yet.</small>
+    `;
+    li.querySelector("button")?.addEventListener("click", () => {
+      ownerSellToken(profile, {
+        mint,
+        openUsd: position.openUsd,
+        resultId
+      });
+    });
+    list.appendChild(li);
+  });
+}
+
+function renderStockCoinHistory(trades = []) {
+  const list = $("stockCoinHistory");
+  if (!list) return;
+  const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+  const rows = trades
+    .filter((trade) => /stock coin sell/i.test(String(trade.action || "")))
+    .filter((trade) => {
+      const date = tradeDateValue(trade);
+      return !date || date >= oneWeekAgo;
+    })
+    .slice(0, 30);
+  list.innerHTML = "";
+  if (!rows.length) {
+    const li = document.createElement("li");
+    li.textContent = "No stock coin sell history yet.";
+    list.appendChild(li);
+    return;
+  }
+  rows.forEach((trade) => {
+    const pnl = Number(trade.pnl || 0);
+    const li = document.createElement("li");
+    li.className = pnl >= 0 ? "tape-win" : "tape-loss";
+    li.innerHTML = `
+      <strong>${pnl >= 0 ? "Made more" : "Lose"}: ${signedMoney(pnl)}</strong>
+      <span>${escapeHtml(trade.token || trade.tradedToken || "-")} | Sold: ${money(trade.amount)} | ${escapeHtml(trade.profile || "-")}</span>
+      <em>${escapeHtml(trade.time || "This week")} · ${escapeHtml(trade.status || "Stock coin sold")}</em>
     `;
     list.appendChild(li);
   });
@@ -600,6 +662,70 @@ function renderTrades(trades = []) {
     `;
     tradeRows.appendChild(row);
   });
+}
+
+function stockAlarmCandidates(trades = []) {
+  return allStockCoinsFromTrades(trades).filter((position) => !stockAlarmMutedKeys.has(stockCoinKey(position)));
+}
+
+function beepOnce() {
+  try {
+    stockAlarmAudio ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (stockAlarmAudio.state === "suspended") stockAlarmAudio.resume();
+    const now = stockAlarmAudio.currentTime;
+    [0, 0.18, 0.36, 0.54].forEach((offset) => {
+      const oscillator = stockAlarmAudio.createOscillator();
+      const gain = stockAlarmAudio.createGain();
+      oscillator.type = "square";
+      oscillator.frequency.value = 920;
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.9, now + offset + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.13);
+      oscillator.connect(gain).connect(stockAlarmAudio.destination);
+      oscillator.start(now + offset);
+      oscillator.stop(now + offset + 0.14);
+    });
+  } catch {}
+}
+
+function updateStockAlarm(trades = []) {
+  const candidates = stockAlarmCandidates(trades);
+  setText("stockAlarmStatus", stockAlarmEnabled
+    ? candidates.length
+      ? `LOUD BEEP ON: ${candidates.length} stock coin${candidates.length === 1 ? "" : "s"} needs attention.`
+      : "LOUD BEEP ON: no new stock coin needing attention now."
+    : "Stock coin alarm is off until you enable it once.");
+  if (stockAlarmTimer) {
+    clearInterval(stockAlarmTimer);
+    stockAlarmTimer = null;
+  }
+  if (!stockAlarmEnabled || !candidates.length) return;
+  beepOnce();
+  stockAlarmTimer = setInterval(() => {
+    if (!stockAlarmEnabled || !stockAlarmCandidates(latestState.trades || []).length) {
+      clearInterval(stockAlarmTimer);
+      stockAlarmTimer = null;
+      return;
+    }
+    beepOnce();
+  }, 1400);
+}
+
+function enableStockAlarm() {
+  stockAlarmEnabled = true;
+  localStorage.setItem("stockAlarmEnabled", "on");
+  beepOnce();
+  updateStockAlarm(latestState.trades || []);
+  showBusinessMessage("Loud stock coin beep enabled.");
+}
+
+function clearStockAlarm() {
+  stockAlarmCandidates(latestState.trades || []).forEach((position) => {
+    stockAlarmMutedKeys.add(stockCoinKey(position));
+  });
+  localStorage.setItem("stockAlarmMutedKeys", JSON.stringify([...stockAlarmMutedKeys]));
+  updateStockAlarm(latestState.trades || []);
+  showBusinessMessage("Stock coin alert cleared. New stock coins will beep again.");
 }
 
 function renderVault(settings = {}, profiles = {}) {
@@ -1058,6 +1184,8 @@ function renderState(state) {
   renderManualDeposit(settings);
   renderVault(settings, profiles);
   renderTrades(trades);
+  renderStockCoinHistory(trades);
+  updateStockAlarm(trades);
   setText("liveEnvStatus", productionExecution
     ? "Production execution is enabled in Render and the required wallet details are saved."
     : liveTradingEnv
@@ -1618,16 +1746,18 @@ async function ownerWithdraw(profile = "frog", options = {}) {
   }
 }
 
-async function ownerSellToken(profile = "frog") {
+async function ownerSellToken(profile = "frog", options = {}) {
   const prefix = profile === "truenest" ? "truenest" : "frog";
-  const resultNode = $(`${prefix}SellTokenResult`);
+  const mint = String(options.mint || value(`${prefix}SellMint`) || "").trim();
+  const resultNode = options.resultId ? $(options.resultId) : $(`${prefix}SellTokenResult`);
   if (resultNode) resultNode.textContent = "Selling token to USDC...";
   try {
     const result = await api("/api/owner/sell-token", {
       method: "POST",
       body: JSON.stringify({
         profile,
-        mint: value(`${prefix}SellMint`)
+        mint,
+        stockOpenUsd: options.openUsd ? String(options.openUsd) : ""
       })
     });
     renderState(result.status);
@@ -1741,6 +1871,8 @@ on("saveQueueSwitch", "click", saveQueueSwitch);
 on("switchSafeBot", "click", () => switchQueueProfile("safe"));
 on("switchDekuBot", "click", () => switchQueueProfile("frog"));
 on("switchTrunoestBot", "click", () => switchQueueProfile("truenest"));
+on("enableStockAlarm", "click", enableStockAlarm);
+on("clearStockAlarm", "click", clearStockAlarm);
 on("frogSellOnly", "click", () => saveTradeMode("frog", "sellOnly"));
 on("frogResumeBuying", "click", () => saveTradeMode("frog", "both"));
 on("frogBuyModeSave", "click", () => saveBuyMode("frog"));

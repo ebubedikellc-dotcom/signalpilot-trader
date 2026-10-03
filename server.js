@@ -2687,31 +2687,37 @@ async function handleApi(request, response, url) {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     const body = await readBody(request);
-    const profile = body.profile === "truenest" ? "truenest" : "frog";
+    const profile = supportedProfiles.includes(body.profile) ? body.profile : body.profile === "truenest" ? "truenest" : "frog";
     const mint = String(body.mint || "").trim();
+    const stockOpenUsd = Number(body.stockOpenUsd || 0);
 
     try {
       const result = await executeManualTokenSell(state, { profile, mint });
+      const soldUsd = Number(result.swapUsdValue || 0);
+      const stuckPnl = stockOpenUsd > 0 ? soldUsd - stockOpenUsd : 0;
+      const stockStatus = stockOpenUsd > 0
+        ? `Stock coin sold - ${stuckPnl >= 0 ? "Made more" : "Lose"} ${Math.abs(stuckPnl).toFixed(2)}`
+        : "Executed";
       const trade = {
         id: result.txid || randomUUID(),
         signature: result.txid || "",
         time: new Date().toLocaleString("en-US", { hour12: false }),
         profile: profileLabel(profile),
-        action: "Manual sell",
+        action: stockOpenUsd > 0 ? "Stock coin sell" : "Manual sell",
         token: result.inputMint,
         tradedToken: result.inputMint,
         tradedTokenMint: result.inputMint,
-        amount: Number(result.swapUsdValue || 0),
+        amount: soldUsd,
         sourceUsd: 0,
-        sourceReceivedUsd: Number(result.swapUsdValue || 0),
+        sourceReceivedUsd: soldUsd,
         traderPnlUsd: 0,
-        pnl: 0,
-        status: "Executed",
+        pnl: stuckPnl,
+        status: stockStatus,
         execution: result
       };
       state.trades = [trade, ...(state.trades || [])].slice(0, 80);
       state.activity = [
-        line(`${profileLabel(profile)} manual sell sent ${result.inputMint.slice(0, 6)}...${result.inputMint.slice(-4)} to USDC. SOL gas was left in the wallet.`),
+        line(`${profileLabel(profile)} ${stockOpenUsd > 0 ? "stock coin" : "manual"} sell sent ${result.inputMint.slice(0, 6)}...${result.inputMint.slice(-4)} to USDC${stockOpenUsd > 0 ? ` (${stuckPnl >= 0 ? "made more" : "lose"} ${Math.abs(stuckPnl).toFixed(2)})` : ""}. SOL gas was left in the wallet.`),
         ...(state.activity || [])
       ].slice(0, 20);
       await saveState(state);
