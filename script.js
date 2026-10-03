@@ -737,7 +737,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   setText("watchProfit", money(profit));
   setText("watchProfitNote", profit > 0 ? "Profit is positive." : profit < 0 ? "Profit is negative." : "No profit recorded yet.");
   setText("watchUsdcNow", money(usdcNow));
-  setText("watchLossNow", `Open coins: ${money(openValue)} | Total value: ${money(totalWalletValue)} | Real sold loss: ${money(lossNow)}`);
+  setText("watchLossNow", `Bought, not sold yet: ${money(openValue)} | Total value: ${money(totalWalletValue)} | Real sold loss: ${money(lossNow)}`);
   setText("watchOpenValue", money(openValue));
   setText("watchTotalValue", money(totalWalletValue));
   setText("watchTraderPnl", signedMoney(traderPnl));
