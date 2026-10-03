@@ -38,6 +38,7 @@ const associatedTokenProgramId = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25
 
 const defaultState = {
   settings: {
+    gmgnApiKey: "",
     frogWallet: decuWallet,
     frogMax: "50",
     frogMode: "Copy exact amount after safety check",
@@ -95,6 +96,7 @@ const defaultState = {
 };
 
 const fields = [
+  "gmgnApiKey",
   "heliusKey",
   "routeApi",
   "turnkeyOrgId",
@@ -1698,12 +1700,56 @@ function gmgnActivityToTransaction(activity = {}, wallet = "") {
   };
 }
 
-async function fetchGmgnTransactionsForAddress(address) {
+async function fetchOfficialGmgnTransactionsForAddress(apiKey, address) {
+  const url = new URL("https://api.gmgn.ai/v1/user/wallet_activity");
+  url.searchParams.set("chain", "sol");
+  url.searchParams.set("wallet", address);
+  url.searchParams.set("limit", "25");
+  url.searchParams.append("type", "buy");
+  url.searchParams.append("type", "sell");
+  const response = await fetch(url, {
+    headers: {
+      "accept": "application/json",
+      "authorization": `Bearer ${apiKey}`
+    }
+  });
+  if (!response.ok) {
+    const detail = response.status === 401 || response.status === 403
+      ? "GMGN official API rejected the key or server IP"
+      : `GMGN official API returned ${response.status}`;
+    throw new Error(detail);
+  }
+  const payload = await response.json();
+  const data = payload?.data || payload;
+  const activities = Array.isArray(data?.activities)
+    ? data.activities
+    : Array.isArray(payload?.activities)
+      ? payload.activities
+      : [];
+  return activities
+    .map((activity) => gmgnActivityToTransaction(activity, address))
+    .filter(Boolean);
+}
+
+async function fetchGmgnTransactionsForAddress(settings, address) {
+  const apiKey = String(settings?.gmgnApiKey || process.env.GMGN_API_KEY || "").trim();
   const now = Date.now();
-  const cached = gmgnCache.get(address);
+  const cacheKey = `${apiKey ? "official" : "web"}:${address}`;
+  const cached = gmgnCache.get(cacheKey);
   if (cached && now - cached.at < gmgnPollMs) {
     if (cached.error) throw cached.error;
     return cached.transactions;
+  }
+
+  if (apiKey) {
+    try {
+      const transactions = await fetchOfficialGmgnTransactionsForAddress(apiKey, address);
+      gmgnCache.set(cacheKey, { at: now, transactions });
+      return transactions;
+    } catch (error) {
+      gmgnCache.set(cacheKey, { at: now, transactions: [], error });
+      throw error;
+    }
   }
 
   const params = new URLSearchParams();
@@ -1747,7 +1793,7 @@ async function fetchGmgnTransactionsForAddress(address) {
       const transactions = activities
         .map((activity) => gmgnActivityToTransaction(activity, address))
         .filter(Boolean);
-      gmgnCache.set(address, { at: now, transactions });
+      gmgnCache.set(cacheKey, { at: now, transactions });
       return transactions;
     } catch (error) {
       lastError = error;
@@ -1755,7 +1801,7 @@ async function fetchGmgnTransactionsForAddress(address) {
   }
 
   const finalError = lastError || new Error("GMGN wallet activity lookup failed");
-  gmgnCache.set(address, { at: now, transactions: [], error: finalError });
+  gmgnCache.set(cacheKey, { at: now, transactions: [], error: finalError });
   throw finalError;
 }
 
@@ -1898,7 +1944,7 @@ async function runCopyWorkerOnce() {
     if (!wallet) continue;
     let gmgnHandled = false;
     try {
-      const gmgnTransactions = await fetchGmgnTransactionsForAddress(wallet);
+      const gmgnTransactions = await fetchGmgnTransactionsForAddress(state.settings, wallet);
       const gmgnNewest = newestSignature(gmgnTransactions);
       if (gmgnNewest) {
         await processSignalTransactions(state, profile, gmgnTransactions, gmgnNewest, "lastGmgnSignature", "GMGN");
