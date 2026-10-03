@@ -1,4 +1,5 @@
 const fields = [
+  "gmgnApiKey",
   "heliusKey",
   "routeApi",
   "turnkeyOrgId",
