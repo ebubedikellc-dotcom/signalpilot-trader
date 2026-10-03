@@ -208,7 +208,8 @@ function tradeDetailText(trade = {}) {
 
 function tradeWasExecuted(trade = {}) {
   const text = tradeStatusText(trade);
-  return text.includes("executed") || text.includes("manual sell sent") || Boolean(trade.execution?.txid || trade.signature);
+  if (text.includes("watched - inactive bot") || text.includes("skipped - no")) return false;
+  return text.includes("executed") || text.includes("manual sell sent") || Boolean(trade.execution?.txid);
 }
 
 function tradeUsdAmount(trade = {}) {
