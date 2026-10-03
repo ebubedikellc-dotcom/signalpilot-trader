@@ -110,25 +110,39 @@ h1 {
   line-height: 1.45;
 }
 
-.top-profit-lock {
+.top-active-trader, .top-profit-lock {
   display: grid;
   gap: 4px;
   padding: 12px;
-  border: 1px solid rgba(46,230,166,.45);
   border-radius: 8px;
+}
+.top-active-trader {
+  border: 1px solid rgba(246,201,92,.5);
+  background: rgba(246,201,92,.1);
+}
+.top-profit-lock {
+  border: 1px solid rgba(46,230,166,.45);
   background: rgba(46,230,166,.1);
 }
-.top-profit-lock span {
-  color: var(--green);
+.top-active-trader span, .top-profit-lock span {
   font-size: .78rem;
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: .06em;
 }
-.top-profit-lock strong {
+.top-active-trader span {
+  color: var(--gold);
+}
+.top-profit-lock span {
+  color: var(--green);
+}
+.top-active-trader strong, .top-profit-lock strong {
   color: var(--text);
   font-size: 1.8rem;
   line-height: 1;
+}
+.top-active-trader small {
+  color: #ffe7a6;
 }
 .top-profit-lock small {
   color: #b7f7dd;

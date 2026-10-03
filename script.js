@@ -1183,6 +1183,12 @@ function renderState(state) {
       ? `${queueActiveLabel} is active now. Frog failures ${Number(strategy.safeLosses || 0)}/${failureLimit}, Deku failures ${Number(strategy.frogLosses || 0)}/${failureLimit}, Trunoest failures ${Number(strategy.truenestLosses || 0)}/${failureLimit}. Other bots are watched for history and sells.`
       : `Ready: one click starts Decu first. After ${failureLimit} consecutive failures, it switches to the best remaining watched bot.`);
   setText("queueControlNote", buyModeNote(buyMode, maxSurviveBuy));
+  setText("topActiveTrader", strategy.paused ? "Paused" : queueRunning ? queueActiveLabel : "Not trading");
+  setText("topActiveTraderNote", strategy.paused
+    ? "Trading is paused now."
+    : queueRunning
+      ? "This is the only bot using your money now."
+      : "Start trading queue to begin.");
 
   setText("frogProfit", money(profiles.frog?.profit));
   setText("truenestProfit", money(profiles.truenest?.profit));
