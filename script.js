@@ -20,6 +20,8 @@ const fields = [
   "frogUseProfit",
   "frogTradeMode",
   "frogSurviveMode",
+  "frogBuyMode",
+  "frogSurviveMax",
   "truenestWallet",
   "truenestMax",
   "truenestMode",
@@ -28,6 +30,8 @@ const fields = [
   "truenestUseProfit",
   "truenestTradeMode",
   "truenestSurviveMode",
+  "truenestBuyMode",
+  "truenestSurviveMax",
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
@@ -486,7 +490,38 @@ function profileSetting(settings, profile, key, fallback = "") {
 }
 
 function queueSurviveMode(settings = {}) {
-  return settings.frogSurviveMode === "on" || settings.truenestSurviveMode === "on";
+  return queueBuyMode(settings) === "survive";
+}
+
+function normalizeBuyMode(mode) {
+  const value = String(mode || "").toLowerCase();
+  if (value === "survive" || value.includes("survive")) return "survive";
+  if (value === "exact" || value.includes("exact")) return "exact";
+  return "cap50";
+}
+
+function queueBuyMode(settings = {}) {
+  if (settings.frogBuyMode || settings.truenestBuyMode) {
+    return normalizeBuyMode(settings.frogBuyMode || settings.truenestBuyMode);
+  }
+  return settings.frogSurviveMode === "on" || settings.truenestSurviveMode === "on" ? "survive" : "cap50";
+}
+
+function buyModeLabel(mode) {
+  if (mode === "survive") return "Survive Mode";
+  if (mode === "exact") return "Copy exactly what trader does";
+  return "Highest buy $50 mode";
+}
+
+function surviveMax(settings = {}) {
+  const amount = Number(settings.frogSurviveMax || settings.truenestSurviveMax || 5);
+  return Number.isFinite(amount) && amount > 0 ? amount : 5;
+}
+
+function buyModeNote(mode, max = 5) {
+  if (mode === "survive") return `Survive Mode: buys below $${max} copy exact, bigger buys use $${max} max.`;
+  if (mode === "exact") return "Copy exactly what trader does: buys use the same dollar amount as the copied trader.";
+  return "Highest buy $50 mode: buys below $50 copy exact, bigger buys use $50 max.";
 }
 
 function normalizeCopyMode(mode) {
@@ -591,7 +626,8 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   const walletSync = settings.frogWalletSync || settings.walletSync || "Turnkey server wallet";
   const tradeMode = profileSetting(settings, profile, "tradeMode", "both");
   const sellOnly = tradeMode === "sellOnly";
-  const surviveMode = queueSurviveMode(settings);
+  const buyMode = queueBuyMode(settings);
+  const maxSurviveBuy = surviveMax(settings);
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
   const lastTraderResult = latestTraderClosedResult(trades, profile);
   const todayTraderPnl = traderTodayPnlFromTrades(trades, profile);
@@ -612,19 +648,14 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   renderOpenPositions(`${profile}OpenPositions`, `${profile}RoomOpenValue`, trades, profile);
   const modeStatus = sellOnly
     ? `${label} is SELL ONLY: new buys are blocked, sells still work.`
-    : surviveMode
-      ? `${label} Queue Survive Mode is ON: buys copy below $5 and cap bigger buys at $5. Sells still follow.`
-      : `${label} can buy and sell. Normal copy uses the $50 max-buy rule.`;
+    : `${label} can buy and sell. ${buyModeNote(buyMode, maxSurviveBuy)} Sells still follow.`;
   setText(`${profile}TradeModeStatus`, modeStatus);
   if ($(`${profile}SellOnly`)) $(`${profile}SellOnly`).disabled = sellOnly;
   if ($(`${profile}ResumeBuying`)) $(`${profile}ResumeBuying`).disabled = !sellOnly;
-  if ($(`${profile}SurviveToggle`)) {
-    $(`${profile}SurviveToggle`).textContent = surviveMode ? "Survive Mode: ON ($5 max)" : "Survive Mode: OFF";
-    $(`${profile}SurviveToggle`).classList.toggle("active", surviveMode);
-  }
-  setText(`${profile}SurviveNote`, surviveMode
-    ? "Small-wallet mode is protecting the account: copied buys below $5 stay exact; bigger buys use $5 max."
-    : "Normal mode: Decu/Risk buys below $50 copy same amount; bigger buys cap at $50.");
+  if ($(`${profile}BuyMode`) && document.activeElement !== $(`${profile}BuyMode`)) $(`${profile}BuyMode`).value = buyMode;
+  if ($(`${profile}SurviveMax`) && document.activeElement !== $(`${profile}SurviveMax`)) $(`${profile}SurviveMax`).value = String(maxSurviveBuy);
+  if ($(`${profile}BuyModeSave`)) $(`${profile}BuyModeSave`).textContent = `Save ${buyModeLabel(buyMode)}`;
+  setText(`${profile}SurviveNote`, buyModeNote(buyMode, maxSurviveBuy));
   renderRoomThread(profile, roomTrades);
   setText(`${profile}SafeStatus`, riskControl === "off" ? "Exact copy, no protection" : "Protect me ON");
   setText(`${profile}WalletStatus`, walletSync === "Turnkey server wallet"
@@ -786,7 +817,8 @@ function renderState(state) {
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
   const queueRunning = Boolean(profiles.frog?.running || profiles.truenest?.running);
   const queueActiveLabel = strategy.activeProfile === "truenest" ? "Risk Win" : "Decu Win";
-  const queueSurvive = queueSurviveMode(settings);
+  const buyMode = queueBuyMode(settings);
+  const maxSurviveBuy = surviveMax(settings);
 
   fields.forEach((id) => {
     const node = $(id);
@@ -802,18 +834,15 @@ function renderState(state) {
   if ($("truenestStop")) $("truenestStop").disabled = !profiles.truenest?.running;
   if ($("queueStart")) $("queueStart").disabled = !ready || heliusBlocked || queueRunning;
   if ($("queueStop")) $("queueStop").disabled = !queueRunning;
-  if ($("queueSurviveToggle")) {
-    $("queueSurviveToggle").textContent = queueSurvive ? "Survive Mode: ON ($5 max)" : "Survive Mode: OFF";
-    $("queueSurviveToggle").classList.toggle("active", queueSurvive);
-  }
+  if ($("queueBuyMode") && document.activeElement !== $("queueBuyMode")) $("queueBuyMode").value = buyMode;
+  if ($("queueSurviveMax") && document.activeElement !== $("queueSurviveMax")) $("queueSurviveMax").value = String(maxSurviveBuy);
+  if ($("queueBuyModeSave")) $("queueBuyModeSave").textContent = `Save ${buyModeLabel(buyMode)}`;
   setText("queueControlStatus", strategy.paused
     ? `Paused: ${strategy.pauseReason || "restart required."}`
     : queueRunning
       ? `${queueActiveLabel} is active now. Decu losses ${Number(strategy.frogLosses || 0)}/3, Risk losses ${Number(strategy.truenestLosses || 0)}/3.`
       : "Ready: one click starts Decu first. Risk only takes over after 3 Decu losses.");
-  setText("queueControlNote", queueSurvive
-    ? "Survive Mode protects the whole queue: buys below $5 copy exact, bigger buys use $5 max."
-    : "Normal queue mode: buys below $50 copy exact, bigger buys cap at $50.");
+  setText("queueControlNote", buyModeNote(buyMode, maxSurviveBuy));
 
   setText("frogProfit", money(profiles.frog?.profit));
   setText("truenestProfit", money(profiles.truenest?.profit));
@@ -1340,17 +1369,26 @@ async function saveTradeMode(profile, mode) {
   showBusinessMessage(message);
 }
 
-async function saveSurviveMode(profile) {
+async function saveBuyMode(profile = "frog") {
   const current = currentPayload();
-  const next = queueSurviveMode(current) ? "off" : "on";
+  const prefix = profile === "truenest" ? "truenest" : "frog";
+  const selectedMode = normalizeBuyMode(profile === "queue"
+    ? value("queueBuyMode")
+    : value(`${prefix}BuyMode`) || value("queueBuyMode") || current.frogBuyMode || "cap50");
+  const selectedMax = profile === "queue"
+    ? value("queueSurviveMax") || current.frogSurviveMax || "5"
+    : value(`${prefix}SurviveMax`) || value("queueSurviveMax") || current.frogSurviveMax || "5";
   const data = {
     ...current,
-    frogSurviveMode: next,
-    truenestSurviveMode: next
+    frogBuyMode: selectedMode,
+    truenestBuyMode: selectedMode,
+    frogSurviveMode: selectedMode === "survive" ? "on" : "off",
+    truenestSurviveMode: selectedMode === "survive" ? "on" : "off",
+    frogSurviveMax: selectedMax,
+    truenestSurviveMax: selectedMax
   };
-  const message = next === "on"
-    ? "Queue Survive Mode ON: every trader in the switch queue buys below $5 exact; bigger buys use $5 max. Sells still follow."
-    : "Queue Survive Mode OFF: normal $50 max-buy rule restored.";
+  const max = surviveMax(data);
+  const message = `Buy mode saved: ${buyModeLabel(selectedMode)}. ${buyModeNote(selectedMode, max)} Sells still follow.`;
   renderState({ settings: data, profiles: {}, activity: [message] });
   renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
   showBusinessMessage(message);
@@ -1488,15 +1526,15 @@ on("frogStart", "click", () => startProfile("frog"));
 on("frogStop", "click", () => stopProfile("frog"));
 on("queueStart", "click", startQueue);
 on("queueStop", "click", stopQueue);
-on("queueSurviveToggle", "click", () => saveSurviveMode("frog"));
+on("queueBuyModeSave", "click", () => saveBuyMode("queue"));
 on("frogSellOnly", "click", () => saveTradeMode("frog", "sellOnly"));
 on("frogResumeBuying", "click", () => saveTradeMode("frog", "both"));
-on("frogSurviveToggle", "click", () => saveSurviveMode("frog"));
+on("frogBuyModeSave", "click", () => saveBuyMode("frog"));
 on("truenestStart", "click", () => startProfile("truenest"));
 on("truenestStop", "click", () => stopProfile("truenest"));
 on("truenestSellOnly", "click", () => saveTradeMode("truenest", "sellOnly"));
 on("truenestResumeBuying", "click", () => saveTradeMode("truenest", "both"));
-on("truenestSurviveToggle", "click", () => saveSurviveMode("truenest"));
+on("truenestBuyModeSave", "click", () => saveBuyMode("truenest"));
 ["frog", "truenest"].forEach((profile) => {
   const prefix = roomPrefix(profile);
   on(`${prefix}Mode`, "change", () => {
