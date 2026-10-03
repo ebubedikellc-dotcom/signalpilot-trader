@@ -441,7 +441,8 @@ function statusPayload(state, session) {
 }
 
 async function walletBalances(state) {
-  const connection = solanaConnection(state.settings);
+  const primaryConnection = solanaConnection(state.settings);
+  const fallbackConnection = publicSolanaConnection();
   const balances = {};
 
   for (const profile of ["frog", "truenest"]) {
@@ -460,26 +461,39 @@ async function walletBalances(state) {
     }
 
     try {
-      const [lamports, tokenAccounts] = await Promise.all([
-        connection.getBalance(key, "confirmed"),
-        connection.getParsedTokenAccountsByOwner(key, { mint: new PublicKey(usdcMint) }, "confirmed")
-      ]);
-      const usdc = (tokenAccounts.value || []).reduce((sum, item) => {
-        return sum + Number(item.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0);
-      }, 0);
-      balances[profile] = {
-        address: wallet,
-        sol: lamports / LAMPORTS_PER_SOL,
-        usdc,
-        error: "",
-        updatedAt: new Date().toISOString()
-      };
+      balances[profile] = await walletBalanceFromConnection(primaryConnection, wallet, key);
     } catch (error) {
-      balances[profile].error = error.message || "Balance check failed";
+      if (!isRateLimitError(error)) {
+        balances[profile].error = error.message || "Balance check failed";
+        continue;
+      }
+      try {
+        balances[profile] = await walletBalanceFromConnection(fallbackConnection, wallet, key);
+        balances[profile].warning = "Helius RPC limit reached. Balance is using public Solana RPC; refresh the paid Helius key before starting copy trading.";
+      } catch (fallbackError) {
+        balances[profile].error = `Helius limit reached and fallback balance failed: ${fallbackError.message || "Balance check failed"}`;
+      }
     }
   }
 
   return balances;
+}
+
+async function walletBalanceFromConnection(connection, wallet, key) {
+  const [lamports, tokenAccounts] = await Promise.all([
+    connection.getBalance(key, "confirmed"),
+    connection.getParsedTokenAccountsByOwner(key, { mint: new PublicKey(usdcMint) }, "confirmed")
+  ]);
+  const usdc = (tokenAccounts.value || []).reduce((sum, item) => {
+    return sum + Number(item.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0);
+  }, 0);
+  return {
+    address: wallet,
+    sol: lamports / LAMPORTS_PER_SOL,
+    usdc,
+    error: "",
+    updatedAt: new Date().toISOString()
+  };
 }
 
 async function tokenUiBalance(connection, owner, mint) {
@@ -982,6 +996,14 @@ function solanaConnection(settings = {}) {
     ? `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(key)}`
     : clusterApiUrl("mainnet-beta");
   return new Connection(endpoint, "confirmed");
+}
+
+function publicSolanaConnection() {
+  return new Connection(clusterApiUrl("mainnet-beta"), "confirmed");
+}
+
+function isRateLimitError(error) {
+  return /429|max usage|rate limit|resource exhausted/i.test(String(error?.message || error || ""));
 }
 
 function solanaAddress(value) {
@@ -1488,10 +1510,29 @@ async function fetchTransactionsForAddress(apiKey, address) {
   url.searchParams.set("api-key", apiKey);
   url.searchParams.set("limit", "25");
   const response = await fetch(url);
-  if (!response.ok) throw new Error(`Helius returned ${response.status}`);
+  if (!response.ok) {
+    const help = response.status === 429
+      ? "Helius returned 429. Refresh the paid Helius API key in Settings before starting live copy trading."
+      : `Helius returned ${response.status}`;
+    throw new Error(help);
+  }
   const payload = await response.json();
   if (payload.error) throw new Error(payload.error.message || payload.error || "Helius transaction lookup failed");
   return Array.isArray(payload) ? payload : [];
+}
+
+async function assertHeliusReadyForProfile(state, profile) {
+  const wallet = targetWallet(state, profile);
+  if (!state.settings?.heliusKey) throw new Error("Add the paid Helius API key before starting.");
+  if (!wallet) throw new Error(`Add the ${profileLabel(profile)} trader wallet before starting.`);
+  try {
+    await fetchTransactionsForAddress(state.settings.heliusKey, wallet);
+  } catch (error) {
+    if (isRateLimitError(error)) {
+      throw new Error("Helius is still rate-limited. Paste/save the paid Helius API key first; otherwise SignalPilot cannot see new Decu trades.");
+    }
+    throw error;
+  }
 }
 
 function signalAgeMs(transaction = {}) {
@@ -2086,6 +2127,17 @@ async function handleApi(request, response, url) {
       return true;
     }
     const profile = startMatch[1];
+    try {
+      await assertHeliusReadyForProfile(state, profile);
+    } catch (error) {
+      state.activity = [
+        line(`${profileLabel(profile)} start blocked: ${error.message}`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+      await saveState(state);
+      send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
+      return true;
+    }
     state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
     state.strategy.activeProfile = profile;
     state.strategy.paused = false;
