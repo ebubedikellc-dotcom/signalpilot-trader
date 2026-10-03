@@ -645,14 +645,9 @@
                     </select>
                   </label>
                   <label>Trader copied wallet <input id="frogWallet" value="4vw54BmAogeRV3vPKWyFet5yf8DTLcREzdSzx4rw9Ud9"></label>
-                  <label>Copy amount style
-                    <select id="frogCopySizing">
-                      <option>Copy exact amount</option>
-                      <option>Copy by percentage</option>
-                    </select>
-                  </label>
-                  <label>Copied trader starting money <input id="frogTraderBankroll" inputmode="decimal" value="500"></label>
-                  <label id="frogMaxLabel">Protect me max buy <input id="frogMax" value="50"></label>
+                  <input id="frogCopySizing" type="hidden" value="Copy exact amount">
+                  <input id="frogTraderBankroll" type="hidden" value="500">
+                  <span id="frogMaxLabel" hidden><input id="frogMax" type="hidden" value="50"></span>
                   <input id="frogMode" type="hidden" value="Copy exact amount after safety check">
                   <button id="saveDecuSafety" class="secondary-action" type="button">Save Decu Win settings</button>
                   <div class="room-help">
@@ -685,14 +680,9 @@
                     </select>
                   </label>
                   <label>Trader copied wallet <input id="truenestWallet" value="ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT"></label>
-                  <label>Copy amount style
-                    <select id="truenestCopySizing">
-                      <option>Copy exact amount</option>
-                      <option>Copy by percentage</option>
-                    </select>
-                  </label>
-                  <label>Copied trader starting money <input id="truenestTraderBankroll" inputmode="decimal" value="500"></label>
-                  <label id="truenestMaxLabel">Protect me max buy <input id="truenestMax" value="50"></label>
+                  <input id="truenestCopySizing" type="hidden" value="Copy exact amount">
+                  <input id="truenestTraderBankroll" type="hidden" value="500">
+                  <span id="truenestMaxLabel" hidden><input id="truenestMax" type="hidden" value="50"></span>
                   <input id="truenestMode" type="hidden" value="Copy exact amount after safety check">
                   <button id="saveTruenestSafety" class="secondary-action" type="button">Save Risk Win settings</button>
                   <div class="room-help">

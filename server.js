@@ -348,7 +348,7 @@ function normalizeCopyMode(mode) {
 }
 
 function normalizeCopySizing(value) {
-  return String(value || "").toLowerCase().includes("percent") ? "Copy by percentage" : "Copy exact amount";
+  return "Copy exact amount";
 }
 
 function copyModeFromProtection(value) {
@@ -1085,34 +1085,12 @@ function usdcRawFromUsd(value) {
 }
 
 function buyUsdAmount(state, profile, sourceUsd = 0) {
-  const deposit = profileDepositUsd(state, profile);
-  const maxUsd = profileMaxUsd(state, profile);
-  const traderBankroll = profileTraderBankrollUsd(state, profile);
   const buyMode = profileBuyMode(state, profile);
-
-  if (buyMode === "survive") {
-    const surviveMax = profileSurviveMaxUsd(state, profile);
-    const requestedUsd = Number(sourceUsd || 0) > 0 ? Number(sourceUsd) : surviveMax;
-    const usd = Math.min(requestedUsd, surviveMax, deposit || surviveMax);
-    return Number.isFinite(usd) && usd > 0 ? usd : 0;
-  }
-
-  let usd = Number(sourceUsd || 0);
-  if (buyMode === "exact" && !usd) return 0;
-
-  if (buyMode !== "exact" && profileCopySizing(state, profile) === "Copy by percentage" && sourceUsd && traderBankroll && deposit) {
-    usd = (Number(sourceUsd) / traderBankroll) * deposit;
-  } else if (!usd) {
-    usd = maxUsd || Math.min(deposit || 0, 50);
-  }
-
-  if (buyMode === "cap50") {
-    usd = Math.min(usd, 50);
-  } else if (buyMode !== "exact" && maxUsd) {
-    usd = Math.min(usd, maxUsd);
-  }
-  if (deposit) usd = Math.min(usd, deposit);
-  return Number.isFinite(usd) && usd > 0 ? usd : 0;
+  const usd = Number(sourceUsd);
+  if (!Number.isFinite(usd) || usd <= 0) return 0;
+  if (buyMode === "survive") return Math.min(usd, profileSurviveMaxUsd(state, profile));
+  if (buyMode === "cap50") return Math.min(usd, 50);
+  return usd;
 }
 
 function sourceUsdFromSignal(transaction = {}, wallet = "") {
@@ -1568,16 +1546,32 @@ async function executeCopiedSwap(profile, transaction, state) {
     if (profileSellOnly(state, profile)) {
       return { status: "Skipped - Sell Only mode is ON, new buys are blocked" };
     }
-    let buyUsd = buyUsdAmount(state, profile, leg.sourceUsd);
-    if (!buyUsd) return { status: "Skipped - no deposit amount available for USDC buy" };
+    let sourceUsd = Number(leg.sourceUsd || 0);
+    if (!sourceUsd && isQuoteMint(leg.inputMint)) {
+      if (leg.inputMint === usdcMint) {
+        sourceUsd = Number(leg.amount) / 1_000_000;
+      } else {
+        // Quote only: value the trader's SOL/USDT input without spending it.
+        const valuation = await jupiterJson("/swap/v2/order", {
+          apiKey,
+          query: { inputMint: leg.inputMint, outputMint: usdcMint, amount: leg.amount }
+        });
+        sourceUsd = Number(valuation.outAmount || 0) / 1_000_000;
+      }
+    }
+    let buyUsd = buyUsdAmount(state, profile, sourceUsd);
+    if (!buyUsd) return { status: "Skipped - trader buy value could not be determined" };
     const tradeableUsdc = await profileTradeableUsdc(connection, state, profile, wallet);
     if (tradeableUsdc <= 0) return { status: "Skipped - no tradeable USDC after profit lock" };
+    if (profileBuyMode(state, profile) === "exact" && buyUsd > tradeableUsdc) {
+      return { status: "Skipped - insufficient tradeable USDC to copy the exact amount" };
+    }
     buyUsd = Math.min(buyUsd, tradeableUsdc);
     inputMint = usdcMint;
     outputMint = leg.outputMint;
     copyAmount = {
       amount: usdcRawFromUsd(buyUsd),
-      note: `USDC buy ${buyUsd.toFixed(2)}${leg.sourceUsd ? " from source trade size" : " fallback/protected size"}; profit lock kept extra USDC out`
+      note: `USDC buy ${buyUsd.toFixed(2)} from source trade value ${sourceUsd.toFixed(2)}; profit lock kept extra USDC out`
     };
   }
 
@@ -1607,20 +1601,12 @@ async function executeCopiedSwap(profile, transaction, state) {
       outputMint,
       amount: copyAmount.amount,
       taker: wallet,
-      swapMode: "ExactIn",
-      slippageBps: 200
+      swapMode: "ExactIn"
     }
   });
 
   if (!order.transaction) {
     return { status: `Skipped - Jupiter could not build transaction${order.errorCode ? ` (${order.errorCode})` : ""}` };
-  }
-
-  const maxUsd = profileMaxUsd(state, profile);
-  if (leg.action !== "sell" && maxUsd && Number(order.inUsdValue || 0) > maxUsd) {
-    if (profileProtectionEnabled(state, profile)) {
-      return { status: `Skipped - signal value $${Number(order.inUsdValue).toFixed(2)} is over ${profileLabel(profile)} max $${maxUsd}` };
-    }
   }
 
   const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
@@ -1673,8 +1659,7 @@ async function executeManualTokenSell(state, { profile, mint }) {
       outputMint: usdcMint,
       amount: heldAmount,
       taker: wallet,
-      swapMode: "ExactIn",
-      slippageBps: 500
+      swapMode: "ExactIn"
     }
   });
 
