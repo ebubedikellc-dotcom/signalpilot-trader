@@ -659,7 +659,7 @@ function renderTrades(trades = []) {
       <td>${trade.token || "-"}</td>
       <td>${money(trade.amount)}</td>
       <td>${money(pnl)}</td>
-      <td>${trade.status || "-"}</td>
+      <td>${escapeHtml(trade.status || "-")}${trade.executionError ? `<br>${escapeHtml(trade.executionError)}` : ""}</td>
     `;
     tradeRows.appendChild(row);
   });

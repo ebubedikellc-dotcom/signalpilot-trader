@@ -1476,19 +1476,35 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {
   Object.entries(query || {}).forEach(([key, value]) => {
     if (value !== undefined && value !== null && String(value) !== "") url.searchParams.set(key, String(value));
   });
-  const response = await fetch(url, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(apiKey ? { "x-api-key": apiKey } : {})
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.error || payload.errorMessage) {
-    throw new Error(payload.errorMessage || payload.error || `Jupiter returned ${response.status}`);
+  // Only unsigned quote requests are retried; execution outcomes may be uncertain.
+  const attempts = method === "GET" && pathname === "/swap/v2/order" ? 3 : 1;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { "x-api-key": apiKey } : {})
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(15000)
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.error || payload.errorMessage) {
+        const error = new Error(payload.errorMessage || payload.error || `Jupiter returned ${response.status}`);
+        error.retryable = response.status === 429 || response.status >= 500 || /failed to get quotes/i.test(error.message);
+        throw error;
+      }
+      if (pathname === "/swap/v2/execute" && payload.status !== "Success") {
+        throw new Error(`Jupiter execution not confirmed: ${payload.status || "unknown status"}${payload.code !== undefined ? ` (code ${payload.code})` : ""}${payload.signature ? `; transaction ${payload.signature}` : ""}`);
+      }
+      return payload;
+    } catch (error) {
+      const retryable = error.retryable || /fetch failed|timeout|timed out|ECONNRESET/i.test(error.message);
+      if (attempt === attempts || !retryable) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
   }
-  return payload;
 }
 
 async function tokenBalanceRaw(connection, owner, mint) {
@@ -2216,11 +2232,7 @@ async function processSignalTransactions(state, profile, transactions, newest, c
     const activeForBuys = profile === activeProfile;
     const canExecute = liveTradingAllowed(state, profile) && (activeForBuys || leg?.action === "sell");
     if (canExecute) {
-      const staleSignal = !freshEnoughToCopy(transaction);
-      if (staleSignal && leg?.action !== "sell") {
-        const seconds = Math.round(signalAgeMs(transaction) / 1000);
-        trade.status = `Skipped - signal was ${seconds}s old`;
-      } else try {
+      try {
         const execution = await executeCopiedSwap(profile, transaction, state);
         trade.status = execution.status;
         trade.execution = execution;
@@ -2357,11 +2369,7 @@ async function runCopyWorkerOnce() {
       const activeForBuys = profile === activeProfile;
       const canExecute = liveTradingAllowed(state, profile) && (activeForBuys || leg?.action === "sell");
       if (canExecute) {
-        const staleSignal = !freshEnoughToCopy(transaction);
-        if (staleSignal && leg?.action !== "sell") {
-          const seconds = Math.round(signalAgeMs(transaction) / 1000);
-          trade.status = `Skipped - signal was ${seconds}s old`;
-        } else try {
+        try {
           const execution = await executeCopiedSwap(profile, transaction, state);
           trade.status = execution.status;
           trade.execution = execution;
