@@ -767,6 +767,39 @@ function movementSummary(transaction = {}) {
   return `${type} from ${source}`;
 }
 
+function nonTradeMovementReason(profile, transaction = {}, state) {
+  const wallet = targetWallet(state, profile);
+  if (!wallet) return "";
+
+  const transfers = Array.isArray(transaction.tokenTransfers) ? transaction.tokenTransfers : [];
+  const incomingToken = transfers.some((item) => transferEntersWallet(item, wallet) && transferMint(item) && !isQuoteMint(transferMint(item)) && transferAmount(item));
+  const outgoingToken = transfers.some((item) => transferLeavesWallet(item, wallet) && transferMint(item) && !isQuoteMint(transferMint(item)) && transferAmount(item));
+  const incomingQuote = transfers.some((item) => transferEntersWallet(item, wallet) && isQuoteMint(transferMint(item)) && transferAmount(item));
+  const outgoingQuote = transfers.some((item) => transferLeavesWallet(item, wallet) && isQuoteMint(transferMint(item)) && transferAmount(item));
+  const native = nativeChange(transaction, wallet);
+  const changes = accountTokenChanges(transaction, wallet);
+  const gainedToken = changes.some((item) => item.amount > 0 && !isQuoteMint(item.mint));
+  const lostToken = changes.some((item) => item.amount < 0 && !isQuoteMint(item.mint));
+  const gainedQuote = changes.some((item) => item.amount > 0 && isQuoteMint(item.mint));
+  const lostQuote = changes.some((item) => item.amount < 0 && isQuoteMint(item.mint));
+
+  const hasReceivedToken = incomingToken || gainedToken;
+  const hasSentToken = outgoingToken || lostToken;
+  const hasReceivedQuote = incomingQuote || gainedQuote || native > 0;
+  const hasSentQuote = outgoingQuote || lostQuote || native < 0;
+
+  if (hasReceivedToken && !hasSentQuote && !hasSentToken) {
+    return "received-only token transfer or airdrop";
+  }
+  if (hasSentToken && !hasReceivedQuote && !hasReceivedToken) {
+    return "sent-only token transfer";
+  }
+  if (!hasReceivedToken && !hasSentToken && !hasReceivedQuote && !hasSentQuote) {
+    return "wallet/account update";
+  }
+  return "";
+}
+
 function tokenName(transaction) {
   const transfer = transaction.tokenTransfers?.[0] || transaction.events?.swap?.tokenInputs?.[0] || transaction.events?.swap?.tokenOutputs?.[0];
   return transfer?.symbol || transfer?.mint || transfer?.tokenMint || "Solana token";
@@ -1629,11 +1662,17 @@ async function runCopyWorkerOnce() {
     if (!signalTransactions.length) {
       const sample = unseen[0] ? movementSummary(unseen[0]) : "wallet movement";
       const swapLikeCount = orderedUnseen.filter(looksLikeSwap).length;
-      const note = swapLikeCount
-        ? `${profileLabel(profile)} saw ${swapLikeCount} swap-like movement${swapLikeCount === 1 ? "" : "s"}, but none showed a safe ${profileLabel(profile)} token-in/token-out trade, so it did not copy blindly. Latest was ${sample}.`
-        : `${profileLabel(profile)} saw ${unseen.length} new Decu movement${unseen.length === 1 ? "" : "s"}, but no buy/sell swap was found. Latest was ${sample}.`;
+      const nonTradeReasons = orderedUnseen
+        .map((transaction) => nonTradeMovementReason(profile, transaction, state))
+        .filter(Boolean);
+      const latestNonTradeReason = unseen[0] ? nonTradeMovementReason(profile, unseen[0], state) : "";
+      const note = nonTradeReasons.length === orderedUnseen.length
+        ? `${profileLabel(profile)} ignored ${unseen.length} non-trade movement${unseen.length === 1 ? "" : "s"} (${latestNonTradeReason || "not a wallet buy/sell"}). Latest was ${sample}.`
+        : swapLikeCount
+          ? `${profileLabel(profile)} saw ${swapLikeCount} swap-like movement${swapLikeCount === 1 ? "" : "s"}, but none showed a safe ${profileLabel(profile)} token-in/token-out trade, so it did not copy blindly. Latest was ${sample}.`
+          : `${profileLabel(profile)} saw ${unseen.length} new Decu movement${unseen.length === 1 ? "" : "s"}, but no buy/sell swap was found. Latest was ${sample}.`;
       state.activity = [
-        line(`${note} Use the exact GMGN trade feed or signer wallet if these are real trades that Helius cannot decode.`),
+        line(`${note}${nonTradeReasons.length === orderedUnseen.length ? "" : " Use the exact GMGN trade feed or signer wallet if these are real trades that Helius cannot decode."}`),
         ...(state.activity || [])
       ].slice(0, 20);
     }
