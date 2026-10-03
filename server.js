@@ -1588,7 +1588,7 @@ function tradeFromTransaction(profile, transaction, state) {
 }
 
 async function fetchTransactionsForAddress(apiKey, address) {
-  const url = new URL(`https://api-mainnet.helius-rpc.com/v0/addresses/${encodeURIComponent(address)}/transactions`);
+  const url = new URL(`https://api.helius.xyz/v0/addresses/${encodeURIComponent(address)}/transactions`);
   url.searchParams.set("api-key", apiKey);
   url.searchParams.set("limit", "25");
   url.searchParams.set("type", "SWAP");
