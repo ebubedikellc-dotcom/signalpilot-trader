@@ -31,6 +31,7 @@ const legacyFrogWallet = "4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh";
 const decuWallet = "4vw54BmAogeRV3vPKWyFet5yf8DTLcREzdSzx4rw9Ud9";
 const protectedCapStrategyVersion = "decu-50-cap-v1";
 const surviveBuyUsd = 5;
+const defaultBuyMode = "cap50";
 const gmgnPollMs = Number(process.env.GMGN_POLL_MS || 2000);
 const usdcDecimals = 6;
 const tokenProgramId = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
@@ -47,6 +48,8 @@ const defaultState = {
     frogUseProfit: "off",
     frogTradeMode: "both",
     frogSurviveMode: "off",
+    frogBuyMode: defaultBuyMode,
+    frogSurviveMax: "5",
     truenestWallet: "ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT",
     truenestMax: "50",
     truenestMode: "Copy exact amount after safety check",
@@ -55,6 +58,8 @@ const defaultState = {
     truenestUseProfit: "off",
     truenestTradeMode: "both",
     truenestSurviveMode: "off",
+    truenestBuyMode: defaultBuyMode,
+    truenestSurviveMax: "5",
     walletSync: "Turnkey server wallet",
     riskControl: "on",
     liveTradingSwitch: "on",
@@ -117,6 +122,8 @@ const fields = [
   "frogUseProfit",
   "frogTradeMode",
   "frogSurviveMode",
+  "frogBuyMode",
+  "frogSurviveMax",
   "truenestWallet",
   "truenestMax",
   "truenestMode",
@@ -125,6 +132,8 @@ const fields = [
   "truenestUseProfit",
   "truenestTradeMode",
   "truenestSurviveMode",
+  "truenestBuyMode",
+  "truenestSurviveMax",
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
@@ -179,9 +188,27 @@ function send(response, status, data, headers = {}) {
 }
 
 function syncQueueSurviveSettings(settings = {}) {
-  const queueSurvive = settings.frogSurviveMode === "on" || settings.truenestSurviveMode === "on";
-  settings.frogSurviveMode = queueSurvive ? "on" : "off";
-  settings.truenestSurviveMode = queueSurvive ? "on" : "off";
+  if (!settings.frogBuyMode) settings.frogBuyMode = settings.frogSurviveMode === "on" ? "survive" : defaultBuyMode;
+  if (!settings.truenestBuyMode) settings.truenestBuyMode = settings.truenestSurviveMode === "on" ? "survive" : settings.frogBuyMode;
+  const queueMode = normalizeBuyMode(settings.frogBuyMode || settings.truenestBuyMode);
+  settings.frogBuyMode = queueMode;
+  settings.truenestBuyMode = queueMode;
+  settings.frogSurviveMode = queueMode === "survive" ? "on" : "off";
+  settings.truenestSurviveMode = queueMode === "survive" ? "on" : "off";
+  settings.frogSurviveMax = normalizeUsdSetting(settings.frogSurviveMax, "5");
+  settings.truenestSurviveMax = normalizeUsdSetting(settings.truenestSurviveMax || settings.frogSurviveMax, settings.frogSurviveMax || "5");
+}
+
+function normalizeBuyMode(mode) {
+  const value = String(mode || "").toLowerCase();
+  if (value === "exact" || value.includes("exact")) return "exact";
+  if (value === "survive" || value.includes("survive")) return "survive";
+  return defaultBuyMode;
+}
+
+function normalizeUsdSetting(value, fallback) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? String(amount) : String(fallback);
 }
 
 function isLegacyUnsupportedSwapSkip(trade = {}) {
@@ -342,6 +369,10 @@ function publicSettings(settings = {}, includeSecrets = false) {
     truenestTradeMode: settings.truenestTradeMode === "sellOnly" ? "sellOnly" : "both",
     frogSurviveMode: settings.frogSurviveMode === "on" ? "on" : "off",
     truenestSurviveMode: settings.truenestSurviveMode === "on" ? "on" : "off",
+    frogBuyMode: normalizeBuyMode(settings.frogBuyMode),
+    truenestBuyMode: normalizeBuyMode(settings.truenestBuyMode),
+    frogSurviveMax: normalizeUsdSetting(settings.frogSurviveMax, "5"),
+    truenestSurviveMax: normalizeUsdSetting(settings.truenestSurviveMax, settings.frogSurviveMax || "5"),
     walletSync: settings.walletSync || "Turnkey server wallet",
     riskControl: settings.riskControl || "on",
     liveTradingSwitch: settings.liveTradingSwitch || "on",
@@ -646,7 +677,16 @@ function profileSellOnly(state, profile) {
 }
 
 function profileSurviveMode(state, profile) {
-  return state.settings.frogSurviveMode === "on" || state.settings.truenestSurviveMode === "on";
+  return profileBuyMode(state, profile) === "survive";
+}
+
+function profileBuyMode(state, profile) {
+  return normalizeBuyMode(profileSetting(state, profile, "buyMode", defaultBuyMode));
+}
+
+function profileSurviveMaxUsd(state, profile) {
+  const value = Number(profileSetting(state, profile, "surviveMax", "5"));
+  return Number.isFinite(value) && value > 0 ? value : surviveBuyUsd;
 }
 
 function liveTradingAllowed(state, profile = "") {
@@ -899,22 +939,29 @@ function buyUsdAmount(state, profile, sourceUsd = 0) {
   const deposit = profileDepositUsd(state, profile);
   const maxUsd = profileMaxUsd(state, profile);
   const traderBankroll = profileTraderBankrollUsd(state, profile);
+  const buyMode = profileBuyMode(state, profile);
 
-  if (profileSurviveMode(state, profile)) {
-    const requestedUsd = Number(sourceUsd || 0) > 0 ? Number(sourceUsd) : surviveBuyUsd;
-    const usd = Math.min(requestedUsd, surviveBuyUsd, deposit || surviveBuyUsd);
+  if (buyMode === "survive") {
+    const surviveMax = profileSurviveMaxUsd(state, profile);
+    const requestedUsd = Number(sourceUsd || 0) > 0 ? Number(sourceUsd) : surviveMax;
+    const usd = Math.min(requestedUsd, surviveMax, deposit || surviveMax);
     return Number.isFinite(usd) && usd > 0 ? usd : 0;
   }
 
   let usd = Number(sourceUsd || 0);
+  if (buyMode === "exact" && !usd) return 0;
 
-  if (profileCopySizing(state, profile) === "Copy by percentage" && sourceUsd && traderBankroll && deposit) {
+  if (buyMode !== "exact" && profileCopySizing(state, profile) === "Copy by percentage" && sourceUsd && traderBankroll && deposit) {
     usd = (Number(sourceUsd) / traderBankroll) * deposit;
   } else if (!usd) {
     usd = maxUsd || Math.min(deposit || 0, 50);
   }
 
-  if (maxUsd) usd = Math.min(usd, maxUsd);
+  if (buyMode === "cap50") {
+    usd = Math.min(usd, 50);
+  } else if (buyMode !== "exact" && maxUsd) {
+    usd = Math.min(usd, maxUsd);
+  }
   if (deposit) usd = Math.min(usd, deposit);
   return Number.isFinite(usd) && usd > 0 ? usd : 0;
 }
