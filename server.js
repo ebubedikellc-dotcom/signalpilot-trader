@@ -72,8 +72,8 @@ const defaultState = {
     protectedCapStrategyVersion
   },
   profiles: {
-    frog: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null },
-    truenest: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null }
+    frog: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null, lastGmgnWarningAt: null },
+    truenest: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null, lastGmgnWarningAt: null }
   },
   owner: {
     email: ownerEmail
@@ -1701,7 +1701,10 @@ function gmgnActivityToTransaction(activity = {}, wallet = "") {
 async function fetchGmgnTransactionsForAddress(address) {
   const now = Date.now();
   const cached = gmgnCache.get(address);
-  if (cached && now - cached.at < gmgnPollMs) return cached.transactions;
+  if (cached && now - cached.at < gmgnPollMs) {
+    if (cached.error) throw cached.error;
+    return cached.transactions;
+  }
 
   const params = new URLSearchParams();
   params.append("event", "buy");
@@ -1721,8 +1724,13 @@ async function fetchGmgnTransactionsForAddress(address) {
       const response = await fetch(endpoint, {
         headers: {
           "accept": "application/json, text/plain, */*",
+          "accept-language": "en-US,en;q=0.9",
+          "origin": "https://gmgn.ai",
           "referer": `https://gmgn.ai/sol/address/${address}`,
-          "user-agent": "SignalPilot/1.0"
+          "sec-fetch-dest": "empty",
+          "sec-fetch-mode": "cors",
+          "sec-fetch-site": "same-origin",
+          "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
         }
       });
       if (!response.ok) {
@@ -1746,7 +1754,9 @@ async function fetchGmgnTransactionsForAddress(address) {
     }
   }
 
-  throw lastError || new Error("GMGN wallet activity lookup failed");
+  const finalError = lastError || new Error("GMGN wallet activity lookup failed");
+  gmgnCache.set(address, { at: now, transactions: [], error: finalError });
+  throw finalError;
 }
 
 async function assertHeliusReadyForProfile(state, profile) {
@@ -1771,6 +1781,11 @@ function signalAgeMs(transaction = {}) {
 function freshEnoughToCopy(transaction = {}) {
   const age = signalAgeMs(transaction);
   return !age || age <= maxSignalAgeMs;
+}
+
+function shouldLogGmgnWarning(state, profile) {
+  const last = Number(state.profiles?.[profile]?.lastGmgnWarningAt || 0);
+  return !last || Date.now() - last > 60_000;
 }
 
 async function processSignalTransactions(state, profile, transactions, newest, checkpointField, sourceLabel) {
@@ -1890,10 +1905,13 @@ async function runCopyWorkerOnce() {
         gmgnHandled = true;
       }
     } catch (error) {
-      state.activity = [
-        line(`GMGN feed warning for ${profileLabel(profile)}: ${error.message}. Helius backup is still watching.`),
-        ...(state.activity || [])
-      ].slice(0, 20);
+      if (shouldLogGmgnWarning(state, profile)) {
+        state.profiles[profile].lastGmgnWarningAt = Date.now();
+        state.activity = [
+          line(`GMGN feed warning for ${profileLabel(profile)}: ${error.message}. Helius backup is still watching.`),
+          ...(state.activity || [])
+        ].slice(0, 20);
+      }
     }
 
     if (gmgnHandled) continue;
