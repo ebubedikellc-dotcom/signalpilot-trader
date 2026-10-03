@@ -342,7 +342,6 @@
                 <label>Use locked profit to trade
                   <select id="manualDecuUseProfit">
                     <option value="off">OFF - protect profit</option>
-                    <option value="on">ON - allow profit trade</option>
                   </select>
                 </label>
                 <button id="saveDecuDeposit" class="primary-action" type="button">Save Decu Win budget</button>
@@ -468,7 +467,6 @@
                 <label>Use locked profit to trade
                   <select id="manualTruenestUseProfit">
                     <option value="off">OFF - protect profit</option>
-                    <option value="on">ON - allow profit trade</option>
                   </select>
                 </label>
                 <button id="saveTruenestDeposit" class="primary-action" type="button">Save shared budget</button>
@@ -714,8 +712,8 @@
                 <label>Risk Win Turnkey wallet ID <input id="truenestSignerToken" type="password" autocomplete="off" placeholder="Optional legacy field; main Decu signer is used"></label>
                 <label>Decu Win trading budget <input id="frogDeposit" inputmode="decimal" placeholder="Money allowed for Decu Win trades, e.g. 100"></label>
                 <label>Risk Win trading budget <input id="truenestDeposit" inputmode="decimal" placeholder="Optional legacy field; main budget is used"></label>
-                <label>Decu Win use profit <select id="frogUseProfit"><option value="off">OFF - protect profit</option><option value="on">ON - allow profit trade</option></select></label>
-                <label>Risk Win use profit <select id="truenestUseProfit"><option value="off">OFF - protect profit</option><option value="on">ON - allow profit trade</option></select></label>
+                <input id="frogUseProfit" type="hidden" value="off">
+                <input id="truenestUseProfit" type="hidden" value="off">
               </div>
             </section>
           </section>

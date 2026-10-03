@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
@@ -20,6 +20,52 @@ const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
 const dataDir = process.env.DATA_DIR || path.join(__dirname, ".data");
 const dataFile = path.join(dataDir, "signalpilot-state.json");
+const profitReserveFile = path.join(dataDir, "profit-reserves.json");
+let profitReserves;
+let walletOperationQueue = Promise.resolve();
+
+function withWalletOperation(action) {
+  const result = walletOperationQueue.then(action);
+  walletOperationQueue = result.catch(() => {});
+  return result;
+}
+
+async function readProfitReserves() {
+  if (!profitReserves) {
+    profitReserves = (async () => {
+      try {
+        return JSON.parse(await readFile(profitReserveFile, "utf8"));
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        return {};
+      }
+    })();
+  }
+  return profitReserves;
+}
+
+async function saveProfitReserves() {
+  const reserves = await readProfitReserves();
+  await mkdir(dataDir, { recursive: true });
+  await writeFile(`${profitReserveFile}.tmp`, JSON.stringify(reserves));
+  await rename(`${profitReserveFile}.tmp`, profitReserveFile);
+}
+
+async function protectProfit(state, wallet, cash) {
+  const reserves = await readProfitReserves();
+  if (!Number.isFinite(cash) || cash < 0) throw new Error("Cannot verify cash for profit protection");
+  const prior = reserves[wallet];
+  // Restore this owner's previously displayed reserve once, on ledger migration.
+  const initial = wallet === "12HrFUw9v7em5ZQ1c3jcAFcSrfXSxqhHLqv1mSCbRprb" ? 35.327375 : 0;
+  const principal = profileDepositUsd(state, "frog");
+  const locked = Math.max(prior?.lockedUsd ?? initial, principal > 0 ? cash - principal : 0);
+  if (!prior || locked !== prior.lockedUsd) {
+    reserves[wallet] = { ...prior, lockedUsd: locked, updatedAt: new Date().toISOString() };
+    await saveProfitReserves();
+  }
+  state.profitReserves = reserves;
+  return locked;
+}
 const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 500);
 const maxSignalAgeMs = Number(process.env.MAX_SIGNAL_AGE_MS || 5000);
 const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
@@ -260,6 +306,8 @@ function isLegacyUnsupportedSwapSkip(trade = {}) {
 }
 
 function normalizeState(state) {
+  state.settings ||= {};
+  for (const profile of ["safe", "frog", "truenest"]) state.settings[`${profile}UseProfit`] = "off";
   const incomingSettings = state.settings || {};
   state.settings = { ...defaultState.settings, ...incomingSettings };
   if (incomingSettings.protectedCapStrategyVersion !== protectedCapStrategyVersion) {
@@ -1317,7 +1365,11 @@ async function executeSolWithdrawal(state, { profile, destination, amountSol }) 
   };
 }
 
-async function executeUsdcWithdrawal(state, { profile, destination, amountUsd, profitOnly = false }) {
+async function executeUsdcWithdrawal(state, options) {
+  return withWalletOperation(() => executeUsdcWithdrawalLocked(state, options));
+}
+
+async function executeUsdcWithdrawalLocked(state, { profile, destination, amountUsd, profitOnly = false }) {
   if (!supportedProfiles.includes(profile)) throw new Error("Choose Frog, Deku, or Trunoest wallet.");
   const sourceWallet = tradeWallet(state, profile);
   const signer = signerId(state, profile) || sourceWallet;
@@ -1331,9 +1383,8 @@ async function executeUsdcWithdrawal(state, { profile, destination, amountUsd, p
 
   const connection = solanaConnection(state.settings);
   const currentUsdc = await tokenUiBalance(connection, sourceWallet, usdcMint);
-  const principal = profileDepositUsd(state, profile);
-  const lockedProfit = Math.max(0, currentUsdc - principal);
-  const available = profitOnly ? lockedProfit : currentUsdc;
+  const lockedProfit = await protectProfit(state, sourceWallet, currentUsdc);
+  const available = profitOnly ? Math.min(currentUsdc, lockedProfit) : Math.max(0, currentUsdc - lockedProfit);
   if (amount > available + 0.000001) {
     throw new Error(profitOnly
       ? `Profit available is only $${available.toFixed(2)}. Principal stays locked for trading.`
@@ -1368,7 +1419,15 @@ async function executeUsdcWithdrawal(state, { profile, destination, amountUsd, p
     skipPreflight: false,
     maxRetries: 3
   });
-  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+  const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+  if (confirmation.value.err) throw new Error(`USDC withdrawal failed: ${JSON.stringify(confirmation.value.err)}`);
+  if (profitOnly) {
+    const reserves = await readProfitReserves();
+    reserves[sourceWallet].lockedUsd = Math.max(0, lockedProfit - rawAmount / (10 ** usdcDecimals));
+    reserves[sourceWallet].lastWithdrawal = signature;
+    await saveProfitReserves();
+    state.profitReserves = reserves;
+  }
 
   return {
     signature,
@@ -1393,10 +1452,8 @@ function profileDepositUsd(state, profile) {
 async function profileTradeableUsdc(connection, state, profile, wallet) {
   const principal = profileDepositUsd(state, profile);
   const currentUsdc = await tokenUiBalance(connection, wallet, usdcMint);
-  const useProfit = state.settings.frogUseProfit === "on";
-  if (useProfit) return currentUsdc;
-  if (!principal) return currentUsdc;
-  return Math.max(0, Math.min(currentUsdc, principal));
+  const locked = await protectProfit(state, wallet, currentUsdc);
+  return Math.max(0, Math.min(currentUsdc - locked, principal));
 }
 
 function profileTraderBankrollUsd(state, profile) {
@@ -1536,6 +1593,10 @@ async function latestHeldCopiedToken(connection, state, profile, wallet) {
 }
 
 async function executeCopiedSwap(profile, transaction, state) {
+  return withWalletOperation(() => executeCopiedSwapLocked(profile, transaction, state));
+}
+
+async function executeCopiedSwapLocked(profile, transaction, state) {
   const leg = primarySwapLeg(transaction, profile, state);
   if (!leg?.inputMint || !leg?.outputMint || !leg?.amount) {
     return { status: "Skipped - unsupported swap format" };
@@ -1624,6 +1685,9 @@ async function executeCopiedSwap(profile, transaction, state) {
   if (!order.transaction) {
     return { status: `Skipped - Jupiter could not build transaction${order.errorCode ? ` (${order.errorCode})` : ""}` };
   }
+  if (leg.action === "buy" && (!order.inAmount || BigInt(order.inAmount) > BigInt(copyAmount.amount))) {
+    throw new Error("Swap request exceeds the authorized buy amount; locked profit was not released");
+  }
 
   const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
 
@@ -1657,6 +1721,10 @@ async function executeCopiedSwap(profile, transaction, state) {
 }
 
 async function executeManualTokenSell(state, { profile, mint }) {
+  return withWalletOperation(() => executeManualTokenSellLocked(state, { profile, mint }));
+}
+
+async function executeManualTokenSellLocked(state, { profile, mint }) {
   const wallet = tradeWallet(state, profile);
   const signer = signerId(state, profile) || wallet;
   const tokenMint = solanaAddress(mint)?.toBase58();
@@ -2558,9 +2626,12 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/status") {
     const state = await readState();
     const payload = statusPayload(state, sessionFromRequest(request, state));
-    payload.walletBalances = await walletBalances(state).catch((error) => ({
-      error: error.message || "Balance check failed"
-    }));
+    await withWalletOperation(async () => {
+      payload.walletBalances = await walletBalances(state).catch((error) => ({ error: error.message || "Balance check failed" }));
+      const cash = payload.walletBalances.frog;
+      if (cash && !cash.error && Number.isFinite(cash.usdc)) await protectProfit(state, cash.address, cash.usdc);
+      payload.profitReserves = await readProfitReserves();
+    });
     send(response, 200, payload);
     return true;
   }

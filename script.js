@@ -114,12 +114,12 @@ function profileLoss(settings = {}, profile = "frog") {
 }
 
 function profileLockedProfit(settings = {}, profile = "frog") {
-  return Math.max(0, balanceUsdc(profile) - profileDeposit(settings, profile));
+  const wallet = walletBalance(profile).address;
+  return Math.max(0, Number(latestState.profitReserves?.[wallet]?.lockedUsd || 0));
 }
 
 function profileTradeableUsdc(settings = {}, profile = "frog") {
-  if (settings.frogUseProfit === "on") return Math.max(0, balanceUsdc(profile));
-  return Math.max(0, Math.min(balanceUsdc(profile), profileDeposit(settings, profile)));
+  return Math.max(0, Math.min(balanceUsdc(profile) - profileLockedProfit(settings, profile), profileDeposit(settings, profile)));
 }
 
 function queueFailureLimit(settings = {}) {
