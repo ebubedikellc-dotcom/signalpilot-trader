@@ -29,6 +29,7 @@ const usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const usdtMint = "Es9vMFrzaCERmJfrF4H2FYD4AWuEJ1hDPPpQdjCXg82h";
 const legacyFrogWallet = "4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh";
 const decuWallet = "4vw54BmAogeRV3vPKWyFet5yf8DTLcREzdSzx4rw9Ud9";
+const supportedProfiles = ["safe", "frog", "truenest"];
 const protectedCapStrategyVersion = "decu-50-cap-v1";
 const surviveBuyUsd = 5;
 const defaultBuyMode = "cap50";
@@ -40,6 +41,16 @@ const associatedTokenProgramId = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25
 const defaultState = {
   settings: {
     gmgnApiKey: "",
+    safeWallet: legacyFrogWallet,
+    safeMax: "50",
+    safeMode: "Copy exact amount after safety check",
+    safeCopySizing: "Copy exact amount",
+    safeTraderBankroll: "500",
+    safeUseProfit: "off",
+    safeTradeMode: "both",
+    safeSurviveMode: "off",
+    safeBuyMode: defaultBuyMode,
+    safeSurviveMax: "5",
     frogWallet: decuWallet,
     frogMax: "50",
     frogMode: "Copy exact amount after safety check",
@@ -67,6 +78,9 @@ const defaultState = {
     frogWalletSync: "Turnkey server wallet",
     frogRiskControl: "on",
     frogLiveTradingSwitch: "on",
+    safeWalletSync: "Turnkey server wallet",
+    safeRiskControl: "on",
+    safeLiveTradingSwitch: "on",
     truenestWalletSync: "Turnkey server wallet",
     truenestRiskControl: "on",
     truenestLiveTradingSwitch: "on",
@@ -79,6 +93,7 @@ const defaultState = {
     protectedCapStrategyVersion
   },
   profiles: {
+    safe: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null, lastGmgnWarningAt: null, lastNoSignalAt: null },
     frog: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null, lastGmgnWarningAt: null, lastNoSignalAt: null },
     truenest: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null, lastGmgnWarningAt: null, lastNoSignalAt: null }
   },
@@ -92,6 +107,7 @@ const defaultState = {
   activity: ["Site engine created. Add API and wallet details, then press Save."],
   strategy: {
     activeProfile: "frog",
+    safeLosses: 0,
     frogLosses: 0,
     truenestLosses: 0,
     paused: false,
@@ -115,6 +131,16 @@ const fields = [
   "truenestSignerToken",
   "frogDeposit",
   "truenestDeposit",
+  "safeWallet",
+  "safeMax",
+  "safeMode",
+  "safeCopySizing",
+  "safeTraderBankroll",
+  "safeUseProfit",
+  "safeTradeMode",
+  "safeSurviveMode",
+  "safeBuyMode",
+  "safeSurviveMax",
   "frogWallet",
   "frogMax",
   "frogMode",
@@ -142,6 +168,9 @@ const fields = [
   "frogWalletSync",
   "frogRiskControl",
   "frogLiveTradingSwitch",
+  "safeWalletSync",
+  "safeRiskControl",
+  "safeLiveTradingSwitch",
   "truenestWalletSync",
   "truenestRiskControl",
   "truenestLiveTradingSwitch",
@@ -191,13 +220,17 @@ function send(response, status, data, headers = {}) {
 }
 
 function syncQueueSurviveSettings(settings = {}) {
+  if (!settings.safeBuyMode) settings.safeBuyMode = settings.safeSurviveMode === "on" ? "survive" : settings.frogBuyMode || defaultBuyMode;
   if (!settings.frogBuyMode) settings.frogBuyMode = settings.frogSurviveMode === "on" ? "survive" : defaultBuyMode;
   if (!settings.truenestBuyMode) settings.truenestBuyMode = settings.truenestSurviveMode === "on" ? "survive" : settings.frogBuyMode;
-  const queueMode = normalizeBuyMode(settings.frogBuyMode || settings.truenestBuyMode);
+  const queueMode = normalizeBuyMode(settings.frogBuyMode || settings.truenestBuyMode || settings.safeBuyMode);
+  settings.safeBuyMode = queueMode;
   settings.frogBuyMode = queueMode;
   settings.truenestBuyMode = queueMode;
+  settings.safeSurviveMode = queueMode === "survive" ? "on" : "off";
   settings.frogSurviveMode = queueMode === "survive" ? "on" : "off";
   settings.truenestSurviveMode = queueMode === "survive" ? "on" : "off";
+  settings.safeSurviveMax = normalizeUsdSetting(settings.safeSurviveMax || settings.frogSurviveMax, settings.frogSurviveMax || "5");
   settings.frogSurviveMax = normalizeUsdSetting(settings.frogSurviveMax, "5");
   settings.truenestSurviveMax = normalizeUsdSetting(settings.truenestSurviveMax || settings.frogSurviveMax, settings.frogSurviveMax || "5");
   settings.queueFailureSwitchLimit = normalizeWholeNumberSetting(settings.queueFailureSwitchLimit, "3");
@@ -232,19 +265,29 @@ function normalizeState(state) {
       state.settings.frogWallet = decuWallet;
     }
     state.settings.frogMax = "50";
+    state.settings.safeMax = "50";
     state.settings.truenestMax = "50";
     state.settings.frogMode = "Copy exact amount after safety check";
+    state.settings.safeMode = "Copy exact amount after safety check";
     state.settings.truenestMode = "Copy exact amount after safety check";
     state.settings.frogCopySizing = "Copy exact amount";
+    state.settings.safeCopySizing = "Copy exact amount";
     state.settings.truenestCopySizing = "Copy exact amount";
     state.settings.frogTraderBankroll ||= "500";
+    state.settings.safeTraderBankroll ||= "500";
     state.settings.truenestTraderBankroll ||= "500";
     state.settings.frogRiskControl = "on";
+    state.settings.safeRiskControl = "on";
     state.settings.truenestRiskControl = "on";
     state.settings.protectedCapStrategyVersion = protectedCapStrategyVersion;
   }
+  state.settings.safeWallet ||= legacyFrogWallet;
+  state.settings.safeMode = normalizeCopyMode(state.settings.safeMode);
   state.settings.frogMode = normalizeCopyMode(state.settings.frogMode);
   state.settings.truenestMode = normalizeCopyMode(state.settings.truenestMode);
+  state.settings.safeWalletSync ||= state.settings.walletSync || defaultState.settings.walletSync;
+  state.settings.safeRiskControl ||= state.settings.riskControl || defaultState.settings.riskControl;
+  state.settings.safeLiveTradingSwitch ||= state.settings.liveTradingSwitch || defaultState.settings.liveTradingSwitch;
   state.settings.frogWalletSync ||= state.settings.walletSync || defaultState.settings.walletSync;
   state.settings.frogRiskControl ||= state.settings.riskControl || defaultState.settings.riskControl;
   state.settings.frogLiveTradingSwitch ||= state.settings.liveTradingSwitch || defaultState.settings.liveTradingSwitch;
@@ -254,6 +297,7 @@ function normalizeState(state) {
   syncQueueSurviveSettings(state.settings);
   const incomingProfiles = state.profiles || {};
   state.profiles = {
+    safe: { ...structuredClone(defaultState.profiles.safe), ...(incomingProfiles.safe || {}) },
     frog: { ...structuredClone(defaultState.profiles.frog), ...(incomingProfiles.frog || {}) },
     truenest: { ...structuredClone(defaultState.profiles.truenest), ...(incomingProfiles.truenest || {}) }
   };
@@ -275,7 +319,8 @@ function normalizeState(state) {
   state.sessions = state.sessions && typeof state.sessions === "object" ? state.sessions : {};
   state.activity = Array.isArray(state.activity) ? state.activity : [];
   state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
-  state.strategy.activeProfile = state.strategy.activeProfile === "truenest" ? "truenest" : "frog";
+  state.strategy.activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "frog";
+  state.strategy.safeLosses = Math.max(0, Number(state.strategy.safeLosses || 0));
   state.strategy.frogLosses = Math.max(0, Number(state.strategy.frogLosses || 0));
   state.strategy.truenestLosses = Math.max(0, Number(state.strategy.truenestLosses || 0));
   state.strategy.paused = state.strategy.paused === true;
@@ -360,26 +405,36 @@ function createSession(state, role, id) {
 function publicSettings(settings = {}, includeSecrets = false) {
   if (includeSecrets) return settings;
   return {
+    safeWallet: settings.safeWallet || "",
     frogTradeWallet: settings.frogTradeWallet || "",
     truenestTradeWallet: settings.truenestTradeWallet || "",
     frogWallet: settings.frogWallet || "",
     truenestWallet: settings.truenestWallet || "",
+    safeMax: settings.safeMax || "",
     frogMax: settings.frogMax || "",
     truenestMax: settings.truenestMax || "",
+    safeMode: normalizeCopyMode(settings.safeMode),
     frogMode: normalizeCopyMode(settings.frogMode),
     truenestMode: normalizeCopyMode(settings.truenestMode),
+    safeCopySizing: normalizeCopySizing(settings.safeCopySizing),
     frogCopySizing: normalizeCopySizing(settings.frogCopySizing),
     truenestCopySizing: normalizeCopySizing(settings.truenestCopySizing),
+    safeTraderBankroll: settings.safeTraderBankroll || "",
     frogTraderBankroll: settings.frogTraderBankroll || "",
     truenestTraderBankroll: settings.truenestTraderBankroll || "",
+    safeUseProfit: settings.safeUseProfit === "on" ? "on" : "off",
     frogUseProfit: settings.frogUseProfit === "on" ? "on" : "off",
     truenestUseProfit: settings.truenestUseProfit === "on" ? "on" : "off",
+    safeTradeMode: settings.safeTradeMode === "sellOnly" ? "sellOnly" : "both",
     frogTradeMode: settings.frogTradeMode === "sellOnly" ? "sellOnly" : "both",
     truenestTradeMode: settings.truenestTradeMode === "sellOnly" ? "sellOnly" : "both",
+    safeSurviveMode: settings.safeSurviveMode === "on" ? "on" : "off",
     frogSurviveMode: settings.frogSurviveMode === "on" ? "on" : "off",
     truenestSurviveMode: settings.truenestSurviveMode === "on" ? "on" : "off",
+    safeBuyMode: normalizeBuyMode(settings.safeBuyMode),
     frogBuyMode: normalizeBuyMode(settings.frogBuyMode),
     truenestBuyMode: normalizeBuyMode(settings.truenestBuyMode),
+    safeSurviveMax: normalizeUsdSetting(settings.safeSurviveMax, settings.frogSurviveMax || "5"),
     frogSurviveMax: normalizeUsdSetting(settings.frogSurviveMax, "5"),
     truenestSurviveMax: normalizeUsdSetting(settings.truenestSurviveMax, settings.frogSurviveMax || "5"),
     queueFailureSwitchLimit: normalizeWholeNumberSetting(settings.queueFailureSwitchLimit, "3"),
@@ -389,6 +444,9 @@ function publicSettings(settings = {}, includeSecrets = false) {
     frogWalletSync: settings.frogWalletSync || settings.walletSync || "Turnkey server wallet",
     frogRiskControl: settings.frogRiskControl || settings.riskControl || "on",
     frogLiveTradingSwitch: settings.frogLiveTradingSwitch || settings.liveTradingSwitch || "on",
+    safeWalletSync: settings.safeWalletSync || settings.walletSync || "Turnkey server wallet",
+    safeRiskControl: settings.safeRiskControl || settings.riskControl || "on",
+    safeLiveTradingSwitch: settings.safeLiveTradingSwitch || settings.liveTradingSwitch || "on",
     truenestWalletSync: settings.truenestWalletSync || settings.walletSync || "Turnkey server wallet",
     truenestRiskControl: settings.truenestRiskControl || settings.riskControl || "on",
     truenestLiveTradingSwitch: settings.truenestLiveTradingSwitch || settings.liveTradingSwitch || "on",
@@ -513,7 +571,7 @@ async function walletBalances(state) {
   const fallbackConnection = publicSolanaConnection();
   const balances = {};
 
-  for (const profile of ["frog", "truenest"]) {
+  for (const profile of supportedProfiles) {
     const wallet = tradeWallet(state, profile);
     const key = solanaAddress(wallet);
     balances[profile] = {
@@ -625,10 +683,13 @@ function clean(input) {
     if (typeof input[field] === "string") out[field] = input[field].trim();
   }
   if (out.frogMode) out.frogMode = normalizeCopyMode(out.frogMode);
+  if (out.safeMode) out.safeMode = normalizeCopyMode(out.safeMode);
   if (out.truenestMode) out.truenestMode = normalizeCopyMode(out.truenestMode);
   if (out.frogCopySizing) out.frogCopySizing = normalizeCopySizing(out.frogCopySizing);
+  if (out.safeCopySizing) out.safeCopySizing = normalizeCopySizing(out.safeCopySizing);
   if (out.truenestCopySizing) out.truenestCopySizing = normalizeCopySizing(out.truenestCopySizing);
   if (out.frogRiskControl === "on" || out.frogRiskControl === "off") out.frogMode = copyModeFromProtection(out.frogRiskControl);
+  if (out.safeRiskControl === "on" || out.safeRiskControl === "off") out.safeMode = copyModeFromProtection(out.safeRiskControl);
   if (out.truenestRiskControl === "on" || out.truenestRiskControl === "off") out.truenestMode = copyModeFromProtection(out.truenestRiskControl);
   return out;
 }
@@ -647,7 +708,7 @@ function ready(state) {
 }
 
 function profileSetting(state, profile, key, fallback = "") {
-  const prefix = profile === "frog" ? "frog" : "truenest";
+  const prefix = supportedProfiles.includes(profile) ? profile : "frog";
   const profileKey = `${prefix}${key[0].toUpperCase()}${key.slice(1)}`;
   return state.settings[profileKey] || state.settings[key] || fallback;
 }
@@ -661,12 +722,12 @@ function profileRiskControl(state, profile) {
 }
 
 function profileMode(state, profile) {
-  const mode = profile === "frog" ? state.settings.frogMode : state.settings.truenestMode;
+  const mode = profileSetting(state, profile, "mode", "Copy exact amount");
   return String(mode || "Copy exact amount");
 }
 
 function profileCopySizing(state, profile) {
-  const value = profile === "frog" ? state.settings.frogCopySizing : state.settings.truenestCopySizing;
+  const value = profileSetting(state, profile, "copySizing", "Copy exact amount");
   return normalizeCopySizing(value);
 }
 
@@ -682,7 +743,7 @@ function profileLiveTradingSwitch(state, profile) {
 }
 
 function profileSellOnly(state, profile) {
-  const value = profile === "frog" ? state.settings.frogTradeMode : state.settings.truenestTradeMode;
+  const value = profileSetting(state, profile, "tradeMode", "both");
   return value === "sellOnly";
 }
 
@@ -703,16 +764,19 @@ function liveTradingAllowed(state, profile = "") {
   if (!ready(state) || process.env.ENABLE_LIVE_TRADING !== "true" || process.env.EXECUTE_REAL_SWAPS !== "true") {
     return false;
   }
-  if (!profile) return ["frog", "truenest"].some((item) => liveTradingAllowed(state, item));
+  if (!profile) return supportedProfiles.some((item) => liveTradingAllowed(state, item));
   return profileLiveTradingSwitch(state, profile) === "on" && profileWalletSync(state, profile) === "Turnkey server wallet";
 }
 
 function profileLabel(profile) {
-  return profile === "frog" ? "Decu Win" : "Risk Win";
+  if (profile === "safe") return "Frog safe bot";
+  if (profile === "truenest") return "Trunoest risk bot";
+  return "Deku riskier bot";
 }
 
 function strategyLossKey(profile) {
-  return profile === "frog" ? "frogLosses" : "truenestLosses";
+  if (profile === "safe") return "safeLosses";
+  return profile === "truenest" ? "truenestLosses" : "frogLosses";
 }
 
 function queueFailureSwitchLimit(state) {
@@ -757,12 +821,16 @@ function applyAutoSwitchStrategy(state, newTrades = []) {
 
   const combinedTrades = state.trades || [];
   const switchLimit = queueFailureSwitchLimit(state);
-  const activeProfile = state.strategy.activeProfile === "truenest" ? "truenest" : "frog";
+  const activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "frog";
   const processed = new Set(state.strategy.processedClosedTrades || []);
   const strategyEvents = [];
 
   for (const trade of newTrades) {
-    const profile = trade.profile === "Risk Win" || trade.profile === "truenest" ? "truenest" : "frog";
+    const profile = trade.profile === "Frog safe bot" || trade.profile === "safe"
+      ? "safe"
+      : trade.profile === "Risk Win" || trade.profile === "Trunoest risk bot" || trade.profile === "truenest"
+        ? "truenest"
+        : "frog";
     const tradeId = trade.signature || trade.id;
     if (!tradeId || processed.has(tradeId) || tradeSide(trade) !== "sell") continue;
 
@@ -779,22 +847,15 @@ function applyAutoSwitchStrategy(state, newTrades = []) {
       strategyEvents.push(`${profileLabel(profile)} closed profit ${closedPnl.toFixed(2)}; loss count reset.`);
     }
 
-    if (profile === activeProfile && profile === "frog" && state.strategy.frogLosses >= switchLimit) {
-      state.profiles.frog.running = false;
-      state.profiles.truenest.running = true;
-      state.profiles.truenest.lastAction = new Date().toISOString();
-      state.strategy.activeProfile = "truenest";
-      state.strategy.truenestLosses = 0;
-      strategyEvents.push(`Decu reached ${switchLimit} failures. SignalPilot switched to Risk, while Decu stays watched for sells.`);
-    }
-
-    if (profile === activeProfile && profile === "truenest" && state.strategy.truenestLosses >= switchLimit) {
-      state.profiles.frog.running = true;
-      state.profiles.truenest.running = false;
-      state.profiles.frog.lastAction = new Date().toISOString();
-      state.strategy.activeProfile = "frog";
-      state.strategy.frogLosses = 0;
-      strategyEvents.push(`Risk reached ${switchLimit} failures. SignalPilot switched back to Decu, while Risk stays watched for sells.`);
+    if (profile === activeProfile && Number(state.strategy[lossKey] || 0) >= switchLimit) {
+      const nextProfile = profile === "truenest" ? "frog" : profile === "safe" ? "frog" : "truenest";
+      state.strategy.activeProfile = nextProfile;
+      state.strategy[strategyLossKey(nextProfile)] = 0;
+      supportedProfiles.forEach((item) => {
+        state.profiles[item].running = true;
+      });
+      state.profiles[nextProfile].lastAction = new Date().toISOString();
+      strategyEvents.push(`${profileLabel(profile)} reached ${switchLimit} failures. SignalPilot switched to ${profileLabel(nextProfile)}, while old traders stay watched for sells.`);
     }
   }
 
@@ -808,7 +869,7 @@ function applyAutoSwitchStrategy(state, newTrades = []) {
 }
 
 function targetWallet(state, profile) {
-  return profile === "frog" ? state.settings.frogWallet : state.settings.truenestWallet;
+  return profileSetting(state, profile, "wallet", "");
 }
 
 function newestSignature(transactions) {
@@ -1161,7 +1222,7 @@ function solanaAddress(value) {
 }
 
 async function executeSolWithdrawal(state, { profile, destination, amountSol }) {
-  if (profile !== "frog" && profile !== "truenest") throw new Error("Choose Decu Win or Risk Win wallet.");
+  if (!supportedProfiles.includes(profile)) throw new Error("Choose Frog, Deku, or Trunoest wallet.");
   const sourceWallet = tradeWallet(state, profile);
   const signer = signerId(state, profile) || sourceWallet;
   const from = solanaAddress(sourceWallet);
@@ -1208,7 +1269,7 @@ async function executeSolWithdrawal(state, { profile, destination, amountSol }) 
 }
 
 async function executeUsdcWithdrawal(state, { profile, destination, amountUsd, profitOnly = false }) {
-  if (profile !== "frog" && profile !== "truenest") throw new Error("Choose Decu Win or Risk Win wallet.");
+  if (!supportedProfiles.includes(profile)) throw new Error("Choose Frog, Deku, or Trunoest wallet.");
   const sourceWallet = tradeWallet(state, profile);
   const signer = signerId(state, profile) || sourceWallet;
   const from = solanaAddress(sourceWallet);
@@ -1271,7 +1332,7 @@ async function executeUsdcWithdrawal(state, { profile, destination, amountUsd, p
 }
 
 function profileMaxUsd(state, profile) {
-  const value = Number(profile === "frog" ? state.settings.frogMax : state.settings.truenestMax);
+  const value = Number(profileSetting(state, profile, "max", "0"));
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
@@ -1290,7 +1351,7 @@ async function profileTradeableUsdc(connection, state, profile, wallet) {
 }
 
 function profileTraderBankrollUsd(state, profile) {
-  const value = Number(profile === "frog" ? state.settings.frogTraderBankroll : state.settings.truenestTraderBankroll);
+  const value = Number(profileSetting(state, profile, "traderBankroll", "0"));
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
@@ -1572,9 +1633,9 @@ async function executeManualTokenSell(state, { profile, mint }) {
 
 function roomMatchesProfile(trade = {}, profile = "") {
   const text = String(trade.profile || "").toLowerCase();
-  return profile === "frog"
-    ? text.includes("decu win") || text.includes("deku") || text.includes("decu") || text.includes("smart win") || text.includes("frog")
-    : text.includes("risk win") || text.includes("truenest") || text.includes("big win");
+  if (profile === "safe") return text.includes("frog safe") || text.includes("safe bot") || text.includes("beginner") || text === "frog";
+  if (profile === "truenest") return text.includes("risk win") || text.includes("truenest") || text.includes("trunoest") || text.includes("big win") || text.includes("risk bot");
+  return text.includes("decu win") || text.includes("deku") || text.includes("decu") || text.includes("smart win") || text.includes("deku riskier");
 }
 
 async function autoSellStuckTokenAfterSellSignal(state, profile, leg, sourceTrade = {}) {
@@ -2055,9 +2116,9 @@ async function processSignalTransactions(state, profile, transactions, newest, c
 async function runCopyWorkerOnce() {
   const state = await readState();
   if (state.strategy?.paused) return;
-  const activeProfile = state.strategy?.activeProfile === "truenest" ? "truenest" : "frog";
-  const queueRunning = Boolean(state.profiles?.frog?.running || state.profiles?.truenest?.running);
-  const runningProfiles = queueRunning ? ["frog", "truenest"] : [];
+  const activeProfile = supportedProfiles.includes(state.strategy?.activeProfile) ? state.strategy.activeProfile : "frog";
+  const queueRunning = supportedProfiles.some((profile) => Boolean(state.profiles?.[profile]?.running));
+  const runningProfiles = queueRunning ? supportedProfiles : [];
   if (!runningProfiles.length) return;
 
   if (!state.settings?.heliusKey) {
@@ -2690,9 +2751,11 @@ async function handleApi(request, response, url) {
     state.strategy.pauseReason = "";
     state.strategy.frogLosses = 0;
     state.strategy.truenestLosses = 0;
+    state.strategy.safeLosses = 0;
     state.strategy.processedClosedTrades = [];
-    state.profiles.frog.running = true;
-    state.profiles.truenest.running = false;
+    supportedProfiles.forEach((profile) => {
+      state.profiles[profile].running = true;
+    });
     state.profiles.frog.lastAction = new Date().toISOString();
     const switchLimit = queueFailureSwitchLimit(state);
     state.activity = [
@@ -2710,10 +2773,10 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/queue/stop") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
-    state.profiles.frog.running = false;
-    state.profiles.truenest.running = false;
-    state.profiles.frog.lastAction = new Date().toISOString();
-    state.profiles.truenest.lastAction = new Date().toISOString();
+    supportedProfiles.forEach((profile) => {
+      state.profiles[profile].running = false;
+      state.profiles[profile].lastAction = new Date().toISOString();
+    });
     state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
     state.strategy.paused = false;
     state.strategy.pauseReason = "";
@@ -2726,7 +2789,45 @@ async function handleApi(request, response, url) {
     return true;
   }
 
-  const startMatch = url.pathname.match(/^\/api\/start\/(frog|truenest)$/);
+  if (request.method === "POST" && url.pathname === "/api/queue/switch") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    const body = await readBody(request);
+    const profile = supportedProfiles.includes(body.profile) ? body.profile : "";
+    if (!profile) {
+      send(response, 400, { error: "Choose Frog, Deku, or Trunoest." });
+      return true;
+    }
+    try {
+      await assertHeliusReadyForProfile(state, profile);
+    } catch (error) {
+      state.activity = [
+        line(`${profileLabel(profile)} switch blocked: ${error.message}`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+      await saveState(state);
+      send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
+      return true;
+    }
+    state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
+    state.strategy.activeProfile = profile;
+    state.strategy.paused = false;
+    state.strategy.pauseReason = "";
+    state.strategy[strategyLossKey(profile)] = 0;
+    supportedProfiles.forEach((item) => {
+      state.profiles[item].running = true;
+    });
+    state.profiles[profile].lastAction = new Date().toISOString();
+    state.activity = [
+      line(`Manual switch: ${profileLabel(profile)} is active for new buys. Other bots stay watched for sells.`),
+      ...(state.activity || [])
+    ].slice(0, 20);
+    await saveState(state);
+    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
+    return true;
+  }
+
+  const startMatch = url.pathname.match(/^\/api\/start\/(safe|frog|truenest)$/);
   if (request.method === "POST" && startMatch) {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
@@ -2750,13 +2851,11 @@ async function handleApi(request, response, url) {
     state.strategy.activeProfile = profile;
     state.strategy.paused = false;
     state.strategy.pauseReason = "";
-    state.strategy.frogLosses = profile === "frog" ? 0 : Number(state.strategy.frogLosses || 0);
-    state.strategy.truenestLosses = profile === "truenest" ? 0 : 0;
+    state.strategy[strategyLossKey(profile)] = 0;
     state.strategy.processedClosedTrades = [];
-    for (const item of ["frog", "truenest"]) {
-      state.profiles[item].running = item === profile;
-    }
-    state.profiles[profile].running = true;
+    supportedProfiles.forEach((item) => {
+      state.profiles[item].running = true;
+    });
     state.profiles[profile].lastAction = new Date().toISOString();
     state.activity = [
       line(`${profileLabel(profile)} started in one-chart auto switch mode.`),
@@ -2770,14 +2869,14 @@ async function handleApi(request, response, url) {
     return true;
   }
 
-  const stopMatch = url.pathname.match(/^\/api\/stop\/(frog|truenest)$/);
+  const stopMatch = url.pathname.match(/^\/api\/stop\/(safe|frog|truenest)$/);
   if (request.method === "POST" && stopMatch) {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     const profile = stopMatch[1];
     state.profiles[profile].running = false;
     state.profiles[profile].lastAction = new Date().toISOString();
-    if (!state.profiles.frog.running && !state.profiles.truenest.running) {
+    if (!supportedProfiles.some((item) => Boolean(state.profiles[item]?.running))) {
       state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
       state.strategy.paused = false;
       state.strategy.pauseReason = "";

@@ -12,6 +12,16 @@ const fields = [
   "truenestSignerToken",
   "frogDeposit",
   "truenestDeposit",
+  "safeWallet",
+  "safeMax",
+  "safeMode",
+  "safeCopySizing",
+  "safeTraderBankroll",
+  "safeUseProfit",
+  "safeTradeMode",
+  "safeSurviveMode",
+  "safeBuyMode",
+  "safeSurviveMax",
   "frogWallet",
   "frogMax",
   "frogMode",
@@ -39,6 +49,9 @@ const fields = [
   "frogWalletSync",
   "frogRiskControl",
   "frogLiveTradingSwitch",
+  "safeWalletSync",
+  "safeRiskControl",
+  "safeLiveTradingSwitch",
   "truenestWalletSync",
   "truenestRiskControl",
   "truenestLiveTradingSwitch",
@@ -625,7 +638,9 @@ function localReady(data = payload()) {
 }
 
 function profileName(profile) {
-  return profile === "frog" ? "Decu Win" : "Risk Win";
+  if (profile === "safe") return "Frog safe bot";
+  if (profile === "truenest") return "Trunoest risk bot";
+  return "Deku riskier bot";
 }
 
 function profileStatusName(profile) {
@@ -634,12 +649,13 @@ function profileStatusName(profile) {
 
 function profileTradeMatches(profile, trade) {
   const text = String(trade.profile || "").toLowerCase();
-  if (profile === "frog") return text.includes("decu win") || text.includes("deku") || text.includes("decu") || text.includes("smart win") || text.includes("frog");
-  return text.includes("risk win") || text.includes("truenest") || text.includes("big win");
+  if (profile === "safe") return text.includes("frog safe") || text.includes("safe bot") || text.includes("beginner") || text === "frog";
+  if (profile === "truenest") return text.includes("risk win") || text.includes("truenest") || text.includes("trunoest") || text.includes("big win") || text.includes("risk bot");
+  return text.includes("decu win") || text.includes("deku") || text.includes("decu") || text.includes("smart win") || text.includes("deku riskier");
 }
 
 function profileSetting(settings, profile, key, fallback = "") {
-  const prefix = profile === "frog" ? "frog" : "truenest";
+  const prefix = ["safe", "frog", "truenest"].includes(profile) ? profile : "frog";
   const profileKey = `${prefix}${key[0].toUpperCase()}${key.slice(1)}`;
   return settings[profileKey] || settings[key] || fallback;
 }
@@ -691,7 +707,8 @@ function modeUsesProtection(mode) {
 }
 
 function roomPrefix(profile) {
-  return profile === "frog" ? "frog" : "truenest";
+  if (profile === "safe") return "safe";
+  return profile === "truenest" ? "truenest" : "frog";
 }
 
 function syncRoomProtectionFromMode(profile) {
@@ -893,12 +910,12 @@ function renderWatchTape(profile, trades = []) {
   });
 }
 
-function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
-  const profile = profiles.frog?.running || !profiles.truenest?.running ? "frog" : "truenest";
+function renderLiveWatch(settings = {}, profiles = {}, trades = [], strategy = {}) {
+  const profile = ["safe", "frog", "truenest"].includes(strategy.activeProfile) ? strategy.activeProfile : (profiles.frog?.running || !profiles.truenest?.running ? "frog" : "truenest");
   const label = profileName(profile);
   const prefix = roomPrefix(profile);
-  const deposit = settings[`${prefix}Deposit`] || 0;
-  const wallet = settings[`${prefix}TradeWallet`] || "";
+  const deposit = settings.frogDeposit || settings[`${prefix}Deposit`] || 0;
+  const wallet = settings.frogTradeWallet || settings[`${prefix}TradeWallet`] || "";
   const balance = walletBalance(profile);
   const gasText = balance.error ? `Gas check: ${balance.error}` : `SOL gas: ${solAmount(balance.sol)}`;
   const profit = Number(profiles[profile]?.profit || 0);
@@ -929,9 +946,9 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   setText("watchOpenValue", money(openValue));
   setText("watchTotalValue", money(totalWalletValue));
   setText("watchTraderPnl", signedMoney(traderPnl));
-  setText("watchTraderNote", `${label === "Decu Win" ? "Decu" : "Copied trader"} total visible made/lost from buy and sell signals.`);
+  setText("watchTraderNote", `${label.includes("Deku") ? "Deku" : "Copied trader"} total visible made/lost from buy and sell signals.`);
   setText("watchTraderToday", signedMoney(traderTodayPnl));
-  setText("watchTraderTodayNote", todayPnlLabel(traderTodayPnl, label === "Decu Win" ? "Decu" : "Risk guy"));
+  setText("watchTraderTodayNote", todayPnlLabel(traderTodayPnl, label.includes("Deku") ? "Deku" : label));
   setText("watchTraderLast", lastTraderResult.label);
   setText("watchLastAction", lastTrade?.action || "Waiting");
   setText("watchLastToken", lastTrade ? `${lastTrade.token || "-"} - ${lastTrade.status || "Observed"}` : "No buy or sell shown yet.");
@@ -974,8 +991,8 @@ function renderState(state) {
   const strategy = latestState.strategy || {};
   const liveTradingEnv = backend.liveTradingEnv === true;
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
-  const queueRunning = Boolean(profiles.frog?.running || profiles.truenest?.running);
-  const queueActiveLabel = strategy.activeProfile === "truenest" ? "Risk Win" : "Decu Win";
+  const queueRunning = Boolean(profiles.safe?.running || profiles.frog?.running || profiles.truenest?.running);
+  const queueActiveLabel = profileName(strategy.activeProfile || "frog");
   const buyMode = queueBuyMode(settings);
   const maxSurviveBuy = surviveMax(settings);
   const failureLimit = queueFailureLimit(settings);
@@ -994,13 +1011,24 @@ function renderState(state) {
   if ($("truenestStop")) $("truenestStop").disabled = !profiles.truenest?.running;
   if ($("queueStart")) $("queueStart").disabled = !ready || heliusBlocked || queueRunning;
   if ($("queueStop")) $("queueStop").disabled = !queueRunning;
+  [
+    ["switchSafeBot", "safe"],
+    ["switchDekuBot", "frog"],
+    ["switchTrunoestBot", "truenest"]
+  ].forEach(([id, profile]) => {
+    const button = $(id);
+    if (!button) return;
+    const active = strategy.activeProfile === profile && queueRunning;
+    button.disabled = !ready || heliusBlocked || active;
+    button.classList.toggle("active-switch", active);
+  });
   if ($("queueBuyMode") && document.activeElement !== $("queueBuyMode")) $("queueBuyMode").value = buyMode;
   if ($("queueSurviveMax") && document.activeElement !== $("queueSurviveMax")) $("queueSurviveMax").value = String(maxSurviveBuy);
   if ($("queueBuyModeSave")) $("queueBuyModeSave").textContent = `Save ${buyModeLabel(buyMode)}`;
   setText("queueControlStatus", strategy.paused
     ? `Paused: ${strategy.pauseReason || "restart required."}`
     : queueRunning
-      ? `${queueActiveLabel} is active now. Decu failures ${Number(strategy.frogLosses || 0)}/${failureLimit}, Risk failures ${Number(strategy.truenestLosses || 0)}/${failureLimit}. Switched-from trader is still watched for sells.`
+      ? `${queueActiveLabel} is active now. Frog failures ${Number(strategy.safeLosses || 0)}/${failureLimit}, Deku failures ${Number(strategy.frogLosses || 0)}/${failureLimit}, Trunoest failures ${Number(strategy.truenestLosses || 0)}/${failureLimit}. Switched-from traders are still watched for sells.`
       : `Ready: one click starts Decu first. After ${failureLimit} failures, the app switches traders and still watches the old trader for sells.`);
   setText("queueControlNote", buyModeNote(buyMode, maxSurviveBuy));
 
@@ -1026,7 +1054,7 @@ function renderState(state) {
   setText("truenestTraderTodayPnl", signedMoney(traderTodayPnlFromTrades(trades, "truenest")));
   renderRoomStatus("frog", settings, trades, backend);
   renderRoomStatus("truenest", settings, trades, backend);
-  renderLiveWatch(settings, profiles, trades);
+  renderLiveWatch(settings, profiles, trades, strategy);
   renderManualDeposit(settings);
   renderVault(settings, profiles);
   renderTrades(trades);
@@ -1065,11 +1093,12 @@ function renderState(state) {
 
   const running = [];
   if (profiles.frog?.running) running.push("Decu Win is running.");
+  if (profiles.safe?.running) running.push("Frog safe bot is running.");
   if (profiles.truenest?.running) running.push("Risk Win is running.");
-  const activeStrategyLabel = strategy.activeProfile === "truenest" ? "Risk" : "Decu";
+  const activeStrategyLabel = profileName(strategy.activeProfile || "frog");
   const strategyLine = strategy.paused
     ? `Auto-paused: ${strategy.pauseReason || "restart required."}`
-    : `One-chart mode: ${activeStrategyLabel} active. Decu failures ${Number(strategy.frogLosses || 0)}/${queueFailureLimit(settings)}, Risk failures ${Number(strategy.truenestLosses || 0)}/${queueFailureLimit(settings)}. Switched-from trader is still watched for sells.`;
+    : `One-chart mode: ${activeStrategyLabel} active. Frog failures ${Number(strategy.safeLosses || 0)}/${queueFailureLimit(settings)}, Deku failures ${Number(strategy.frogLosses || 0)}/${queueFailureLimit(settings)}, Trunoest failures ${Number(strategy.truenestLosses || 0)}/${queueFailureLimit(settings)}. Switched-from traders are still watched for sells.`;
 
   if (!productionExecution) {
     setText("engineStatus", running.length ? "Monitoring running" : "Ready to monitor");
@@ -1645,6 +1674,19 @@ async function startQueue() {
   }
 }
 
+async function switchQueueProfile(profile) {
+  try {
+    renderState(await api("/api/queue/switch", {
+      method: "POST",
+      body: JSON.stringify({ profile })
+    }));
+    showBusinessMessage(`${profileName(profile)} is active for new buys. Other bots still watch sells.`);
+  } catch (error) {
+    if (error.payload?.status) renderState(error.payload.status);
+    showBusinessMessage(error.message, true);
+  }
+}
+
 async function saveQueueSwitch() {
   const data = currentPayload();
   renderState({ settings: data, profiles: {}, activity: ["Saving switch number..."] });
@@ -1696,6 +1738,9 @@ on("queueStart", "click", startQueue);
 on("queueStop", "click", stopQueue);
 on("queueBuyModeSave", "click", () => saveBuyMode("queue"));
 on("saveQueueSwitch", "click", saveQueueSwitch);
+on("switchSafeBot", "click", () => switchQueueProfile("safe"));
+on("switchDekuBot", "click", () => switchQueueProfile("frog"));
+on("switchTrunoestBot", "click", () => switchQueueProfile("truenest"));
 on("frogSellOnly", "click", () => saveTradeMode("frog", "sellOnly"));
 on("frogResumeBuying", "click", () => saveTradeMode("frog", "both"));
 on("frogBuyModeSave", "click", () => saveBuyMode("frog"));
