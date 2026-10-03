@@ -175,6 +175,12 @@ function send(response, status, data, headers = {}) {
   response.end(JSON.stringify(data));
 }
 
+function syncQueueSurviveSettings(settings = {}) {
+  const queueSurvive = settings.frogSurviveMode === "on" || settings.truenestSurviveMode === "on";
+  settings.frogSurviveMode = queueSurvive ? "on" : "off";
+  settings.truenestSurviveMode = queueSurvive ? "on" : "off";
+}
+
 function normalizeState(state) {
   const incomingSettings = state.settings || {};
   state.settings = { ...defaultState.settings, ...incomingSettings };
@@ -202,6 +208,7 @@ function normalizeState(state) {
   state.settings.truenestWalletSync ||= state.settings.walletSync || defaultState.settings.walletSync;
   state.settings.truenestRiskControl ||= state.settings.riskControl || defaultState.settings.riskControl;
   state.settings.truenestLiveTradingSwitch ||= state.settings.liveTradingSwitch || defaultState.settings.liveTradingSwitch;
+  syncQueueSurviveSettings(state.settings);
   state.profiles = { ...structuredClone(defaultState.profiles), ...(state.profiles || {}) };
   state.owner = { email: (state.owner?.email || ownerEmail).toLowerCase() };
   state.customers = Array.isArray(state.customers) ? state.customers : [];
@@ -1829,6 +1836,7 @@ async function handleApi(request, response, url) {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     state.settings = { ...state.settings, ...clean(await readBody(request)) };
+    syncQueueSurviveSettings(state.settings);
     state.activity = [line("Engine Room saved."), ...(state.activity || [])].slice(0, 20);
     await saveState(state);
     send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
