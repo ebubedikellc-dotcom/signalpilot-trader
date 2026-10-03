@@ -64,6 +64,12 @@ function walletBalance(profile) {
   return latestState.walletBalances?.[profile] || {};
 }
 
+function heliusLimited() {
+  return Object.values(latestState.walletBalances || {}).some((balance) => {
+    return /helius.*limit|paid helius key|rate-limit|rate limit|429/i.test(String(balance?.warning || balance?.error || ""));
+  });
+}
+
 function balanceUsdc(profile) {
   const value = Number(walletBalance(profile).usdc);
   return Number.isFinite(value) ? value : 0;
@@ -625,8 +631,9 @@ function renderState(state) {
   ["frog", "truenest"].forEach(syncRoomProtectionFromMode);
 
   const ready = localReady(settings);
-  if ($("frogStart")) $("frogStart").disabled = !ready || profiles.frog?.running;
-  if ($("truenestStart")) $("truenestStart").disabled = !ready || profiles.truenest?.running;
+  const heliusBlocked = heliusLimited();
+  if ($("frogStart")) $("frogStart").disabled = !ready || heliusBlocked || profiles.frog?.running;
+  if ($("truenestStart")) $("truenestStart").disabled = !ready || heliusBlocked || profiles.truenest?.running;
   if ($("frogStop")) $("frogStop").disabled = !profiles.frog?.running;
   if ($("truenestStop")) $("truenestStop").disabled = !profiles.truenest?.running;
 
@@ -671,6 +678,17 @@ function renderState(state) {
     if (!settings.frogSignerToken) missing.push("Waiting for Decu Win Turnkey wallet ID.");
     missing.push(productionExecution ? "Production execution: ON." : "Production execution: OFF - real trading stays locked.");
     setLog(missing);
+    return;
+  }
+
+  if (heliusBlocked) {
+    setText("engineStatus", "Helius key needs refresh");
+    setText("engineSubtext", "Balance is visible through backup Solana RPC, but copy trading stays locked until the paid Helius key is saved and no longer returns 429.");
+    setLog([
+      "Helius is still returning 429 for the saved API key.",
+      "Do not press Start yet. Refresh or paste/save the paid Helius API key first.",
+      ...(state.activity || [])
+    ].slice(0, 20));
     return;
   }
 
@@ -726,10 +744,14 @@ async function api(path, options = {}) {
   if (!response.ok) {
     const text = await response.text();
     let message = text;
+    let payload = null;
     try {
-      message = JSON.parse(text).error || text;
+      payload = JSON.parse(text);
+      message = payload.error || text;
     } catch {}
-    throw new Error(message);
+    const error = new Error(message);
+    error.payload = payload;
+    throw error;
   }
   return response.json();
 }
@@ -1205,7 +1227,12 @@ async function copyTextFromNode(id, label) {
 }
 
 async function startProfile(profile) {
-  renderState(await api(`/api/start/${profile}`, { method: "POST" }));
+  try {
+    renderState(await api(`/api/start/${profile}`, { method: "POST" }));
+  } catch (error) {
+    if (error.payload?.status) renderState(error.payload.status);
+    showBusinessMessage(error.message, true);
+  }
 }
 
 async function stopProfile(profile) {
