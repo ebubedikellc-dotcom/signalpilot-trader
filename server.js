@@ -1588,9 +1588,12 @@ function tradeFromTransaction(profile, transaction, state) {
 }
 
 async function fetchTransactionsForAddress(apiKey, address) {
-  const url = new URL(`https://api.helius.xyz/v0/addresses/${encodeURIComponent(address)}/transactions`);
+  const url = new URL(`https://api-mainnet.helius-rpc.com/v0/addresses/${encodeURIComponent(address)}/transactions`);
   url.searchParams.set("api-key", apiKey);
   url.searchParams.set("limit", "25");
+  url.searchParams.set("type", "SWAP");
+  url.searchParams.set("token-accounts", "balanceChanged");
+  url.searchParams.set("commitment", "confirmed");
   const response = await fetch(url);
   if (!response.ok) {
     const help = response.status === 429
@@ -1599,8 +1602,60 @@ async function fetchTransactionsForAddress(apiKey, address) {
     throw new Error(help);
   }
   const payload = await response.json();
-  if (payload.error) throw new Error(payload.error.message || payload.error || "Helius transaction lookup failed");
-  return Array.isArray(payload) ? payload : [];
+  if (payload.error) {
+    const message = payload.error.message || payload.error || "";
+    if (!/continue search|failed to find events/i.test(message)) {
+      throw new Error(message || "Helius Enhanced transaction lookup failed");
+    }
+    return [];
+  }
+  return Array.isArray(payload) ? payload.map(normalizeHeliusEnhancedTransaction) : [];
+}
+
+function normalizeHeliusEnhancedTransaction(transaction = {}) {
+  const swap = transaction.events?.swap;
+  if (!swap) return transaction;
+
+  const tokenInputs = Array.isArray(swap.tokenInputs) ? [...swap.tokenInputs] : [];
+  const tokenOutputs = Array.isArray(swap.tokenOutputs) ? [...swap.tokenOutputs] : [];
+
+  if (swap.nativeInput?.amount && !tokenInputs.some((item) => transferMint(item) === solMint)) {
+    tokenInputs.push({
+      mint: solMint,
+      symbol: "SOL",
+      tokenAmount: Number(swap.nativeInput.amount || 0) / LAMPORTS_PER_SOL,
+      rawTokenAmount: {
+        tokenAmount: String(swap.nativeInput.amount),
+        decimals: 9,
+        mint: solMint
+      }
+    });
+  }
+
+  if (swap.nativeOutput?.amount && !tokenOutputs.some((item) => transferMint(item) === solMint)) {
+    tokenOutputs.push({
+      mint: solMint,
+      symbol: "SOL",
+      tokenAmount: Number(swap.nativeOutput.amount || 0) / LAMPORTS_PER_SOL,
+      rawTokenAmount: {
+        tokenAmount: String(swap.nativeOutput.amount),
+        decimals: 9,
+        mint: solMint
+      }
+    });
+  }
+
+  return {
+    ...transaction,
+    events: {
+      ...transaction.events,
+      swap: {
+        ...swap,
+        tokenInputs,
+        tokenOutputs
+      }
+    }
+  };
 }
 
 const gmgnCache = new Map();
@@ -1949,20 +2004,23 @@ async function runCopyWorkerOnce() {
     const wallet = targetWallet(state, profile);
     if (!wallet) continue;
     let gmgnHandled = false;
-    try {
-      const gmgnTransactions = await fetchGmgnTransactionsForAddress(state.settings, wallet);
-      const gmgnNewest = newestSignature(gmgnTransactions);
-      if (gmgnNewest) {
-        await processSignalTransactions(state, profile, gmgnTransactions, gmgnNewest, "lastGmgnSignature", "GMGN");
-        gmgnHandled = true;
-      }
-    } catch (error) {
-      if (shouldLogGmgnWarning(state, profile)) {
-        state.profiles[profile].lastGmgnWarningAt = Date.now();
-        state.activity = [
-          line(`GMGN feed warning for ${profileLabel(profile)}: ${error.message}. Helius backup is still watching.`),
-          ...(state.activity || [])
-        ].slice(0, 20);
+    const gmgnKeyAvailable = Boolean(String(state.settings?.gmgnApiKey || process.env.GMGN_API_KEY || "").trim());
+    if (gmgnKeyAvailable) {
+      try {
+        const gmgnTransactions = await fetchGmgnTransactionsForAddress(state.settings, wallet);
+        const gmgnNewest = newestSignature(gmgnTransactions);
+        if (gmgnNewest) {
+          await processSignalTransactions(state, profile, gmgnTransactions, gmgnNewest, "lastGmgnSignature", "GMGN");
+          gmgnHandled = true;
+        }
+      } catch (error) {
+        if (shouldLogGmgnWarning(state, profile)) {
+          state.profiles[profile].lastGmgnWarningAt = Date.now();
+          state.activity = [
+            line(`GMGN feed warning for ${profileLabel(profile)}: ${error.message}. Helius Enhanced backup is still watching.`),
+            ...(state.activity || [])
+          ].slice(0, 20);
+        }
       }
     }
 
