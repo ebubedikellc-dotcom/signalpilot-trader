@@ -31,6 +31,7 @@ const legacyFrogWallet = "4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh";
 const decuWallet = "4vw54BmAogeRV3vPKWyFet5yf8DTLcREzdSzx4rw9Ud9";
 const protectedCapStrategyVersion = "decu-50-cap-v1";
 const surviveBuyUsd = 5;
+const gmgnPollMs = Number(process.env.GMGN_POLL_MS || 2000);
 const usdcDecimals = 6;
 const tokenProgramId = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const associatedTokenProgramId = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -71,8 +72,8 @@ const defaultState = {
     protectedCapStrategyVersion
   },
   profiles: {
-    frog: { running: false, profit: 0, lastAction: null, lastSignature: null },
-    truenest: { running: false, profit: 0, lastAction: null, lastSignature: null }
+    frog: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null },
+    truenest: { running: false, profit: 0, lastAction: null, lastSignature: null, lastGmgnSignature: null }
   },
   owner: {
     email: ownerEmail
@@ -213,7 +214,11 @@ function normalizeState(state) {
   state.settings.truenestRiskControl ||= state.settings.riskControl || defaultState.settings.riskControl;
   state.settings.truenestLiveTradingSwitch ||= state.settings.liveTradingSwitch || defaultState.settings.liveTradingSwitch;
   syncQueueSurviveSettings(state.settings);
-  state.profiles = { ...structuredClone(defaultState.profiles), ...(state.profiles || {}) };
+  const incomingProfiles = state.profiles || {};
+  state.profiles = {
+    frog: { ...structuredClone(defaultState.profiles.frog), ...(incomingProfiles.frog || {}) },
+    truenest: { ...structuredClone(defaultState.profiles.truenest), ...(incomingProfiles.truenest || {}) }
+  };
   state.owner = { email: (state.owner?.email || ownerEmail).toLowerCase() };
   state.customers = Array.isArray(state.customers) ? state.customers : [];
   state.customers.forEach((customer) => {
@@ -1596,6 +1601,154 @@ async function fetchTransactionsForAddress(apiKey, address) {
   return Array.isArray(payload) ? payload : [];
 }
 
+const gmgnCache = new Map();
+
+function normalizedGmgnTimestamp(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return Math.floor(Date.now() / 1000);
+  return numeric > 10_000_000_000 ? Math.floor(numeric / 1000) : Math.floor(numeric);
+}
+
+function gmgnActivityId(activity = {}) {
+  const token = activity.token?.address || activity.token_address || activity.base_token?.address || "token";
+  const hash = activity.tx_hash || activity.hash || activity.signature || activity.tx || "";
+  return `gmgn:${hash || `${activity.timestamp || activity.time || Date.now()}:${activity.event_type}:${token}`}`;
+}
+
+function gmgnUsdValue(activity = {}) {
+  const value = activity.cost_usd ?? activity.amount_usd ?? activity.usd ?? activity.value_usd;
+  const numeric = Number(value || 0);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+}
+
+function gmgnTokenAmount(activity = {}) {
+  const value = activity.token_amount ?? activity.amount ?? activity.base_amount ?? activity.balance_amount;
+  const numeric = Number(value || 0);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+}
+
+function gmgnRawTokenAmount(activity = {}, fallback = "1") {
+  const raw = activity.raw_token_amount || activity.token_amount_raw || activity.raw_amount;
+  if (raw !== undefined && raw !== null && String(raw) !== "") return String(raw);
+  const amount = gmgnTokenAmount(activity);
+  const decimals = Number(activity.token?.decimals ?? activity.decimals ?? 0);
+  if (amount > 0 && Number.isFinite(decimals)) return String(Math.max(1, Math.round(amount * (10 ** decimals))));
+  return fallback;
+}
+
+function gmgnActivityToTransaction(activity = {}, wallet = "") {
+  const action = String(activity.event_type || activity.event || activity.side || "").toLowerCase();
+  if (!["buy", "sell"].includes(action)) return null;
+
+  const tokenMint = activity.token?.address || activity.token_address || activity.base_token?.address;
+  if (!tokenMint || isQuoteMint(tokenMint)) return null;
+
+  const tokenSymbol = activity.token?.symbol || activity.symbol || tokenMint;
+  const usd = gmgnUsdValue(activity);
+  const quoteMint = [solMint, usdcMint, usdtMint].includes(activity.quote_address) ? activity.quote_address : usdcMint;
+  const quoteAmount = Number(activity.quote_amount || activity.quoteAmount || 0);
+  const timestamp = normalizedGmgnTimestamp(activity.timestamp || activity.time || activity.block_time);
+  const id = gmgnActivityId(activity);
+
+  const quoteTransfer = {
+    mint: quoteMint,
+    symbol: quoteMint === solMint ? "SOL" : quoteMint === usdtMint ? "USDT" : "USDC",
+    tokenAmount: quoteAmount > 0 ? quoteAmount : usd,
+    rawTokenAmount: {
+      tokenAmount: quoteMint === solMint
+        ? String(Math.max(1, Math.round((quoteAmount > 0 ? quoteAmount : usd) * LAMPORTS_PER_SOL)))
+        : usdcRawFromUsd(usd || quoteAmount || surviveBuyUsd),
+      decimals: quoteMint === solMint ? 9 : 6,
+      mint: quoteMint
+    }
+  };
+
+  const tokenTransfer = {
+    mint: tokenMint,
+    symbol: tokenSymbol,
+    tokenAmount: gmgnTokenAmount(activity),
+    rawTokenAmount: {
+      tokenAmount: gmgnRawTokenAmount(activity),
+      decimals: Number(activity.token?.decimals ?? activity.decimals ?? 0),
+      mint: tokenMint
+    }
+  };
+
+  return {
+    signature: id,
+    timestamp,
+    type: "GMGN_WALLET_ACTIVITY",
+    source: "GMGN",
+    description: `${action.toUpperCase()} ${tokenSymbol}`,
+    gmgn: activity,
+    events: {
+      swap: action === "buy"
+        ? { tokenInputs: [quoteTransfer], tokenOutputs: [tokenTransfer] }
+        : { tokenInputs: [tokenTransfer], tokenOutputs: [quoteTransfer] }
+    },
+    tokenTransfers: action === "buy"
+      ? [
+          { ...quoteTransfer, fromUserAccount: wallet, toUserAccount: "GMGN_QUOTE" },
+          { ...tokenTransfer, fromUserAccount: "GMGN_TOKEN", toUserAccount: wallet }
+        ]
+      : [
+          { ...tokenTransfer, fromUserAccount: wallet, toUserAccount: "GMGN_TOKEN" },
+          { ...quoteTransfer, fromUserAccount: "GMGN_QUOTE", toUserAccount: wallet }
+        ]
+  };
+}
+
+async function fetchGmgnTransactionsForAddress(address) {
+  const now = Date.now();
+  const cached = gmgnCache.get(address);
+  if (cached && now - cached.at < gmgnPollMs) return cached.transactions;
+
+  const params = new URLSearchParams();
+  params.append("event", "buy");
+  params.append("event", "sell");
+  params.set("wallet", address);
+  params.set("limit", "25");
+  params.set("cost", "10");
+
+  const urls = [
+    `https://gmgn.ai/vas/api/v1/wallet_activity/sol?${params.toString()}`,
+    `https://gmgn.ai/defi/quotation/v1/wallet_activity/sol?${params.toString()}`
+  ];
+  let lastError = null;
+
+  for (const endpoint of urls) {
+    try {
+      const response = await fetch(endpoint, {
+        headers: {
+          "accept": "application/json, text/plain, */*",
+          "referer": `https://gmgn.ai/sol/address/${address}`,
+          "user-agent": "SignalPilot/1.0"
+        }
+      });
+      if (!response.ok) {
+        lastError = new Error(`GMGN returned ${response.status}`);
+        continue;
+      }
+      const payload = await response.json();
+      const data = payload?.data || payload;
+      const activities = Array.isArray(data?.activities)
+        ? data.activities
+        : Array.isArray(payload?.activities)
+          ? payload.activities
+          : [];
+      const transactions = activities
+        .map((activity) => gmgnActivityToTransaction(activity, address))
+        .filter(Boolean);
+      gmgnCache.set(address, { at: now, transactions });
+      return transactions;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("GMGN wallet activity lookup failed");
+}
+
 async function assertHeliusReadyForProfile(state, profile) {
   const wallet = targetWallet(state, profile);
   if (!state.settings?.heliusKey) throw new Error("Add the paid Helius API key before starting.");
@@ -1620,6 +1773,98 @@ function freshEnoughToCopy(transaction = {}) {
   return !age || age <= maxSignalAgeMs;
 }
 
+async function processSignalTransactions(state, profile, transactions, newest, checkpointField, sourceLabel) {
+  if (!newest) return [];
+
+  if (!state.profiles[profile][checkpointField]) {
+    state.profiles[profile][checkpointField] = newest;
+    state.activity = [line(`${profileLabel(profile)} ${sourceLabel} worker synced to latest wallet activity.`), ...(state.activity || [])].slice(0, 20);
+    return [];
+  }
+
+  const unseen = [];
+  for (const transaction of transactions) {
+    if (transaction.signature === state.profiles[profile][checkpointField]) break;
+    if (transaction.signature) unseen.push(transaction);
+  }
+
+  if (!unseen.length) return [];
+  const existing = new Set((state.trades || []).map((trade) => trade.signature || trade.id));
+  const orderedUnseen = [...unseen].reverse();
+  const signalTransactions = orderedUnseen
+    .filter((transaction) => !existing.has(transaction.signature) && copyableSignal(profile, transaction, state));
+  const newTrades = [];
+
+  if (!signalTransactions.length) {
+    const sample = unseen[0] ? movementSummary(unseen[0]) : "wallet movement";
+    const swapLikeCount = orderedUnseen.filter(looksLikeSwap).length;
+    const nonTradeReasons = orderedUnseen
+      .map((transaction) => nonTradeMovementReason(profile, transaction, state))
+      .filter(Boolean);
+    const latestNonTradeReason = unseen[0] ? nonTradeMovementReason(profile, unseen[0], state) : "";
+    const note = nonTradeReasons.length === orderedUnseen.length
+      ? `${profileLabel(profile)} ignored ${unseen.length} non-trade movement${unseen.length === 1 ? "" : "s"} (${latestNonTradeReason || "not a wallet buy/sell"}). Latest was ${sample}.`
+      : swapLikeCount
+        ? `${profileLabel(profile)} saw ${swapLikeCount} swap-like movement${swapLikeCount === 1 ? "" : "s"}, but none showed a safe ${profileLabel(profile)} token-in/token-out trade, so it did not copy blindly. Latest was ${sample}.`
+        : `${profileLabel(profile)} saw ${unseen.length} new ${sourceLabel} movement${unseen.length === 1 ? "" : "s"}, but no buy/sell swap was found. Latest was ${sample}.`;
+    state.activity = [
+      line(`${note}${nonTradeReasons.length === orderedUnseen.length || sourceLabel === "GMGN" ? "" : " Use the exact GMGN trade feed or signer wallet if these are real trades that Helius cannot decode."}`),
+      ...(state.activity || [])
+    ].slice(0, 20);
+  }
+
+  for (const transaction of signalTransactions) {
+    const trade = tradeFromTransaction(profile, transaction, state);
+    const leg = primarySwapLeg(transaction, profile, state);
+    if (liveTradingAllowed(state, profile)) {
+      const staleSignal = !freshEnoughToCopy(transaction);
+      if (staleSignal && leg?.action !== "sell") {
+        const seconds = Math.round(signalAgeMs(transaction) / 1000);
+        trade.status = `Skipped - signal was ${seconds}s old`;
+      } else try {
+        const execution = await executeCopiedSwap(profile, transaction, state);
+        trade.status = execution.status;
+        trade.execution = execution;
+        if (execution.outputSymbol) trade.token = execution.outputSymbol;
+        if (execution.swapUsdValue) trade.amount = Number(execution.swapUsdValue);
+      } catch (error) {
+        trade.status = "Execution failed";
+        trade.executionError = error.message;
+      }
+    }
+    newTrades.push(trade);
+
+    if (liveTradingAllowed(state, profile) && leg?.action === "sell") {
+      try {
+        const stuckSellTrade = await autoSellStuckTokenAfterSellSignal(state, profile, leg, trade);
+        if (stuckSellTrade) {
+          newTrades.push(stuckSellTrade);
+          state.activity = [
+            line(`${profileLabel(profile)} auto-sold stuck token ${stuckSellTrade.tradedTokenMint.slice(0, 6)}...${stuckSellTrade.tradedTokenMint.slice(-4)} after Decu sell.`),
+            ...(state.activity || [])
+          ].slice(0, 20);
+        }
+      } catch (error) {
+        state.activity = [
+          line(`${profileLabel(profile)} stuck token auto-sell failed: ${error.message}`),
+          ...(state.activity || [])
+        ].slice(0, 20);
+      }
+    }
+  }
+
+  state.profiles[profile][checkpointField] = newest;
+  if (newTrades.length) {
+    state.trades = [...newTrades, ...(state.trades || [])].slice(0, 100);
+    applyAutoSwitchStrategy(state, newTrades);
+    state.activity = [
+      line(`${profileLabel(profile)} ${sourceLabel} worker found ${newTrades.length} new swap signal${newTrades.length === 1 ? "" : "s"}${liveTradingAllowed(state, profile) ? " and attempted execution" : ""}.`),
+      ...(state.activity || [])
+    ].slice(0, 20);
+  }
+  return newTrades;
+}
+
 async function runCopyWorkerOnce() {
   const state = await readState();
   if (state.strategy?.paused) return;
@@ -1636,6 +1881,23 @@ async function runCopyWorkerOnce() {
   for (const profile of runningProfiles) {
     const wallet = targetWallet(state, profile);
     if (!wallet) continue;
+    let gmgnHandled = false;
+    try {
+      const gmgnTransactions = await fetchGmgnTransactionsForAddress(wallet);
+      const gmgnNewest = newestSignature(gmgnTransactions);
+      if (gmgnNewest) {
+        await processSignalTransactions(state, profile, gmgnTransactions, gmgnNewest, "lastGmgnSignature", "GMGN");
+        gmgnHandled = true;
+      }
+    } catch (error) {
+      state.activity = [
+        line(`GMGN feed warning for ${profileLabel(profile)}: ${error.message}. Helius backup is still watching.`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+    }
+
+    if (gmgnHandled) continue;
+
     const transactions = await fetchTransactionsForAddress(state.settings.heliusKey, wallet);
     const newest = newestSignature(transactions);
     if (!newest) continue;
