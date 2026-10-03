@@ -773,6 +773,12 @@ function profileStatusName(profile) {
   return profileName(profile);
 }
 
+function simpleProfileName(profile) {
+  if (profile === "safe") return "Frog";
+  if (profile === "truenest") return "Trunoest";
+  return "Deku";
+}
+
 function profileTradeMatches(profile, trade) {
   const text = String(trade.profile || "").toLowerCase();
   if (profile === "safe") return text.includes("frog safe") || text.includes("safe bot") || text.includes("beginner") || text === "frog";
@@ -918,10 +924,18 @@ function renderWatchedBotBoard(trades = []) {
   ["safe", "frog", "truenest"].forEach((profile) => {
     const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
     const latest = roomTrades[0];
+    const today = traderTodayPnlFromTrades(trades, profile);
+    const name = simpleProfileName(profile);
+    const direction = today > 0
+      ? `${name} is making money right now: ${signedMoney(today)} today.`
+      : today < 0
+        ? `${name} is losing right now: ${signedMoney(today)} today.`
+        : `${name} has no clear profit yet today.`;
+    const last = latest
+      ? ` Last: ${latest.action || "Signal"} - ${money(latest.amount)} - ${latest.status || "watched"}`
+      : " No watched trade yet.";
     setText(`${profile}WatcherPnl`, signedMoney(traderPnlFromTrades(trades, profile)));
-    setText(`${profile}WatcherLast`, latest
-      ? `${latest.action || "Signal"} - ${money(latest.amount)} - ${latest.status || "watched"}`
-      : "No watched trade yet.");
+    setText(`${profile}WatcherLast`, `${direction}${last}`);
   });
 }
 
