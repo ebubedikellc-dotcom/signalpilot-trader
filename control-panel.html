@@ -194,9 +194,17 @@
               <div class="queue-actions">
                 <button class="primary-action" id="queueStart" type="button" disabled>Start trading queue</button>
                 <button class="stop-action" id="queueStop" type="button" disabled>Stop trading queue</button>
-                <button class="survive-action" id="queueSurviveToggle" type="button">Survive Mode: OFF</button>
+                <label>Buy mode
+                  <select id="queueBuyMode">
+                    <option value="survive">Survive Mode</option>
+                    <option value="cap50">Highest buy $50 mode</option>
+                    <option value="exact">Copy exactly what trader does</option>
+                  </select>
+                </label>
+                <label>Survive highest buy <input id="queueSurviveMax" inputmode="decimal" placeholder="5"></label>
+                <button class="survive-action" id="queueBuyModeSave" type="button">Save buy mode</button>
               </div>
-              <small id="queueControlNote">Survive Mode protects whichever trader is active: buys below $5 copy exact, bigger buys use $5 max.</small>
+              <small id="queueControlNote">Highest buy $50 mode means small buys copy exact, but any bigger buy stops at $50.</small>
             </section>
 
             <div class="trade-room-grid">
@@ -259,8 +267,16 @@
 
                 <div class="survive-panel">
                   <input id="frogSurviveMode" type="hidden" value="off">
-                  <button class="survive-action" id="frogSurviveToggle" type="button">Survive Mode: OFF</button>
-                  <small id="frogSurviveNote">Normal mode: Decu buys below $50 copy same amount; bigger buys cap at $50.</small>
+                  <label>Decu Win buy mode
+                    <select id="frogBuyMode">
+                      <option value="survive">Survive Mode</option>
+                      <option value="cap50">Highest buy $50 mode</option>
+                      <option value="exact">Copy exactly what trader does</option>
+                    </select>
+                  </label>
+                  <label>Survive highest buy <input id="frogSurviveMax" inputmode="decimal" placeholder="5"></label>
+                  <button class="survive-action" id="frogBuyModeSave" type="button">Save Decu buy mode</button>
+                  <small id="frogSurviveNote">Highest buy $50 mode: Decu buys below $50 copy same amount; bigger buys cap at $50.</small>
                 </div>
 
                 <div class="button-row profile-only-controls hidden">
@@ -362,8 +378,16 @@
 
                 <div class="survive-panel">
                   <input id="truenestSurviveMode" type="hidden" value="off">
-                  <button class="survive-action" id="truenestSurviveToggle" type="button">Survive Mode: OFF</button>
-                  <small id="truenestSurviveNote">Normal mode: Risk Win buys below $50 copy same amount; bigger buys cap at $50.</small>
+                  <label>Risk Win buy mode
+                    <select id="truenestBuyMode">
+                      <option value="survive">Survive Mode</option>
+                      <option value="cap50">Highest buy $50 mode</option>
+                      <option value="exact">Copy exactly what trader does</option>
+                    </select>
+                  </label>
+                  <label>Survive highest buy <input id="truenestSurviveMax" inputmode="decimal" placeholder="5"></label>
+                  <button class="survive-action" id="truenestBuyModeSave" type="button">Save Risk buy mode</button>
+                  <small id="truenestSurviveNote">Highest buy $50 mode: Risk Win buys below $50 copy same amount; bigger buys cap at $50.</small>
                 </div>
 
                 <div class="button-row profile-only-controls hidden">
