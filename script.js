@@ -571,9 +571,14 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = []) {
   const running = Boolean(profiles[profile]?.running);
   const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
   const lastTrade = roomTrades[0];
+  const heliusBlocked = heliusLimited();
 
   setText("watchProfileName", label);
-  setText("watchProfileStatus", running ? `${label} is watching and ready to copy.` : `${label} is ready. Press Start when you want it to watch Decu.`);
+  setText("watchProfileStatus", running
+    ? `${label} is watching and ready to copy.`
+    : heliusBlocked
+      ? `${label} is locked until the paid Helius key stops returning 429.`
+      : `${label} is ready. Press Start when you want it to watch Decu.`);
   setText("watchDeposit", money(deposit));
   setText("watchWallet", wallet ? `Wallet ${wallet} | ${gasText}` : "Wallet not connected yet");
   setText("watchProfit", money(profit));
