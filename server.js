@@ -112,7 +112,8 @@ const defaultState = {
     truenestLosses: 0,
     paused: false,
     pauseReason: "",
-    processedClosedTrades: []
+    processedClosedTrades: [],
+    processedStockAutoSells: []
   },
   trades: []
 };
@@ -326,6 +327,9 @@ function normalizeState(state) {
   state.strategy.paused = state.strategy.paused === true;
   state.strategy.processedClosedTrades = Array.isArray(state.strategy.processedClosedTrades)
     ? state.strategy.processedClosedTrades.slice(0, 50)
+    : [];
+  state.strategy.processedStockAutoSells = Array.isArray(state.strategy.processedStockAutoSells)
+    ? state.strategy.processedStockAutoSells.slice(0, 80)
     : [];
   state.trades = Array.isArray(state.trades)
     ? state.trades.filter((trade) => !isLegacyUnsupportedSwapSkip(trade)).slice(0, 100)
@@ -1683,6 +1687,91 @@ async function autoSellStuckTokenAfterSellSignal(state, profile, leg, sourceTrad
   return null;
 }
 
+function tradeMint(trade = {}) {
+  return String(trade.tradedTokenMint || trade.execution?.inputMint || trade.execution?.outputMint || trade.token || "").trim();
+}
+
+function tradeLooksExecuted(trade = {}) {
+  return String(trade.status || "").toLowerCase().includes("executed");
+}
+
+function autoStockSellKey(profile, mint, sellTrade = {}) {
+  return `${profile}:${mint}:${sellTrade.signature || sellTrade.id || sellTrade.time || "sell"}`;
+}
+
+async function autoSellStockCoinsFromHistory(state) {
+  if (!liveTradingAllowed(state)) return [];
+  state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
+  const processed = new Set(state.strategy.processedStockAutoSells || []);
+  const newTrades = [];
+  const trades = Array.isArray(state.trades) ? state.trades : [];
+
+  for (const profile of supportedProfiles) {
+    if (!liveTradingAllowed(state, profile)) continue;
+    const wallet = tradeWallet(state, profile);
+    if (!wallet) continue;
+    const connection = solanaConnection(state.settings);
+    const roomTrades = trades
+      .filter((trade) => roomMatchesProfile(trade, profile))
+      .slice()
+      .reverse();
+    const boughtMints = new Set();
+
+    for (const trade of roomTrades) {
+      const action = String(trade.action || "").toLowerCase();
+      const mint = tradeMint(trade);
+      if (!mint || isQuoteMint(mint)) continue;
+
+      if (action.includes("buy") && tradeLooksExecuted(trade)) {
+        boughtMints.add(mint);
+        continue;
+      }
+
+      if (!action.includes("sell") || !boughtMints.has(mint)) continue;
+      const key = autoStockSellKey(profile, mint, trade);
+      if (processed.has(key)) continue;
+      processed.add(key);
+
+      const balance = await tokenBalanceRaw(connection, wallet, mint);
+      if (!balance) continue;
+
+      const result = await executeManualTokenSell(state, { profile, mint });
+      const autoTrade = {
+        id: result.txid || randomUUID(),
+        signature: result.txid || "",
+        time: new Date().toLocaleString("en-US", { hour12: false }),
+        profile: profileLabel(profile),
+        action: "Auto stock coin sell",
+        token: result.inputMint,
+        tradedToken: result.inputMint,
+        tradedTokenMint: result.inputMint,
+        amount: Number(result.swapUsdValue || 0),
+        sourceUsd: 0,
+        sourceReceivedUsd: Number(result.swapUsdValue || 0),
+        traderPnlUsd: 0,
+        pnl: 0,
+        status: "Executed",
+        execution: {
+          ...result,
+          copySizingNote: `Auto stock coin sell: trader sold ${mint} and wallet still held it`
+        }
+      };
+      newTrades.push(autoTrade);
+      state.activity = [
+        line(`${profileLabel(profile)} auto-sold stock coin ${mint.slice(0, 6)}...${mint.slice(-4)} because the trader already sold it.`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+      break;
+    }
+  }
+
+  state.strategy.processedStockAutoSells = [...processed].slice(-80);
+  if (newTrades.length) {
+    state.trades = [...newTrades, ...(state.trades || [])].slice(0, 100);
+  }
+  return newTrades;
+}
+
 function tradeFromTransaction(profile, transaction, state) {
   const status = liveTradingAllowed(state, profile)
     ? "Observed - execution pending"
@@ -2249,6 +2338,16 @@ async function runCopyWorkerOnce() {
         ...(state.activity || [])
       ].slice(0, 20);
     }
+  }
+
+  try {
+    const stockSells = await autoSellStockCoinsFromHistory(state);
+    if (stockSells.length) applyAutoSwitchStrategy(state, stockSells);
+  } catch (error) {
+    state.activity = [
+      line(`Auto stock coin sell check failed: ${error.message}`),
+      ...(state.activity || [])
+    ].slice(0, 20);
   }
 
   await saveState(state);
