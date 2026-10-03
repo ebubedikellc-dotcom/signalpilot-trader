@@ -645,6 +645,9 @@ function renderState(state) {
   const strategy = latestState.strategy || {};
   const liveTradingEnv = backend.liveTradingEnv === true;
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
+  const queueRunning = Boolean(profiles.frog?.running || profiles.truenest?.running);
+  const queueActiveLabel = strategy.activeProfile === "truenest" ? "Risk Win" : "Decu Win";
+  const queueSurvive = queueSurviveMode(settings);
 
   fields.forEach((id) => {
     const node = $(id);
@@ -658,6 +661,20 @@ function renderState(state) {
   if ($("truenestStart")) $("truenestStart").disabled = !ready || heliusBlocked || profiles.truenest?.running;
   if ($("frogStop")) $("frogStop").disabled = !profiles.frog?.running;
   if ($("truenestStop")) $("truenestStop").disabled = !profiles.truenest?.running;
+  if ($("queueStart")) $("queueStart").disabled = !ready || heliusBlocked || queueRunning;
+  if ($("queueStop")) $("queueStop").disabled = !queueRunning;
+  if ($("queueSurviveToggle")) {
+    $("queueSurviveToggle").textContent = queueSurvive ? "Survive Mode: ON ($5 max)" : "Survive Mode: OFF";
+    $("queueSurviveToggle").classList.toggle("active", queueSurvive);
+  }
+  setText("queueControlStatus", strategy.paused
+    ? `Paused: ${strategy.pauseReason || "restart required."}`
+    : queueRunning
+      ? `${queueActiveLabel} is active now. Decu losses ${Number(strategy.frogLosses || 0)}/3, Risk losses ${Number(strategy.truenestLosses || 0)}/3.`
+      : "Ready: one click starts Decu first. Risk only takes over after 3 Decu losses.");
+  setText("queueControlNote", queueSurvive
+    ? "Survive Mode protects the whole queue: buys below $5 copy exact, bigger buys use $5 max."
+    : "Normal queue mode: buys below $50 copy exact, bigger buys cap at $50.");
 
   setText("frogProfit", money(profiles.frog?.profit));
   setText("truenestProfit", money(profiles.truenest?.profit));
@@ -717,10 +734,10 @@ function renderState(state) {
   const running = [];
   if (profiles.frog?.running) running.push("Decu Win is running.");
   if (profiles.truenest?.running) running.push("Risk Win is running.");
-  const activeStrategyLabel = strategy.activeProfile === "truenest" ? "Trunoest" : "Deku";
+  const activeStrategyLabel = strategy.activeProfile === "truenest" ? "Risk" : "Decu";
   const strategyLine = strategy.paused
     ? `Auto-paused: ${strategy.pauseReason || "restart required."}`
-    : `One-chart mode: ${activeStrategyLabel} active. Deku losses ${Number(strategy.frogLosses || 0)}/3, Trunoest losses ${Number(strategy.truenestLosses || 0)}/3.`;
+    : `One-chart mode: ${activeStrategyLabel} active. Decu losses ${Number(strategy.frogLosses || 0)}/3, Risk losses ${Number(strategy.truenestLosses || 0)}/3.`;
 
   if (!productionExecution) {
     setText("engineStatus", running.length ? "Monitoring running" : "Ready to monitor");
@@ -734,8 +751,8 @@ function renderState(state) {
   setText("engineStatus", strategy.paused ? "Auto-paused after losses" : running.length ? "Production copy engine running" : "Production execution enabled");
   setText("engineSubtext", running.length
     ? strategyLine
-    : strategy.paused ? strategyLine : "Press Start Decu Win to run Deku first, then auto-switch to Trunoest after 3 Deku losses.");
-  setLog(state.activity?.length ? state.activity : ["Ready. Press Start Decu Win or Start Risk Win."]);
+    : strategy.paused ? strategyLine : "Press Start trading queue to run Decu first, then auto-switch to Risk after 3 Decu losses.");
+  setLog(state.activity?.length ? state.activity : ["Ready. Press Start trading queue."]);
 }
 
 function renderManualDeposit(settings = {}) {
@@ -1277,6 +1294,21 @@ async function stopProfile(profile) {
   renderState(await api(`/api/stop/${profile}`, { method: "POST" }));
 }
 
+async function startQueue() {
+  try {
+    renderState(await api("/api/queue/start", { method: "POST" }));
+    showBusinessMessage("Trading queue started. Decu goes first; Risk takes over only after 3 Decu losses.");
+  } catch (error) {
+    if (error.payload?.status) renderState(error.payload.status);
+    showBusinessMessage(error.message, true);
+  }
+}
+
+async function stopQueue() {
+  renderState(await api("/api/queue/stop", { method: "POST" }));
+  showBusinessMessage("Trading queue stopped.");
+}
+
 function on(id, event, handler) {
   const node = $(id);
   if (node) node.addEventListener(event, handler);
@@ -1311,6 +1343,9 @@ on("requestWithdraw", "click", requestWithdrawal);
 on("logoutButton", "click", logout);
 on("frogStart", "click", () => startProfile("frog"));
 on("frogStop", "click", () => stopProfile("frog"));
+on("queueStart", "click", startQueue);
+on("queueStop", "click", stopQueue);
+on("queueSurviveToggle", "click", () => saveSurviveMode("frog"));
 on("frogSellOnly", "click", () => saveTradeMode("frog", "sellOnly"));
 on("frogResumeBuying", "click", () => saveTradeMode("frog", "both"));
 on("frogSurviveToggle", "click", () => saveSurviveMode("frog"));

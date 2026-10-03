@@ -160,6 +160,20 @@
               </div>
             </section>
 
+            <section class="queue-control-card" aria-labelledby="queueControlTitle">
+              <div>
+                <p class="eyebrow">One Button Queue</p>
+                <h2 id="queueControlTitle">Control Decu and Risk together</h2>
+                <p id="queueControlStatus">Decu starts first. If Decu loses 3 times, Risk takes over. If Risk loses 3 times, trading pauses.</p>
+              </div>
+              <div class="queue-actions">
+                <button class="primary-action" id="queueStart" type="button" disabled>Start trading queue</button>
+                <button class="stop-action" id="queueStop" type="button" disabled>Stop trading queue</button>
+                <button class="survive-action" id="queueSurviveToggle" type="button">Survive Mode: OFF</button>
+              </div>
+              <small id="queueControlNote">Survive Mode protects whichever trader is active: buys below $5 copy exact, bigger buys use $5 max.</small>
+            </section>
+
             <div class="trade-room-grid">
               <article class="trader-card trade-room-card beginner">
                 <div class="trader-head">
@@ -215,7 +229,7 @@
                   <small id="frogSurviveNote">Normal mode: Decu buys below $50 copy same amount; bigger buys cap at $50.</small>
                 </div>
 
-                <div class="button-row">
+                <div class="button-row profile-only-controls hidden">
                   <button class="primary-action" id="frogStart" disabled>Start Decu Win</button>
                   <button class="stop-action" id="frogStop" disabled>Stop</button>
                 </div>
@@ -309,7 +323,7 @@
                   <small id="truenestSurviveNote">Normal mode: Risk Win buys below $50 copy same amount; bigger buys cap at $50.</small>
                 </div>
 
-                <div class="button-row">
+                <div class="button-row profile-only-controls hidden">
                   <button class="primary-action" id="truenestStart" disabled>Start Risk Win</button>
                   <button class="stop-action" id="truenestStop" disabled>Stop</button>
                 </div>

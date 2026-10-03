@@ -81,7 +81,7 @@ h1 {
   line-height: 1.65;
 }
 
-.system-card, .trader-card, .engine-room, .activity, .vault-panel, .hosting-panel, .easy-setup, .business-portal {
+.system-card, .trader-card, .engine-room, .activity, .vault-panel, .hosting-panel, .easy-setup, .business-portal, .queue-control-card {
   border: 1px solid var(--line);
   background: linear-gradient(145deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
   box-shadow: 0 20px 50px rgba(0,0,0,.22);
@@ -260,6 +260,20 @@ dd { margin: 7px 0 0; font-weight: 800; }
     rgba(3,8,13,.7);
 }
 .watch-chart svg { display: block; width: 100%; height: 220px; }
+.queue-control-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 390px);
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  border-radius: 8px;
+  margin-bottom: 18px;
+  background: linear-gradient(145deg, rgba(46,230,166,.12), rgba(246,201,92,.1)), rgba(0,0,0,.22);
+}
+.queue-control-card h2 { margin-bottom: 8px; font-size: 1.6rem; }
+.queue-control-card p, .queue-control-card small { margin: 0; color: var(--muted); line-height: 1.5; }
+.queue-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.queue-actions .survive-action { grid-column: 1 / -1; }
 .chart-grid-line {
   fill: none;
   stroke: rgba(255,255,255,.09);
@@ -389,7 +403,7 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .inline-save-box span { color: var(--muted); line-height: 1.45; }
 .inline-save-box .secondary-action { width: 100%; min-height: 52px; background: var(--green); color: #061118; border: 0; }
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .emergency-actions { grid-template-columns: 1fr; }
+  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .emergency-actions, .queue-control-card, .queue-actions { grid-template-columns: 1fr; }
   .owner-tabs { grid-template-columns: 1fr; }
   .facts { grid-template-columns: 1fr; }
   .section-title { align-items: stretch; flex-direction: column; }
@@ -461,7 +475,7 @@ td { color: var(--muted); }
 .loss-row td:nth-child(6) { color: var(--red); font-weight: 900; }
 
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .watch-grid, .emergency-actions {
+  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .watch-grid, .emergency-actions, .queue-control-card, .queue-actions {
     grid-template-columns: 1fr;
   }
 

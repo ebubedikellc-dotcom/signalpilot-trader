@@ -715,14 +715,14 @@ function applyAutoSwitchStrategy(state, newTrades = []) {
       state.profiles.truenest.lastAction = new Date().toISOString();
       state.strategy.activeProfile = "truenest";
       state.strategy.truenestLosses = 0;
-      strategyEvents.push("Deku reached 3 losses. SignalPilot switched to Trunoest.");
+      strategyEvents.push("Decu reached 3 losses. SignalPilot switched to Risk.");
     }
 
     if (profile === "truenest" && state.strategy.truenestLosses >= 3) {
       state.profiles.frog.running = false;
       state.profiles.truenest.running = false;
       state.strategy.paused = true;
-      state.strategy.pauseReason = "Trunoest reached 3 losses. Trading paused until owner restarts.";
+      state.strategy.pauseReason = "Risk reached 3 losses. Trading paused until owner restarts.";
       strategyEvents.push(state.strategy.pauseReason);
       break;
     }
@@ -2141,6 +2141,65 @@ async function handleApi(request, response, url) {
       await saveState(state);
       send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
     }
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/queue/start") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    if (!ready(state)) {
+      send(response, 400, { error: "Engine Room is not complete yet." });
+      return true;
+    }
+    try {
+      await assertHeliusReadyForProfile(state, "frog");
+    } catch (error) {
+      state.activity = [
+        line(`Trading queue start blocked: ${error.message}`),
+        ...(state.activity || [])
+      ].slice(0, 20);
+      await saveState(state);
+      send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
+      return true;
+    }
+    state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
+    state.strategy.activeProfile = "frog";
+    state.strategy.paused = false;
+    state.strategy.pauseReason = "";
+    state.strategy.frogLosses = 0;
+    state.strategy.truenestLosses = 0;
+    state.strategy.processedClosedTrades = [];
+    state.profiles.frog.running = true;
+    state.profiles.truenest.running = false;
+    state.profiles.frog.lastAction = new Date().toISOString();
+    state.activity = [
+      line("Trading queue started: Decu Win first, Risk Win takes over after 3 Decu losses."),
+      line(liveTradingAllowed(state, "frog")
+        ? "Production execution is enabled. Copy worker can execute with the connected signer."
+        : "Monitoring is active. Real swap execution stays locked until EXECUTE_REAL_SWAPS=true is set in Render."),
+      ...(state.activity || [])
+    ].slice(0, 20);
+    await saveState(state);
+    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/queue/stop") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    state.profiles.frog.running = false;
+    state.profiles.truenest.running = false;
+    state.profiles.frog.lastAction = new Date().toISOString();
+    state.profiles.truenest.lastAction = new Date().toISOString();
+    state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
+    state.strategy.paused = false;
+    state.strategy.pauseReason = "";
+    state.activity = [
+      line("Trading queue stopped."),
+      ...(state.activity || [])
+    ].slice(0, 20);
+    await saveState(state);
+    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
     return true;
   }
 
