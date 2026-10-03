@@ -1591,9 +1591,6 @@ async function fetchTransactionsForAddress(apiKey, address) {
   const url = new URL(`https://api.helius.xyz/v0/addresses/${encodeURIComponent(address)}/transactions`);
   url.searchParams.set("api-key", apiKey);
   url.searchParams.set("limit", "25");
-  url.searchParams.set("type", "SWAP");
-  url.searchParams.set("token-accounts", "balanceChanged");
-  url.searchParams.set("commitment", "confirmed");
   const response = await fetch(url);
   if (!response.ok) {
     const help = response.status === 429
