@@ -1190,6 +1190,7 @@ function renderState(state) {
   setText("truenestRoomProfit", money(profiles.truenest?.profit));
   setText("frogBalance", `Deposit: ${money(settings.frogDeposit)}`);
   setText("truenestBalance", `Shared deposit: ${money(settings.frogDeposit)}`);
+  setText("topLockedProfit", money(profileLockedProfit(settings, "frog")));
   setText("frogUsdcNow", money(balanceUsdc("frog")));
   setText("truenestUsdcNow", money(balanceUsdc("truenest")));
   setText("frogOpenValue", money(profileOpenValue(trades, "frog")));
