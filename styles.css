@@ -132,6 +132,16 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .bigwin .primary-action { background: var(--gold); }
 .stop-action { background: rgba(255,107,107,.16); color: #ffd4d4; border: 1px solid rgba(255,107,107,.4); }
 .primary-action:disabled, .stop-action:disabled { cursor: not-allowed; opacity: .48; }
+.survive-panel { position: relative; z-index: 1; display: grid; gap: 8px; padding: 12px; border: 1px solid rgba(46,230,166,.32); border-radius: 8px; background: rgba(46,230,166,.08); }
+.survive-panel small { color: var(--muted); line-height: 1.45; }
+.survive-action { width: 100%; border: 1px solid rgba(46,230,166,.45); border-radius: 8px; padding: 14px 16px; color: var(--green); background: rgba(46,230,166,.12); font-weight: 950; cursor: pointer; }
+.survive-action.active { color: #061118; background: var(--green); }
+.emergency-panel { position: relative; z-index: 1; border: 1px solid rgba(246,201,92,.32); border-radius: 8px; background: rgba(246,201,92,.08); }
+.emergency-panel > summary { display: grid; gap: 4px; padding: 14px; cursor: pointer; }
+.emergency-panel > summary span { color: var(--text); font-weight: 950; }
+.emergency-panel > summary small, .emergency-panel > small { color: var(--muted); line-height: 1.45; }
+.emergency-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0 14px 10px; }
+.emergency-panel > small { display: block; padding: 0 14px 14px; }
 .engine-room, .activity, .vault-panel, .hosting-panel, .easy-setup, .business-portal { padding: 22px; border-radius: 8px; margin-bottom: 18px; }
 .hidden { display: none !important; }
 .business-portal { background: linear-gradient(145deg, rgba(46,230,166,.14), rgba(255,255,255,.04)), rgba(0,0,0,.22); }
@@ -379,7 +389,7 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .inline-save-box span { color: var(--muted); line-height: 1.45; }
 .inline-save-box .secondary-action { width: 100%; min-height: 52px; background: var(--green); color: #061118; border: 0; }
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row { grid-template-columns: 1fr; }
+  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .emergency-actions { grid-template-columns: 1fr; }
   .owner-tabs { grid-template-columns: 1fr; }
   .facts { grid-template-columns: 1fr; }
   .section-title { align-items: stretch; flex-direction: column; }
@@ -451,7 +461,7 @@ td { color: var(--muted); }
 .loss-row td:nth-child(6) { color: var(--red); font-weight: 900; }
 
 @media (max-width: 880px) {
-  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .watch-grid {
+  .topbar, .trader-grid, .trade-room-grid, .room-stat-grid, .settings-room-grid, .safety-panel, .form-grid, .profile-settings, .switch-board, .vault-summary, .unlock-guide, .simple-steps, .setup-map, .auth-grid, .owner-tools, .customer-tools, .metric-grid, .customer-row, .watch-grid, .emergency-actions {
     grid-template-columns: 1fr;
   }
 

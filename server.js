@@ -30,6 +30,7 @@ const usdtMint = "Es9vMFrzaCERmJfrF4H2FYD4AWuEJ1hDPPpQdjCXg82h";
 const legacyFrogWallet = "4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh";
 const decuWallet = "4vw54BmAogeRV3vPKWyFet5yf8DTLcREzdSzx4rw9Ud9";
 const protectedCapStrategyVersion = "decu-50-cap-v1";
+const surviveBuyUsd = 5;
 const usdcDecimals = 6;
 const tokenProgramId = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const associatedTokenProgramId = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -43,6 +44,7 @@ const defaultState = {
     frogTraderBankroll: "500",
     frogUseProfit: "off",
     frogTradeMode: "both",
+    frogSurviveMode: "off",
     truenestWallet: "ardinRsN1mNYVeoJWTBsWeYeXvuR9UUDGMsCDKpb6AT",
     truenestMax: "50",
     truenestMode: "Copy exact amount after safety check",
@@ -50,6 +52,7 @@ const defaultState = {
     truenestTraderBankroll: "500",
     truenestUseProfit: "off",
     truenestTradeMode: "both",
+    truenestSurviveMode: "off",
     walletSync: "Turnkey server wallet",
     riskControl: "on",
     liveTradingSwitch: "on",
@@ -110,6 +113,7 @@ const fields = [
   "frogTraderBankroll",
   "frogUseProfit",
   "frogTradeMode",
+  "frogSurviveMode",
   "truenestWallet",
   "truenestMax",
   "truenestMode",
@@ -117,6 +121,7 @@ const fields = [
   "truenestTraderBankroll",
   "truenestUseProfit",
   "truenestTradeMode",
+  "truenestSurviveMode",
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
@@ -315,6 +320,8 @@ function publicSettings(settings = {}, includeSecrets = false) {
     truenestUseProfit: settings.truenestUseProfit === "on" ? "on" : "off",
     frogTradeMode: settings.frogTradeMode === "sellOnly" ? "sellOnly" : "both",
     truenestTradeMode: settings.truenestTradeMode === "sellOnly" ? "sellOnly" : "both",
+    frogSurviveMode: settings.frogSurviveMode === "on" ? "on" : "off",
+    truenestSurviveMode: settings.truenestSurviveMode === "on" ? "on" : "off",
     walletSync: settings.walletSync || "Turnkey server wallet",
     riskControl: settings.riskControl || "on",
     liveTradingSwitch: settings.liveTradingSwitch || "on",
@@ -618,6 +625,11 @@ function profileSellOnly(state, profile) {
   return value === "sellOnly";
 }
 
+function profileSurviveMode(state, profile) {
+  const value = profile === "frog" ? state.settings.frogSurviveMode : state.settings.truenestSurviveMode;
+  return value === "on";
+}
+
 function liveTradingAllowed(state, profile = "") {
   if (!ready(state) || process.env.ENABLE_LIVE_TRADING !== "true" || process.env.EXECUTE_REAL_SWAPS !== "true") {
     return false;
@@ -824,6 +836,13 @@ function buyUsdAmount(state, profile, sourceUsd = 0) {
   const deposit = profileDepositUsd(state, profile);
   const maxUsd = profileMaxUsd(state, profile);
   const traderBankroll = profileTraderBankrollUsd(state, profile);
+
+  if (profileSurviveMode(state, profile)) {
+    const requestedUsd = Number(sourceUsd || 0) > 0 ? Number(sourceUsd) : surviveBuyUsd;
+    const usd = Math.min(requestedUsd, surviveBuyUsd, deposit || surviveBuyUsd);
+    return Number.isFinite(usd) && usd > 0 ? usd : 0;
+  }
+
   let usd = Number(sourceUsd || 0);
 
   if (profileCopySizing(state, profile) === "Copy by percentage" && sourceUsd && traderBankroll && deposit) {

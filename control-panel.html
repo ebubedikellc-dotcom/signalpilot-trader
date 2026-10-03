@@ -209,13 +209,29 @@
                 </label>
                 <button id="saveDecuDeposit" class="primary-action" type="button">Save Decu Win budget</button>
 
+                <div class="survive-panel">
+                  <input id="frogSurviveMode" type="hidden" value="off">
+                  <button class="survive-action" id="frogSurviveToggle" type="button">Survive Mode: OFF</button>
+                  <small id="frogSurviveNote">Normal mode: Decu buys below $50 copy same amount; bigger buys cap at $50.</small>
+                </div>
+
                 <div class="button-row">
                   <button class="primary-action" id="frogStart" disabled>Start Decu Win</button>
-                  <button class="secondary-action" id="frogSellOnly" type="button">Stop buying, sell only</button>
-                  <button class="secondary-action" id="frogResumeBuying" type="button">Resume buying</button>
                   <button class="stop-action" id="frogStop" disabled>Stop</button>
                 </div>
                 <small id="frogTradeModeStatus">Decu Win can buy and sell.</small>
+
+                <details class="emergency-panel">
+                  <summary>
+                    <span>Emergency / Advanced area</span>
+                    <small>Use only when you want to pause new buys or allow buys again.</small>
+                  </summary>
+                  <div class="emergency-actions">
+                    <button class="secondary-action" id="frogSellOnly" type="button">Stop buying, sell only</button>
+                    <button class="secondary-action" id="frogResumeBuying" type="button">Resume buying and selling</button>
+                  </div>
+                  <small>Sell only stops new buys but still allows sells. Resume buying and selling brings back the normal copy rule.</small>
+                </details>
 
                 <div class="withdraw-inline danger-box">
                   <h4>Manual sell from Decu Win</h4>
@@ -287,13 +303,29 @@
                 </label>
                 <button id="saveTruenestDeposit" class="primary-action" type="button">Save shared budget</button>
 
+                <div class="survive-panel">
+                  <input id="truenestSurviveMode" type="hidden" value="off">
+                  <button class="survive-action" id="truenestSurviveToggle" type="button">Survive Mode: OFF</button>
+                  <small id="truenestSurviveNote">Normal mode: Risk Win buys below $50 copy same amount; bigger buys cap at $50.</small>
+                </div>
+
                 <div class="button-row">
                   <button class="primary-action" id="truenestStart" disabled>Start Risk Win</button>
-                  <button class="secondary-action" id="truenestSellOnly" type="button">Stop buying, sell only</button>
-                  <button class="secondary-action" id="truenestResumeBuying" type="button">Resume buying</button>
                   <button class="stop-action" id="truenestStop" disabled>Stop</button>
                 </div>
                 <small id="truenestTradeModeStatus">Risk Win can buy and sell.</small>
+
+                <details class="emergency-panel">
+                  <summary>
+                    <span>Emergency / Advanced area</span>
+                    <small>Use only when you want to pause new buys or allow buys again.</small>
+                  </summary>
+                  <div class="emergency-actions">
+                    <button class="secondary-action" id="truenestSellOnly" type="button">Stop buying, sell only</button>
+                    <button class="secondary-action" id="truenestResumeBuying" type="button">Resume buying and selling</button>
+                  </div>
+                  <small>Sell only stops new buys but still allows sells. Resume buying and selling brings back the normal copy rule.</small>
+                </details>
 
                 <div class="withdraw-inline danger-box">
                   <h4>Manual sell while Risk Win is active</h4>

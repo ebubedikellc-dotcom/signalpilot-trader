@@ -18,6 +18,7 @@ const fields = [
   "frogTraderBankroll",
   "frogUseProfit",
   "frogTradeMode",
+  "frogSurviveMode",
   "truenestWallet",
   "truenestMax",
   "truenestMode",
@@ -25,6 +26,7 @@ const fields = [
   "truenestTraderBankroll",
   "truenestUseProfit",
   "truenestTradeMode",
+  "truenestSurviveMode",
   "walletSync",
   "riskControl",
   "liveTradingSwitch",
@@ -454,6 +456,7 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   const walletSync = settings.frogWalletSync || settings.walletSync || "Turnkey server wallet";
   const tradeMode = profileSetting(settings, profile, "tradeMode", "both");
   const sellOnly = tradeMode === "sellOnly";
+  const surviveMode = profileSetting(settings, profile, "surviveMode", "off") === "on";
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
   const lastTraderResult = latestTraderClosedResult(trades, profile);
   const todayTraderPnl = traderTodayPnlFromTrades(trades, profile);
@@ -469,11 +472,21 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   setText(`${profile}RoomTraderToday`, signedMoney(todayTraderPnl));
   setText(`${profile}RoomTraderLast`, lastTraderResult.label);
   setText(`${profile}RoomTraderTodayNote`, todayPnlLabel(todayTraderPnl, traderName));
-  setText(`${profile}TradeModeStatus`, sellOnly
+  const modeStatus = sellOnly
     ? `${label} is SELL ONLY: new buys are blocked, sells still work.`
-    : `${label} can buy and sell.`);
+    : surviveMode
+      ? `${label} Survive Mode is ON: buys copy below $5 and cap bigger buys at $5. Sells still follow.`
+      : `${label} can buy and sell. Normal copy uses the $50 max-buy rule.`;
+  setText(`${profile}TradeModeStatus`, modeStatus);
   if ($(`${profile}SellOnly`)) $(`${profile}SellOnly`).disabled = sellOnly;
   if ($(`${profile}ResumeBuying`)) $(`${profile}ResumeBuying`).disabled = !sellOnly;
+  if ($(`${profile}SurviveToggle`)) {
+    $(`${profile}SurviveToggle`).textContent = surviveMode ? "Survive Mode: ON ($5 max)" : "Survive Mode: OFF";
+    $(`${profile}SurviveToggle`).classList.toggle("active", surviveMode);
+  }
+  setText(`${profile}SurviveNote`, surviveMode
+    ? "Small-wallet mode is protecting the account: copied buys below $5 stay exact; bigger buys use $5 max."
+    : "Normal mode: Decu/Risk buys below $50 copy same amount; bigger buys cap at $50.");
   renderRoomThread(profile, roomTrades);
   setText(`${profile}SafeStatus`, riskControl === "off" ? "Exact copy, no protection" : "Protect me ON");
   setText(`${profile}WalletStatus`, walletSync === "Turnkey server wallet"
@@ -1115,7 +1128,7 @@ async function refresh() {
   if (page !== "owner") return;
   try {
     const state = await api("/api/status");
-    if (state.auth?.role === "owner") renderState(state);
+    if (state.auth?.role === "owner" || document.body.dataset.role === "owner") renderState(state);
   } catch {
     setText("engineStatus", "Backend not connected");
     setText("engineSubtext", "Render is not answering right now. The site cannot monitor until backend returns.");
@@ -1158,6 +1171,21 @@ async function saveTradeMode(profile, mode) {
   const message = mode === "sellOnly"
     ? `${profileName(profile)} Sell Only saved: new buys blocked, sells still allowed.`
     : `${profileName(profile)} can buy again.`;
+  renderState({ settings: data, profiles: {}, activity: [message] });
+  renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
+  showBusinessMessage(message);
+}
+
+async function saveSurviveMode(profile) {
+  const prefix = roomPrefix(profile);
+  const next = value(`${prefix}SurviveMode`) === "on" ? "off" : "on";
+  const data = {
+    ...currentPayload(),
+    [`${prefix}SurviveMode`]: next
+  };
+  const message = next === "on"
+    ? `${profileName(profile)} Survive Mode ON: copied buys below $5 stay exact; bigger buys use $5 max. Sells still follow.`
+    : `${profileName(profile)} Survive Mode OFF: normal $50 max-buy rule restored.`;
   renderState({ settings: data, profiles: {}, activity: [message] });
   renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
   showBusinessMessage(message);
@@ -1280,10 +1308,12 @@ on("frogStart", "click", () => startProfile("frog"));
 on("frogStop", "click", () => stopProfile("frog"));
 on("frogSellOnly", "click", () => saveTradeMode("frog", "sellOnly"));
 on("frogResumeBuying", "click", () => saveTradeMode("frog", "both"));
+on("frogSurviveToggle", "click", () => saveSurviveMode("frog"));
 on("truenestStart", "click", () => startProfile("truenest"));
 on("truenestStop", "click", () => stopProfile("truenest"));
 on("truenestSellOnly", "click", () => saveTradeMode("truenest", "sellOnly"));
 on("truenestResumeBuying", "click", () => saveTradeMode("truenest", "both"));
+on("truenestSurviveToggle", "click", () => saveSurviveMode("truenest"));
 ["frog", "truenest"].forEach((profile) => {
   const prefix = roomPrefix(profile);
   on(`${prefix}Mode`, "change", () => {
