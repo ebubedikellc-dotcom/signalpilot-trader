@@ -1556,6 +1556,14 @@ async function executeCopiedSwap(profile, transaction, state) {
   let outputMint = leg.outputMint;
   let copyAmount = scaledCopyAmount(leg.amount, state, profile);
 
+  if (leg.action === "buy" && isQuoteMint(leg.outputMint)) {
+    return { status: "Skipped - buy signal did not show a token bought" };
+  }
+
+  if (leg.action === "sell" && isQuoteMint(leg.inputMint)) {
+    return { status: "Skipped - USDC movement, no token to sell" };
+  }
+
   if (leg.action === "buy") {
     if (profileSellOnly(state, profile)) {
       return { status: "Skipped - Sell Only mode is ON, new buys are blocked" };
