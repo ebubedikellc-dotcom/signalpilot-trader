@@ -354,6 +354,10 @@ function profileSetting(settings, profile, key, fallback = "") {
   return settings[profileKey] || settings[key] || fallback;
 }
 
+function queueSurviveMode(settings = {}) {
+  return settings.frogSurviveMode === "on" || settings.truenestSurviveMode === "on";
+}
+
 function normalizeCopyMode(mode) {
   const value = String(mode || "Copy exact amount").toLowerCase();
   return value.includes("safety") || value.includes("protect")
@@ -456,7 +460,7 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   const walletSync = settings.frogWalletSync || settings.walletSync || "Turnkey server wallet";
   const tradeMode = profileSetting(settings, profile, "tradeMode", "both");
   const sellOnly = tradeMode === "sellOnly";
-  const surviveMode = profileSetting(settings, profile, "surviveMode", "off") === "on";
+  const surviveMode = queueSurviveMode(settings);
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
   const lastTraderResult = latestTraderClosedResult(trades, profile);
   const todayTraderPnl = traderTodayPnlFromTrades(trades, profile);
@@ -475,7 +479,7 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   const modeStatus = sellOnly
     ? `${label} is SELL ONLY: new buys are blocked, sells still work.`
     : surviveMode
-      ? `${label} Survive Mode is ON: buys copy below $5 and cap bigger buys at $5. Sells still follow.`
+      ? `${label} Queue Survive Mode is ON: buys copy below $5 and cap bigger buys at $5. Sells still follow.`
       : `${label} can buy and sell. Normal copy uses the $50 max-buy rule.`;
   setText(`${profile}TradeModeStatus`, modeStatus);
   if ($(`${profile}SellOnly`)) $(`${profile}SellOnly`).disabled = sellOnly;
@@ -1177,15 +1181,16 @@ async function saveTradeMode(profile, mode) {
 }
 
 async function saveSurviveMode(profile) {
-  const prefix = roomPrefix(profile);
-  const next = value(`${prefix}SurviveMode`) === "on" ? "off" : "on";
+  const current = currentPayload();
+  const next = queueSurviveMode(current) ? "off" : "on";
   const data = {
-    ...currentPayload(),
-    [`${prefix}SurviveMode`]: next
+    ...current,
+    frogSurviveMode: next,
+    truenestSurviveMode: next
   };
   const message = next === "on"
-    ? `${profileName(profile)} Survive Mode ON: copied buys below $5 stay exact; bigger buys use $5 max. Sells still follow.`
-    : `${profileName(profile)} Survive Mode OFF: normal $50 max-buy rule restored.`;
+    ? "Queue Survive Mode ON: every trader in the switch queue buys below $5 exact; bigger buys use $5 max. Sells still follow."
+    : "Queue Survive Mode OFF: normal $50 max-buy rule restored.";
   renderState({ settings: data, profiles: {}, activity: [message] });
   renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
   showBusinessMessage(message);

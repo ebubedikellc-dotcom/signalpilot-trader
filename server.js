@@ -626,8 +626,7 @@ function profileSellOnly(state, profile) {
 }
 
 function profileSurviveMode(state, profile) {
-  const value = profile === "frog" ? state.settings.frogSurviveMode : state.settings.truenestSurviveMode;
-  return value === "on";
+  return state.settings.frogSurviveMode === "on" || state.settings.truenestSurviveMode === "on";
 }
 
 function liveTradingAllowed(state, profile = "") {
