@@ -230,7 +230,8 @@ function positionSummariesFromTrades(trades = [], profile = "frog") {
       amount: tradeUsdAmount(trade),
       executed: tradeWasExecuted(trade),
       status: trade.status || trade.execution?.status || ""
-    }));
+    }))
+    .sort((left, right) => left.dateValue - right.dateValue);
   const positions = new Map();
 
   roomTrades.forEach((trade) => {
@@ -302,7 +303,7 @@ function openPositionsFromTrades(trades = [], profile = "frog") {
 
 function stockCoinsFromTrades(trades = [], profile = "frog") {
   return positionSummariesFromTrades(trades, profile)
-    .filter((position) => position.openUsd > 0.01 && position.traderSellSignals > position.sells)
+    .filter((position) => position.openUsd > 0.01 && position.traderSellSignals > 0)
     .sort((left, right) => right.failedSellSignals - left.failedSellSignals || right.openUsd - left.openUsd);
 }
 
