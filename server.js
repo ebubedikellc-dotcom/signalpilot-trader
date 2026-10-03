@@ -113,6 +113,7 @@ const defaultState = {
     paused: false,
     pauseReason: "",
     processedClosedTrades: [],
+    processedSwitchFailures: [],
     processedStockAutoSells: []
   },
   trades: []
@@ -327,6 +328,9 @@ function normalizeState(state) {
   state.strategy.paused = state.strategy.paused === true;
   state.strategy.processedClosedTrades = Array.isArray(state.strategy.processedClosedTrades)
     ? state.strategy.processedClosedTrades.slice(0, 50)
+    : [];
+  state.strategy.processedSwitchFailures = Array.isArray(state.strategy.processedSwitchFailures)
+    ? state.strategy.processedSwitchFailures.slice(0, 80)
     : [];
   state.strategy.processedStockAutoSells = Array.isArray(state.strategy.processedStockAutoSells)
     ? state.strategy.processedStockAutoSells.slice(0, 80)
@@ -821,6 +825,29 @@ function closedTraderPnlUsd(trades = [], sellTrade = {}, profile = "frog") {
   return sellReceived - buyUsed;
 }
 
+function profileFromTrade(trade = {}) {
+  if (trade.profile === "Frog safe bot" || trade.profile === "safe") return "safe";
+  if (trade.profile === "Risk Win" || trade.profile === "Trunoest risk bot" || trade.profile === "truenest") return "truenest";
+  return "frog";
+}
+
+function tradeIsBuyExecutionFailure(trade = {}) {
+  return tradeSide(trade) === "buy" && String(trade.status || "").toLowerCase().includes("execution failed");
+}
+
+function switchProfileAfterFailureLimit(state, profile, activeProfile, switchLimit, strategyEvents) {
+  const lossKey = strategyLossKey(profile);
+  if (profile !== activeProfile || Number(state.strategy[lossKey] || 0) < switchLimit) return;
+  const nextProfile = profile === "truenest" ? "frog" : profile === "safe" ? "frog" : "truenest";
+  state.strategy.activeProfile = nextProfile;
+  state.strategy[strategyLossKey(nextProfile)] = 0;
+  supportedProfiles.forEach((item) => {
+    state.profiles[item].running = true;
+  });
+  state.profiles[nextProfile].lastAction = new Date().toISOString();
+  strategyEvents.push(`${profileLabel(profile)} reached ${switchLimit} failures. SignalPilot switched to ${profileLabel(nextProfile)}, while old traders stay watched for sells.`);
+}
+
 function applyAutoSwitchStrategy(state, newTrades = []) {
   state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
   if (state.strategy.paused) return;
@@ -828,21 +855,30 @@ function applyAutoSwitchStrategy(state, newTrades = []) {
   const combinedTrades = state.trades || [];
   const switchLimit = queueFailureSwitchLimit(state);
   const activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "frog";
-  const processed = new Set(state.strategy.processedClosedTrades || []);
+  const processedClosed = new Set(state.strategy.processedClosedTrades || []);
+  const processedFailures = new Set(state.strategy.processedSwitchFailures || []);
   const strategyEvents = [];
 
   for (const trade of newTrades) {
-    const profile = trade.profile === "Frog safe bot" || trade.profile === "safe"
-      ? "safe"
-      : trade.profile === "Risk Win" || trade.profile === "Trunoest risk bot" || trade.profile === "truenest"
-        ? "truenest"
-        : "frog";
+    const profile = profileFromTrade(trade);
     const tradeId = trade.signature || trade.id;
-    if (!tradeId || processed.has(tradeId) || tradeSide(trade) !== "sell") continue;
+    if (!tradeId) continue;
+
+    if (tradeIsBuyExecutionFailure(trade)) {
+      if (processedFailures.has(tradeId)) continue;
+      processedFailures.add(tradeId);
+      const lossKey = strategyLossKey(profile);
+      state.strategy[lossKey] = Number(state.strategy[lossKey] || 0) + 1;
+      strategyEvents.push(`${profileLabel(profile)} buy execution failed ${state.strategy[lossKey]}/${switchLimit}.`);
+      switchProfileAfterFailureLimit(state, profile, activeProfile, switchLimit, strategyEvents);
+      continue;
+    }
+
+    if (processedClosed.has(tradeId) || tradeSide(trade) !== "sell") continue;
 
     const closedPnl = closedTraderPnlUsd(combinedTrades, trade, profile);
     if (closedPnl === null) continue;
-    processed.add(tradeId);
+    processedClosed.add(tradeId);
 
     const lossKey = strategyLossKey(profile);
     if (closedPnl < 0) {
@@ -853,19 +889,11 @@ function applyAutoSwitchStrategy(state, newTrades = []) {
       strategyEvents.push(`${profileLabel(profile)} closed profit ${closedPnl.toFixed(2)}; loss count reset.`);
     }
 
-    if (profile === activeProfile && Number(state.strategy[lossKey] || 0) >= switchLimit) {
-      const nextProfile = profile === "truenest" ? "frog" : profile === "safe" ? "frog" : "truenest";
-      state.strategy.activeProfile = nextProfile;
-      state.strategy[strategyLossKey(nextProfile)] = 0;
-      supportedProfiles.forEach((item) => {
-        state.profiles[item].running = true;
-      });
-      state.profiles[nextProfile].lastAction = new Date().toISOString();
-      strategyEvents.push(`${profileLabel(profile)} reached ${switchLimit} failures. SignalPilot switched to ${profileLabel(nextProfile)}, while old traders stay watched for sells.`);
-    }
+    switchProfileAfterFailureLimit(state, profile, activeProfile, switchLimit, strategyEvents);
   }
 
-  state.strategy.processedClosedTrades = Array.from(processed).slice(-50);
+  state.strategy.processedClosedTrades = Array.from(processedClosed).slice(-50);
+  state.strategy.processedSwitchFailures = Array.from(processedFailures).slice(-80);
   if (strategyEvents.length) {
     state.activity = [
       ...strategyEvents.reverse().map((message) => line(message)),
