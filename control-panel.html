@@ -36,6 +36,7 @@
         </div>
         <div class="system-card">
           <span class="system-label">Simple mode</span>
+          <small id="feedConnectionStatus" role="status">Feeds not checked while trading is stopped.</small>
           <strong id="engineStatus">Deposit first</strong>
           <div class="top-active-trader" aria-label="Trading now">
             <span>Trading now</span>
@@ -92,7 +93,7 @@
             <div class="metric-grid trading-summary">
               <article><span>Decu Win deposit</span><strong id="frogBalance">Deposit: $0.00</strong></article>
               <article><span>Decu Win USDC now</span><strong id="frogUsdcNow">$0.00</strong></article>
-              <article><span>Decu Win he has not sold yet</span><strong id="frogOpenValue">$0.00</strong></article>
+              <article><span>Decu Win tokens still in wallet</span><strong id="frogOpenValue">$0.00</strong></article>
               <article><span>Decu Win total value</span><strong id="frogTotalValue">$0.00</strong></article>
               <article><span>Decu Win real sold loss</span><strong id="frogLoss">$0.00</strong></article>
               <article><span>Decu Win SOL gas</span><strong id="frogSolBalance">Checking...</strong></article>
@@ -101,7 +102,7 @@
               <article><span>Decu today</span><strong id="frogTraderTodayPnl">$0.00</strong></article>
               <article><span>Risk Win shared deposit</span><strong id="truenestBalance">Shared: $0.00</strong></article>
               <article><span>Risk Win USDC now</span><strong id="truenestUsdcNow">$0.00</strong></article>
-              <article><span>Risk Win he has not sold yet</span><strong id="truenestOpenValue">$0.00</strong></article>
+              <article><span>Risk Win tokens still in wallet</span><strong id="truenestOpenValue">$0.00</strong></article>
               <article><span>Risk Win total value</span><strong id="truenestTotalValue">$0.00</strong></article>
               <article><span>Risk Win real sold loss</span><strong id="truenestLoss">$0.00</strong></article>
               <article><span>Risk Win SOL gas</span><strong id="truenestSolBalance">Checking...</strong></article>
@@ -113,17 +114,17 @@
 
             <section class="watch-tape open-holdings-panel" aria-labelledby="topOpenPositionsTitle">
               <div class="chart-head">
-                <strong id="topOpenPositionsTitle">He has not sold yet</strong>
-                <span>Coins Decu/Risk bought and the trader has not fully sold yet.</span>
+                <strong id="topOpenPositionsTitle">Coins still in your wallet</strong>
+                <span>Copied tokens checked against your actual wallet balance.</span>
               </div>
               <ul id="watchOpenPositions">
-                <li>No coin he has not sold yet is showing now.</li>
+                <li>No coin tokens still in wallet is showing now.</li>
               </ul>
             </section>
 
             <section class="watch-tape stock-coins-panel" aria-labelledby="topStockCoinsTitle">
               <div class="chart-head">
-                <strong id="topStockCoinsTitle">Stock coins</strong>
+                <strong id="topStockCoinsTitle">Stuck coins</strong>
                 <span>Trader sold, but this coin may still be open on our side.</span>
               </div>
               <ul id="watchStockCoins">
@@ -134,7 +135,7 @@
             <section class="watch-tape closed-trades-panel" aria-labelledby="topClosedTradesTitle">
               <div class="chart-head">
                 <strong id="topClosedTradesTitle">Closed trades</strong>
-                <span>Bought and sold successfully.</span>
+                <span>Sold coins, including losses.</span>
               </div>
               <ul id="watchClosedTrades">
                 <li>No closed trade is showing now.</li>
@@ -170,17 +171,17 @@
                 <article>
                   <span>USDC now</span>
                   <strong id="watchUsdcNow">$0.00</strong>
-                  <small id="watchLossNow">He has not sold yet: $0.00 | Total value: $0.00 | Real sold loss: $0.00</small>
+                  <small id="watchLossNow">Coins still in your wallet: $0.00 | Total value: $0.00 | Real sold loss: $0.00</small>
                 </article>
                 <article>
-                  <span>He has not sold yet</span>
+                  <span>Coins still in your wallet</span>
                   <strong id="watchOpenValue">$0.00</strong>
-                  <small>Coins the trader has not fully sold yet.</small>
+                  <small>Your remaining copied tokens. Dollar value may be unavailable.</small>
                 </article>
                 <article>
                   <span>Total wallet value</span>
                   <strong id="watchTotalValue">$0.00</strong>
-                  <small>USDC cash plus coin value he has not sold yet.</small>
+                  <small>USDC cash plus coin value tokens still in wallet.</small>
                 </article>
                 <article>
                   <span>Copied trader total</span>
@@ -297,7 +298,7 @@
                   <div><span>Copied signals</span><strong id="frogSignals">0</strong></div>
                   <div><span>Profit made</span><strong id="frogRoomProfit">$0.00</strong></div>
                   <div><span>USDC now</span><strong id="frogRoomUsdc">$0.00</strong></div>
-                  <div><span>He has not sold yet</span><strong id="frogRoomOpenValue">$0.00</strong></div>
+                  <div><span>Coins still in your wallet</span><strong id="frogRoomOpenValue">$0.00</strong></div>
                   <div><span>Total value</span><strong id="frogRoomTotalValue">$0.00</strong></div>
                   <div><span>Profit locked as USDC cash</span><strong id="frogRoomLockedProfit">$0.00</strong></div>
                   <div><span>Tradeable head money</span><strong id="frogRoomTradeable">$0.00</strong></div>
@@ -315,14 +316,14 @@
                 </div>
 
                 <div class="room-copy-thread">
-                  <h4>He has not sold yet</h4>
+                  <h4>Coins still in your wallet</h4>
                   <ul id="frogOpenPositions">
-                    <li>No coin he has not sold yet is showing now.</li>
+                    <li>No coin tokens still in wallet is showing now.</li>
                   </ul>
                 </div>
 
                 <div class="room-copy-thread stock-coins-panel">
-                  <h4>Stock coins</h4>
+                  <h4>Stuck coins</h4>
                   <ul id="frogStockCoins">
                     <li>No stock coin is showing now.</li>
                   </ul>
@@ -330,7 +331,7 @@
 
                 <div class="room-copy-thread closed-trades-panel">
                   <h4>Closed trades</h4>
-                  <p>Bought and sold successfully.</p>
+                  <p>Sold coins, including losses.</p>
                   <ul id="frogClosedTrades">
                     <li>No closed trade is showing now.</li>
                   </ul>
@@ -422,7 +423,7 @@
                   <div><span>Copied signals</span><strong id="truenestSignals">0</strong></div>
                   <div><span>Profit made</span><strong id="truenestRoomProfit">$0.00</strong></div>
                   <div><span>USDC now</span><strong id="truenestRoomUsdc">$0.00</strong></div>
-                  <div><span>He has not sold yet</span><strong id="truenestRoomOpenValue">$0.00</strong></div>
+                  <div><span>Coins still in your wallet</span><strong id="truenestRoomOpenValue">$0.00</strong></div>
                   <div><span>Total value</span><strong id="truenestRoomTotalValue">$0.00</strong></div>
                   <div><span>Profit locked as USDC cash</span><strong id="truenestRoomLockedProfit">$0.00</strong></div>
                   <div><span>Tradeable head money</span><strong id="truenestRoomTradeable">$0.00</strong></div>
@@ -440,14 +441,14 @@
                 </div>
 
                 <div class="room-copy-thread">
-                  <h4>He has not sold yet</h4>
+                  <h4>Coins still in your wallet</h4>
                   <ul id="truenestOpenPositions">
-                    <li>No coin he has not sold yet is showing now.</li>
+                    <li>No coin tokens still in wallet is showing now.</li>
                   </ul>
                 </div>
 
                 <div class="room-copy-thread stock-coins-panel">
-                  <h4>Stock coins</h4>
+                  <h4>Stuck coins</h4>
                   <ul id="truenestStockCoins">
                     <li>No stock coin is showing now.</li>
                   </ul>
@@ -455,7 +456,7 @@
 
                 <div class="room-copy-thread closed-trades-panel">
                   <h4>Closed trades</h4>
-                  <p>Bought and sold successfully.</p>
+                  <p>Sold coins, including losses.</p>
                   <ul id="truenestClosedTrades">
                     <li>No closed trade is showing now.</li>
                   </ul>

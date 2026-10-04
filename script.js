@@ -75,6 +75,7 @@ let stockAlarmTimer = null;
 let stockAlarmAudio = null;
 
 function money(value) {
+  if (typeof value === "number" && !Number.isFinite(value)) return "Value not verified";
   const amount = Number(value || 0);
   return amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
@@ -185,11 +186,11 @@ function tradeSide(trade = {}) {
 }
 
 function tradeTokenKey(trade = {}) {
-  return String(trade.tradedTokenMint || trade.tokenMint || trade.token || "").trim().toLowerCase();
+  return String(trade.execution?.action === "sell" ? trade.execution.inputMint : trade.execution?.action === "buy" ? trade.execution.outputMint : trade.tradedTokenMint || trade.tokenMint || trade.token || "").trim();
 }
 
 function tradeTokenMint(trade = {}) {
-  return String(trade.tradedTokenMint || trade.tokenMint || trade.token || "").trim();
+  return tradeTokenKey(trade);
 }
 
 function tradeStatusText(trade = {}) {
@@ -214,6 +215,7 @@ function tradeWasExecuted(trade = {}) {
 
 function tradeUsdAmount(trade = {}) {
   const values = [
+    trade.execution?.action === "buy" && trade.execution?.inputMint === "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" ? Number(trade.execution.copiedTradeAmount) / 1e6 : null,
     trade.amount,
     trade.usd,
     trade.sourceUsd,
@@ -234,7 +236,7 @@ function soldTokenKey(trade = {}) {
   const direct = tradeTokenKey(trade);
   const detail = tradeDetailText(trade);
   const heldMatch = detail.match(/sold last held copied token\s+([1-9A-HJ-NP-Za-km-z]{32,44})/i);
-  if (heldMatch) return heldMatch[1].toLowerCase();
+  if (heldMatch) return heldMatch[1];
   return direct;
 }
 
@@ -291,13 +293,7 @@ function positionSummariesFromTrades(trades = [], profile = "frog") {
         return;
       }
 
-      const fallback = Array.from(positions.values()).find((position) => {
-        return Math.max(0, position.boughtUsd - position.soldUsd) > 0;
-      });
-      if (fallback) {
-        fallback.soldUsd += amount;
-        fallback.sells += 1;
-      }
+
     }
   });
 
@@ -308,9 +304,15 @@ function positionSummariesFromTrades(trades = [], profile = "frog") {
         const afterBuy = !position.firstBuyDateValue || !sell.dateValue || sell.dateValue >= position.firstBuyDateValue;
         return sameToken && afterBuy;
       });
+      const balance = walletBalance(profile);
+      const balanceKnown = !balance.error && Boolean(balance.tokens) && Date.now() - Date.parse(balance.updatedAt || "") < 60000;
+      const holding = balanceKnown ? balance.tokens[position.tokenKey] : null;
+      const held = balanceKnown ? BigInt(holding?.raw || "0") > 0n : null;
       return {
         ...position,
-        openUsd: Math.max(0, position.boughtUsd - position.soldUsd),
+        balanceKnown, held, heldAmount: holding?.amount || 0,
+        openUsd: held === false ? 0 : NaN,
+        netProceeds: position.soldUsd - position.boughtUsd,
         traderSellSignals: relatedSells.length,
         failedSellSignals: relatedSells.filter((sell) => !sell.executed).length,
         lastSellSignalTime: relatedSells.at(-1)?.time || ""
@@ -321,13 +323,13 @@ function positionSummariesFromTrades(trades = [], profile = "frog") {
 
 function openPositionsFromTrades(trades = [], profile = "frog") {
   return positionSummariesFromTrades(trades, profile)
-    .filter((position) => position.openUsd > 0.01)
+    .filter((position) => position.held !== false)
     .sort((left, right) => right.openUsd - left.openUsd);
 }
 
 function stockCoinsFromTrades(trades = [], profile = "frog") {
   return positionSummariesFromTrades(trades, profile)
-    .filter((position) => position.openUsd > 0.01 && position.traderSellSignals > 0)
+    .filter((position) => position.held === true && position.traderSellSignals > 0)
     .sort((left, right) => right.failedSellSignals - left.failedSellSignals || right.openUsd - left.openUsd);
 }
 
@@ -342,7 +344,7 @@ function stockCoinKey(position = {}) {
 
 function closedTradesFromTrades(trades = [], profile = "frog") {
   return positionSummariesFromTrades(trades, profile)
-    .filter((position) => position.boughtUsd > 0.01 && position.soldUsd >= position.boughtUsd - 0.01)
+    .filter((position) => position.balanceKnown && position.held === false && position.sells > 0)
     .sort((left, right) => right.soldUsd - left.soldUsd);
 }
 
@@ -351,19 +353,22 @@ function profileOpenValue(trades = [], profile = "frog") {
 }
 
 function profileTotalWalletValue(settings = {}, profile = "frog") {
-  return balanceUsdc(profile) + profileOpenValue(latestState.trades || [], profile);
+  const balance = walletBalance(profile);
+  if (!balance.tokens || balance.error) return NaN;
+  const hasUnpricedTokens = Object.entries(balance.tokens).some(([mint, token]) => mint !== "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" && BigInt(token.raw || "0") > 0n);
+  return hasUnpricedTokens ? NaN : balanceUsdc(profile);
 }
 
 function renderOpenPositions(listId, summaryId, trades = [], profile = "frog") {
   const list = $(listId);
   const positions = openPositionsFromTrades(trades, profile);
   const openValue = positions.reduce((sum, position) => sum + position.openUsd, 0);
-  setText(summaryId, money(openValue));
+  setText(summaryId, positions.length ? `${positions.length} token${positions.length === 1 ? "" : "s"}; value unverified` : "No copied tokens held");
   if (!list) return;
   list.innerHTML = "";
   if (!positions.length) {
     const li = document.createElement("li");
-    li.textContent = "No coin he has not sold yet is showing now.";
+    li.textContent = "No remaining copied tokens found in the latest wallet check.";
     list.appendChild(li);
     return;
   }
@@ -372,8 +377,8 @@ function renderOpenPositions(listId, summaryId, trades = [], profile = "frog") {
     const li = document.createElement("li");
     li.innerHTML = `
       <strong>${escapeHtml(position.token)}</strong>
-      <span>Bought: ${money(position.boughtUsd)} | Sold: ${money(position.soldUsd)} | Still open: ${money(position.openUsd)}</span>
-      <em>He has not sold this one fully yet. ${position.buys} buy${position.buys === 1 ? "" : "s"}${position.lastBuyTime ? ` · ${escapeHtml(position.lastBuyTime)}` : ""}</em>
+      <span>Bought: ${money(position.boughtUsd)} | Sold: ${money(position.soldUsd)} | Wallet tokens: ${position.balanceKnown ? escapeHtml(String(position.heldAmount)) : "Balance unverified"}</span>
+      <em>Your wallet holding; the trader’s current holding is not verified. ${position.buys} buy${position.buys === 1 ? "" : "s"}${position.lastBuyTime ? ` · ${escapeHtml(position.lastBuyTime)}` : ""}</em>
     `;
     list.appendChild(li);
   });
@@ -386,7 +391,7 @@ function renderStockCoins(listId, trades = [], profile = "frog") {
   list.innerHTML = "";
   if (!positions.length) {
     const li = document.createElement("li");
-    li.textContent = "No stock coin is showing now.";
+    li.textContent = "No verified stuck copied tokens. Check connection status if wallet data is unavailable.";
     list.appendChild(li);
     return;
   }
@@ -398,9 +403,9 @@ function renderStockCoins(listId, trades = [], profile = "frog") {
     const mint = position.tokenMint || position.token;
     li.innerHTML = `
       <strong>${escapeHtml(position.token)}</strong>
-      <span>Still open: ${money(position.openUsd)} | Trader sell signals seen: ${position.traderSellSignals}</span>
-      <span>How it got stock: he sold this coin, but your wallet still shows open value. Sell it here to clear it.</span>
-      <em>Check this coin. He has sold before, but our side may still be holding it${position.lastSellSignalTime ? ` · ${escapeHtml(position.lastSellSignalTime)}` : ""}</em>
+      <span>Wallet tokens: ${position.balanceKnown ? escapeHtml(String(position.heldAmount)) : "Balance unverified"} | Trader sell signals seen: ${position.traderSellSignals}</span>
+      <span>A sell signal was recorded and the latest wallet check still shows tokens.</span>
+      <em>Latest balance confirms remaining tokens after a sell signal${position.lastSellSignalTime ? ` · ${escapeHtml(position.lastSellSignalTime)}` : ""}</em>
       <button class="stop-action stock-sell-action" type="button">Auto sell this stock coin</button>
       <small id="${escapeHtml(resultId)}">Not sold from this button yet.</small>
     `;
@@ -460,11 +465,11 @@ function renderClosedTradesList(listId, trades = [], profile = "frog") {
 
   positions.forEach((position) => {
     const li = document.createElement("li");
-    li.className = "tape-win";
+    li.className = position.netProceeds < 0 ? "tape-loss" : "tape-win";
     li.innerHTML = `
       <strong>${escapeHtml(position.token)}</strong>
       <span>Bought: ${money(position.boughtUsd)} | Sold: ${money(position.soldUsd)}</span>
-      <em>Bought and sold successfully.</em>
+      <em>Wallet balance is zero. Recorded proceeds minus buys: ${money(position.netProceeds)}. Limited trade history; network fees excluded.</em>
     `;
     list.appendChild(li);
   });
@@ -659,7 +664,7 @@ function renderTrades(trades = []) {
       <td>${trade.token || "-"}</td>
       <td>${money(trade.amount)}</td>
       <td>${money(pnl)}</td>
-      <td>${escapeHtml(trade.status || "-")}${trade.executionError ? `<br>${escapeHtml(trade.executionError)}` : ""}</td>
+      <td>${escapeHtml(trade.status || "-")}${trade.execution?.submittedAt ? `<br>Copy submitted: ${escapeHtml(trade.execution.submittedAt)}<br>Execution response: ${escapeHtml(trade.execution.confirmedAt || "Pending")}` : ""}${trade.executionError ? `<br>${escapeHtml(trade.executionError)}` : ""}</td>
     `;
     tradeRows.appendChild(row);
   });
@@ -1094,7 +1099,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = [], strategy = {
   setText("watchProfit", money(profit));
   setText("watchProfitNote", profit > 0 ? "Profit is positive." : profit < 0 ? "Profit is negative." : "No profit recorded yet.");
   setText("watchUsdcNow", money(usdcNow));
-  setText("watchLossNow", `He has not sold yet: ${money(openValue)} | Total value: ${money(totalWalletValue)} | Real sold loss: ${money(lossNow)}`);
+  setText("watchLossNow", `USDC cash: ${money(balanceUsdc(profile))} | Token value: ${money(openValue)} | Total: ${money(totalWalletValue)}`);
   setText("watchOpenValue", money(openValue));
   setText("watchTotalValue", money(totalWalletValue));
   setText("watchTraderPnl", signedMoney(traderPnl));
@@ -1141,6 +1146,8 @@ function renderState(state) {
   const trades = latestState.trades || [];
   const backend = latestState.backend || {};
   const strategy = latestState.strategy || {};
+  const feedRows = backend.feeds || [];
+  setText("feedConnectionStatus", feedRows.length ? feedRows.map((f) => `${profileName(f.profile)} ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`).join(" · ") : "Feeds not checked while trading is stopped. GMGN connection is not yet verified.");
   const liveTradingEnv = backend.liveTradingEnv === true;
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
   const queueRunning = Boolean(profiles.safe?.running || profiles.frog?.running || profiles.truenest?.running);

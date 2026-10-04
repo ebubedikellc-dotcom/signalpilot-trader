@@ -640,7 +640,8 @@ function statusPayload(state, session) {
       liveTradingEnv,
       productionExecution,
       workerIntervalMs,
-      maxSignalAgeMs
+      maxSignalAgeMs: buyFreshnessLimitMs,
+      feeds: feedHealth()
     },
     auth: session ? { role: session.role, id: session.id } : null
   };
@@ -650,10 +651,12 @@ async function walletBalances(state) {
   const primaryConnection = solanaConnection(state.settings);
   const fallbackConnection = publicSolanaConnection();
   const balances = {};
+  const checkedWallets = new Map();
 
   for (const profile of supportedProfiles) {
     const wallet = tradeWallet(state, profile);
     const key = solanaAddress(wallet);
+    if (checkedWallets.has(wallet)) { balances[profile] = checkedWallets.get(wallet); continue; }
     balances[profile] = {
       address: wallet || "",
       sol: null,
@@ -668,6 +671,7 @@ async function walletBalances(state) {
 
     try {
       balances[profile] = await walletBalanceFromConnection(primaryConnection, wallet, key);
+      checkedWallets.set(wallet, balances[profile]);
     } catch (error) {
       if (!isRateLimitError(error)) {
         balances[profile].error = error.message || "Balance check failed";
@@ -686,20 +690,20 @@ async function walletBalances(state) {
 }
 
 async function walletBalanceFromConnection(connection, wallet, key) {
-  const [lamports, tokenAccounts] = await Promise.all([
+  const [lamports, ordinary, extensions] = await Promise.all([
     connection.getBalance(key, "confirmed"),
-    connection.getParsedTokenAccountsByOwner(key, { mint: new PublicKey(usdcMint) }, "confirmed")
+    connection.getParsedTokenAccountsByOwner(key, { programId: tokenProgramId }, "confirmed"),
+    connection.getParsedTokenAccountsByOwner(key, { programId: new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb") }, "confirmed")
   ]);
-  const usdc = (tokenAccounts.value || []).reduce((sum, item) => {
-    return sum + Number(item.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0);
-  }, 0);
-  return {
-    address: wallet,
-    sol: lamports / LAMPORTS_PER_SOL,
-    usdc,
-    error: "",
-    updatedAt: new Date().toISOString()
-  };
+  const tokens = {};
+  for (const item of [...ordinary.value, ...extensions.value]) {
+    const info = item.account?.data?.parsed?.info;
+    if (!info?.mint) continue;
+    const previous = tokens[info.mint];
+    const raw = BigInt(previous?.raw || "0") + BigInt(info.tokenAmount.amount);
+    tokens[info.mint] = { raw: String(raw), decimals: info.tokenAmount.decimals, amount: Number(raw) / 10 ** info.tokenAmount.decimals };
+  }
+  return { address: wallet, sol: lamports / LAMPORTS_PER_SOL, usdc: tokens[usdcMint]?.amount || 0, tokens, error: "", updatedAt: new Date().toISOString() };
 }
 
 async function tokenUiBalance(connection, owner, mint) {
@@ -1623,6 +1627,16 @@ async function latestHeldCopiedToken(connection, state, profile, wallet) {
   return null;
 }
 
+const buyFreshnessLimitMs = 500;
+function buyFreshnessError(transaction, now = Date.now()) {
+  const sourceMs = Number(transaction.timestamp) * 1000;
+  if (!Number.isFinite(sourceMs) || sourceMs <= 0) return "Buy blocked: source timestamp unavailable";
+  const age = now - sourceMs;
+  if (age < 0) return "Buy blocked: source clock is ahead; freshness unverified";
+  if (age > buyFreshnessLimitMs) return `Buy blocked: signal is ${Math.round(age)}ms old; maximum 500ms`;
+  return "";
+}
+
 async function executeCopiedSwap(profile, transaction, state) {
   return withWalletOperation(() => executeCopiedSwapLocked(profile, transaction, state));
 }
@@ -1640,6 +1654,12 @@ async function executeCopiedSwapLocked(profile, transaction, state) {
     return { status: "Skipped - unsupported swap format" };
   }
 
+  if (leg.action === "buy") {
+    if (state.strategy?.activeProfile !== profile) return { status: "Buy blocked: trader selection changed" };
+    const reason = buyFreshnessError(transaction);
+    if (reason) return { status: reason };
+  }
+  const detectedAt = transaction.detectedAt || new Date().toISOString();
   const wallet = tradeWallet(state, profile);
   const signer = signerId(state, profile) || wallet;
   const apiKey = jupiterApiKey(state.settings);
@@ -1694,15 +1714,8 @@ async function executeCopiedSwapLocked(profile, transaction, state) {
   if (leg.action === "sell") {
     let heldAmount = await tokenBalanceRaw(connection, wallet, leg.inputMint);
     let sellNote = "Sell current copied token balance back to USDC";
-    if (!heldAmount) {
-      const fallback = await latestHeldCopiedToken(connection, state, profile, wallet);
-      if (!fallback) return { status: `Skipped - no ${leg.inputSymbol || "token"} balance to sell` };
-      inputMint = fallback.mint;
-      heldAmount = fallback.amount;
-      sellNote = `Decu sell detected; sold last held copied token ${fallback.mint} because direct sell token was not in wallet`;
-    } else {
-      inputMint = leg.inputMint;
-    }
+    if (!heldAmount) return { status: `Skipped - no ${leg.inputMint} balance to sell` };
+    inputMint = leg.inputMint;
     outputMint = usdcMint;
     copyAmount = {
       amount: heldAmount,
@@ -1728,8 +1741,17 @@ async function executeCopiedSwapLocked(profile, transaction, state) {
     throw new Error("Swap request exceeds the authorized buy amount; locked profit was not released");
   }
 
+  if (leg.action === "buy") {
+    const reason = buyFreshnessError(transaction);
+    if (reason) return { status: reason, detectedAt };
+  }
   const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
 
+  if (leg.action === "buy") {
+    const reason = buyFreshnessError(transaction);
+    if (reason) return { status: reason, detectedAt };
+  }
+  const submittedAt = new Date().toISOString();
   const executed = await jupiterJson("/swap/v2/execute", {
     apiKey,
     method: "POST",
@@ -1742,6 +1764,9 @@ async function executeCopiedSwapLocked(profile, transaction, state) {
 
   return {
     status: "Executed",
+    detectedAt,
+    submittedAt,
+    confirmedAt: new Date().toISOString(),
     action: leg.action,
     inputMint,
     outputMint,
@@ -1842,12 +1867,6 @@ async function autoSellStuckTokenAfterSellSignal(state, profile, leg, sourceTrad
   const candidates = [];
   if (leg.inputMint && !isQuoteMint(leg.inputMint)) candidates.push(leg.inputMint);
 
-  const normalSellExecuted = String(sourceTrade.status || "").toLowerCase().includes("executed");
-  if (!normalSellExecuted) {
-    const fallback = await latestHeldCopiedToken(connection, state, profile, wallet);
-    if (fallback?.mint && !candidates.includes(fallback.mint)) candidates.push(fallback.mint);
-  }
-
   for (const mint of candidates) {
     const balance = await tokenBalanceRaw(connection, wallet, mint);
     if (!balance) continue;
@@ -1921,12 +1940,11 @@ async function autoSellStockCoinsFromHistory(state) {
       if (!action.includes("sell") || !boughtMints.has(mint)) continue;
       const key = autoStockSellKey(profile, mint, trade);
       if (processed.has(key)) continue;
-      processed.add(key);
-
       const balance = await tokenBalanceRaw(connection, wallet, mint);
-      if (!balance) continue;
+      if (!balance) { processed.add(key); continue; }
 
       const result = await executeManualTokenSell(state, { profile, mint, automatic: true });
+      processed.add(key);
       const autoTrade = {
         id: result.txid || randomUUID(),
         signature: result.txid || "",
@@ -1996,7 +2014,7 @@ async function fetchTransactionsForAddress(apiKey, address) {
   const url = new URL(`https://api.helius.xyz/v0/addresses/${encodeURIComponent(address)}/transactions`);
   url.searchParams.set("api-key", apiKey);
   url.searchParams.set("limit", "25");
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
   if (!response.ok) {
     const help = response.status === 429
       ? "Helius returned 429. Refresh the paid Helius API key in Settings before starting live copy trading."
@@ -2399,155 +2417,61 @@ async function processSignalTransactions(state, profile, transactions, newest, c
   return newTrades;
 }
 
-async function runCopyWorkerOnce() {
+const signalFeeds = new Map();
+const feedRequests = new Set();
+async function pollSignalFeeds() {
   const state = await readState();
-  const activeProfile = supportedProfiles.includes(state.strategy?.activeProfile) ? state.strategy.activeProfile : "frog";
-  const queueRunning = supportedProfiles.some((profile) => Boolean(state.profiles?.[profile]?.running));
-  const runningProfiles = queueRunning ? supportedProfiles : [];
-  if (!runningProfiles.length) return;
-
-  if (!state.settings?.heliusKey) {
-    state.activity = [line("Copy worker is waiting for Helius API key."), ...(state.activity || [])].slice(0, 20);
-    await saveState(state);
-    return;
-  }
-
-  for (const profile of runningProfiles) {
+  if (!supportedProfiles.some((p) => state.profiles?.[p]?.running)) return;
+  for (const profile of supportedProfiles) {
     const wallet = targetWallet(state, profile);
     if (!wallet) continue;
-    let gmgnHandled = false;
-    const gmgnKeyAvailable = Boolean(String(state.settings?.gmgnApiKey || process.env.GMGN_API_KEY || "").trim());
-    if (gmgnKeyAvailable) {
-      try {
-        const gmgnTransactions = await fetchGmgnTransactionsForAddress(state.settings, wallet);
-        const gmgnNewest = newestSignature(gmgnTransactions);
-        if (gmgnNewest) {
-          await processSignalTransactions(state, profile, gmgnTransactions, gmgnNewest, "lastGmgnSignature", "GMGN");
-          gmgnHandled = true;
-        }
-      } catch (error) {
-        if (shouldLogGmgnWarning(state, profile)) {
-          state.profiles[profile].lastGmgnWarningAt = Date.now();
-          state.activity = [
-            line(`GMGN feed warning for ${profileLabel(profile)}: ${error.message}. Helius Enhanced backup is still watching.`),
-            ...(state.activity || [])
-          ].slice(0, 20);
-        }
-      }
-    }
-
-    if (gmgnHandled) continue;
-
-    const transactions = await fetchTransactionsForAddress(state.settings.heliusKey, wallet);
-    const newest = newestSignature(transactions);
-    if (!newest) continue;
-
-    if (!state.profiles[profile].lastSignature) {
-      state.profiles[profile].lastSignature = newest;
-      state.activity = [line(`${profileLabel(profile)} worker synced to latest wallet transaction.`), ...(state.activity || [])].slice(0, 20);
-      continue;
-    }
-
-    const unseen = [];
-    for (const transaction of transactions) {
-      if (transaction.signature === state.profiles[profile].lastSignature) break;
-      if (transaction.signature) unseen.push(transaction);
-    }
-
-    if (!unseen.length) continue;
-    const existing = new Set((state.trades || []).map((trade) => trade.signature || trade.id));
-    const orderedUnseen = [...unseen].reverse();
-    const signalTransactions = orderedUnseen
-      .filter((transaction) => {
-        if (existing.has(transaction.signature) || !copyableSignal(profile, transaction, state)) return false;
-        return true;
-      })
-    const newTrades = [];
-
-    if (!signalTransactions.length && shouldLogNoSignal(state, profile)) {
-      state.profiles[profile].lastNoSignalAt = Date.now();
-      const sample = unseen[0] ? movementSummary(unseen[0]) : "wallet movement";
-      const swapLikeCount = orderedUnseen.filter(looksLikeSwap).length;
-      const nonTradeReasons = orderedUnseen
-        .map((transaction) => nonTradeMovementReason(profile, transaction, state))
-        .filter(Boolean);
-      const latestNonTradeReason = unseen[0] ? nonTradeMovementReason(profile, unseen[0], state) : "";
-      const note = nonTradeReasons.length === orderedUnseen.length
-        ? `${profileLabel(profile)} ignored ${unseen.length} non-trade movement${unseen.length === 1 ? "" : "s"} (${latestNonTradeReason || "not a wallet buy/sell"}). Latest was ${sample}.`
-        : swapLikeCount
-          ? `${profileLabel(profile)} saw ${swapLikeCount} swap-like movement${swapLikeCount === 1 ? "" : "s"}, but none showed a safe ${profileLabel(profile)} token-in/token-out trade, so it did not copy blindly. Latest was ${sample}.`
-          : `${profileLabel(profile)} saw ${unseen.length} new Decu movement${unseen.length === 1 ? "" : "s"}, but no buy/sell swap was found. Latest was ${sample}.`;
-      state.activity = [
-        line(`${note}${nonTradeReasons.length === orderedUnseen.length ? "" : " Use the exact GMGN trade feed or signer wallet if these are real trades that Helius cannot decode."}`),
-        ...(state.activity || [])
-      ].slice(0, 20);
-    }
-
-    for (const transaction of signalTransactions) {
-      const trade = tradeFromTransaction(profile, transaction, state);
-      const leg = primarySwapLeg(transaction, profile, state);
-      const activeForBuys = profile === state.strategy.activeProfile;
-      const canExecute = liveTradingAllowed(state, profile) && ((activeForBuys && !state.strategy?.paused) || leg?.action === "sell");
-      if (canExecute) {
-        try {
-          const execution = await executeCopiedSwap(profile, transaction, state);
-          trade.status = execution.status;
-          trade.execution = execution;
-          if (execution.outputSymbol) trade.token = execution.outputSymbol;
-          if (execution.swapUsdValue) trade.amount = Number(execution.swapUsdValue);
-        } catch (error) {
-          trade.status = "Execution failed";
-          trade.executionError = error.message;
-        }
-      } else if (liveTradingAllowed(state, profile) && leg?.action === "buy" && !activeForBuys) {
-        trade.status = "Watched - inactive bot, no buy";
-      }
-      newTrades.push(trade);
-
-      if (canExecute && leg?.action === "sell") {
-        try {
-          const stuckSellTrade = await autoSellStuckTokenAfterSellSignal(state, profile, leg, trade);
-          if (stuckSellTrade) {
-            newTrades.push(stuckSellTrade);
-            state.activity = [
-              line(`${profileLabel(profile)} auto-sold stuck token ${stuckSellTrade.tradedTokenMint.slice(0, 6)}...${stuckSellTrade.tradedTokenMint.slice(-4)} after Decu sell.`),
-              ...(state.activity || [])
-            ].slice(0, 20);
-          }
-        } catch (error) {
-          state.activity = [
-            line(`${profileLabel(profile)} stuck token auto-sell failed: ${error.message}`),
-            ...(state.activity || [])
-          ].slice(0, 20);
-        }
-      }
-    }
-
-    state.profiles[profile].lastSignature = newest;
-    if (newTrades.length) {
-      state.trades = [...newTrades, ...(state.trades || [])].slice(0, 100);
-      applyAutoSwitchStrategy(state, newTrades);
-      state.activity = [
-        line(`${profileLabel(profile)} worker found ${newTrades.length} new swap signal${newTrades.length === 1 ? "" : "s"}${liveTradingAllowed(state, profile) ? " and attempted execution" : ""}.`),
-        ...(state.activity || [])
-      ].slice(0, 20);
+    const sources = [];
+    if (state.settings.heliusKey) sources.push(["Helius", () => fetchTransactionsForAddress(state.settings.heliusKey, wallet)]);
+    if (state.settings.gmgnApiKey || process.env.GMGN_API_KEY) sources.push(["GMGN", () => fetchGmgnTransactionsForAddress(state.settings, wallet)]);
+    for (const [source, fetcher] of sources) {
+      const key = `${profile}:${source}`;
+      if (feedRequests.has(key)) continue;
+      feedRequests.add(key);
+      if (!signalFeeds.has(key)) signalFeeds.set(key, { profile, source, wallet, checkedAt: null, error: "", transactions: [] });
+      Promise.resolve().then(fetcher).then((transactions) => {
+        const checked = source === "GMGN" ? gmgnCache.get(`official:${wallet}`)?.at || Date.now() : Date.now();
+        const at = new Date(checked).toISOString();
+        signalFeeds.set(key, { profile, source, wallet, checkedAt: at, error: "", transactions: transactions.map((t) => ({ ...t, detectedAt: at })) });
+      }).catch((error) => {
+        signalFeeds.set(key, { profile, source, wallet, checkedAt: new Date().toISOString(), error: error.message, transactions: [] });
+      }).finally(() => feedRequests.delete(key));
     }
   }
-
-  try {
-    const stockSells = await autoSellStockCoinsFromHistory(state);
-    if (stockSells.length) applyAutoSwitchStrategy(state, stockSells);
-  } catch (error) {
-    state.activity = [
-      line(`Auto stock coin sell check failed: ${error.message}`),
-      ...(state.activity || [])
-    ].slice(0, 20);
+}
+function feedHealth() {
+  return Array.from(signalFeeds.values()).map(({ transactions, ...feed }) => ({
+    ...feed, status: feed.error ? "Disconnected" : !feed.checkedAt ? "Connecting" : Date.now() - Date.parse(feed.checkedAt) > 3000 ? "Delayed" : "Connected"
+  }));
+}
+async function runCopyWorkerOnce() {
+  const state = await readState();
+  if (!supportedProfiles.some((p) => state.profiles?.[p]?.running)) return;
+  const active = state.strategy.activeProfile;
+  const order = [active, ...supportedProfiles.filter((p) => p !== active)].filter(Boolean);
+  for (const profile of order) {
+    for (const source of ["Helius", "GMGN"]) {
+      const feed = signalFeeds.get(`${profile}:${source}`);
+      if (!feed || feed.error || feed.wallet !== targetWallet(state, profile)) continue;
+      const current = await readState();
+      if (!supportedProfiles.some((p) => current.profiles?.[p]?.running)) return;
+      if (Number(current.strategy.controlRevision || 0) > Number(state.strategy.controlRevision || 0)) state.strategy = current.strategy;
+      await processSignalTransactions(state, profile, feed.transactions, newestSignature(feed.transactions), source === "GMGN" ? "lastGmgnSignature" : "lastSignature", source);
+    }
   }
-
+  const current = await readState();
+  if (!supportedProfiles.some((p) => current.profiles?.[p]?.running)) return;
+  try { await autoSellStockCoinsFromHistory(state); }
+  catch (error) { state.activity = [line(`Automatic sell check: ${error.message}`), ...(state.activity || [])].slice(0,20); }
   await saveState(state);
 }
 
 function startCopyWorker() {
+  setInterval(() => { pollSignalFeeds().catch(() => {}); }, 500);
   let working = false;
   setInterval(async () => {
     if (working) return;
