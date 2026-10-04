@@ -759,7 +759,7 @@ function percent(value) {
 
 function localReady(data = payload()) {
   return Boolean(
-    data.heliusKey &&
+    data.gmgnApiKey &&
     data.routeApi &&
     data.turnkeyOrgId &&
     data.turnkeyApiPublicKey &&
@@ -1060,7 +1060,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = [], strategy = {
   const running = Boolean(profiles[profile]?.running);
   const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
   const lastTrade = roomTrades[0];
-  const heliusBlocked = heliusLimited();
+  const heliusBlocked = latestState.backend?.paidHeliusEnabled !== false && heliusLimited();
 
   setText("watchProfileName", label);
   setText("watchProfileStatus", running
@@ -1141,12 +1141,12 @@ function renderState(state) {
   ["frog", "truenest"].forEach(syncRoomProtectionFromMode);
 
   const ready = localReady(settings);
-  const heliusBlocked = heliusLimited();
+  const heliusBlocked = latestState.backend?.paidHeliusEnabled !== false && heliusLimited();
   if ($("frogStart")) $("frogStart").disabled = !ready || heliusBlocked || profiles.frog?.running;
   if ($("truenestStart")) $("truenestStart").disabled = !ready || heliusBlocked || profiles.truenest?.running;
   if ($("frogStop")) $("frogStop").disabled = !profiles.frog?.running;
   if ($("truenestStop")) $("truenestStop").disabled = !profiles.truenest?.running;
-  if ($("queueStart")) $("queueStart").disabled = !ready || heliusBlocked || queueRunning;
+  if ($("queueStart")) $("queueStart").disabled = backend.providerRepairHold || !ready || heliusBlocked || queueRunning;
   if ($("queueStop")) $("queueStop").disabled = !queueRunning;
   if ($("changeTrader")) $("changeTrader").disabled = queueRunning;
   if ($("selectedTrader") && document.activeElement !== $("selectedTrader")) $("selectedTrader").value = strategy.activeProfile || "frog";
@@ -1221,11 +1221,19 @@ function renderState(state) {
       ? "Render monitoring is on. Real buy/sell execution is still locked until EXECUTE_REAL_SWAPS=true is set in Render."
       : "Render monitoring is locked. Real trading cannot run until the Render environment is enabled.");
 
+  if (backend.providerRepairHold) {
+    setText("engineStatus", "GMGN selected — trading stopped");
+    setText("engineSubtext", "GMGN will supply trader activity after its connection is repaired. Paid Helius is disabled for this site. Wallet verification uses free public Solana RPC. Trading will not restart automatically.");
+    setText("watchProfileStatus", "Selected trader saved. Trading stays stopped during GMGN repair.");
+    setText("feedConnectionStatus", "GMGN connection not verified. No automatic trading during repair.");
+    setText("queueControlStatus", "Trading stays stopped during GMGN repair.");
+    return;
+  }
   if (!ready) {
     setText("engineStatus", "Trading locked - keys missing");
     setText("engineSubtext", "Backend is alive. Add the missing keys and wallet IDs inside this control panel, then Save.");
     const missing = [];
-    if (!settings.heliusKey) missing.push("Waiting for Helius API key.");
+    if (!settings.gmgnApiKey) missing.push("Waiting for GMGN API key.");
     if (!settings.routeApi) missing.push("Waiting for Jupiter / trading route API.");
     if (!settings.turnkeyOrgId) missing.push("Waiting for Turnkey organization ID.");
     if (!settings.turnkeyApiPublicKey) missing.push("Waiting for Turnkey API public key.");

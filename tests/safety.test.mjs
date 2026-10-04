@@ -82,14 +82,14 @@ test('sold-at-loss is closed; positive wallet quantity is open; absent wallet da
  assert.equal(c.stockCoinsFromTrades(trades).length,0);
  assert.equal(c.openPositionsFromTrades(trades)[0].held,null);
 });
-test('a slow GMGN request does not prevent independent Helius delivery',async()=>{
+test('GMGN is the sole activity feed even with a saved Helius key',async()=>{
  const c=vm.createContext({Date,Map,Set,Promise,syncLiveSubscriptions:async()=>{},wakeCopyWorker:async()=>{},wakeSellWorker:async()=>{},supportedProfiles:['safe'],
  readState:async()=>({profiles:{safe:{running:true}},settings:{heliusKey:'test',gmgnApiKey:'test'}}),
  targetWallet:()=> 'wallet',process:{env:{}},fetchTransactionsForAddress:async()=>[{signature:'new',timestamp:1}],
  fetchGmgnTransactionsForAddress:()=>new Promise(()=>{})});
  vm.runInContext(section(server,'const signalFeeds =','async function runCopyWorkerOnce()'),c);
  await c.pollSignalFeeds(); await new Promise(resolve=>setImmediate(resolve));
- const health=c.feedHealth(); assert.equal(health.find(f=>f.source==='Helius').status,'Connected');assert.equal(health.find(f=>f.source==='GMGN').status,'Connecting');
+ const health=c.feedHealth(); assert.equal(health.find(f=>f.source==='Helius'),undefined);assert.equal(health.find(f=>f.source==='GMGN').status,'Connecting');
 });
 test('stale worker cannot resume stopped trading',async()=>{
  let disk={strategy:{controlRevision:20},profiles:{safe:{running:false}}},temp;
@@ -107,15 +107,15 @@ test('queued sells run before queued buys after the current operation completes'
  const sell=c.withWalletOperation(async()=>order.push('sell'),100);
  unlock();await Promise.all([running,buy,sell]);assert.deepEqual(order,['running','sell','buy']);
 });
-test('notification listeners cover all configured traders across manual switching; Stop removes them',async()=>{
+test('paid notification subscriptions stay disabled across trader changes',async()=>{
  const callbacks=new Map();const removed=[];let id=0;
  const c=vm.createContext({Map,Set,Date,supportedProfiles:['safe','frog','truenest'],PublicKey:class{constructor(x){this.value=x}},
  targetWallet:(_,p)=>p,solanaConnection:()=>({onLogs:(wallet,cb)=>{callbacks.set(wallet.value,cb);return ++id},removeOnLogsListener:async n=>removed.push(n)})});
  vm.runInContext(section(server,'let wakeCopyWorker =','const signalFeeds ='),c);
  const state={profiles:{safe:{running:true}},settings:{heliusKey:'test'},strategy:{activeProfile:'safe'}};
- await c.syncLiveSubscriptions(state);assert.equal(callbacks.size,3);
- state.strategy.activeProfile='frog';await c.syncLiveSubscriptions(state);assert.equal(id,3);
- state.profiles.safe.running=false;await c.syncLiveSubscriptions(state);assert.equal(removed.length,3);
+ await c.syncLiveSubscriptions(state);assert.equal(callbacks.size,0);
+ state.strategy.activeProfile='frog';await c.syncLiveSubscriptions(state);assert.equal(id,0);
+ state.profiles.safe.running=false;await c.syncLiveSubscriptions(state);assert.equal(removed.length,0);
 });
 test('sell-first processing keeps its checkpoint and blocks buying a coin already sold in that batch',async()=>{
  const executed=[];

@@ -84,3 +84,9 @@ test('journal only counts confirmed fills and survives a restart without duplica
   const reloaded=createTradingJournal(file,'USDC');await reloaded.reconcile({getParsedTransaction:async()=>tx});assert.equal((await reloaded.load()).fills.length,1);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+test('GMGN repair hold rejects Start even when mode and keys are ready',async()=>{
+ const h=controls();h.state.settings.providerRepairHold=true;
+ const result=await h.run('/api/queue/start');assert.equal(result.code,409);assert.match(result.body.error,/GMGN/);
+ assert(Object.values(h.state.profiles).every(p=>!p.running));
+});

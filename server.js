@@ -410,6 +410,10 @@ function normalizeState(state) {
   state.activity = Array.isArray(state.activity) ? state.activity : [];
   state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
   state.strategy.activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "frog";
+  // Owner requested GMGN takeover with an explicit repair hold. No auto-resume.
+  state.settings.marketDataProvider = "gmgn";
+  state.settings.providerRepairHold = true;
+  for (const profile of supportedProfiles) state.profiles[profile].running = false;
   if (state.settings.manualModesVersion !== "v1") {
     for (const profile of supportedProfiles) state.profiles[profile].running = false;
     for (const profile of supportedProfiles) state.settings[`${profile}TradeMode`] = "both";
@@ -670,7 +674,11 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "manual-modes-v1",
+      appVersion: "gmgn-primary-repair-hold-v1",
+      marketDataProvider: "GMGN",
+      walletVerificationProvider: "Public Solana RPC",
+      paidHeliusEnabled: false,
+      providerRepairHold: true,
       liveTrading: productionExecution,
       liveTradingEnv,
       productionExecution,
@@ -714,16 +722,16 @@ async function walletBalances(state) {
       balances[profile] = await walletBalanceFromConnection(primaryConnection, wallet, key);
       checkedWallets.set(wallet, balances[profile]);
     } catch (error) {
-      if (!isRateLimitError(error)) {
+      if (state.settings.marketDataProvider === "gmgn" || !isRateLimitError(error)) {
         balances[profile].error = error.message || "Balance check failed";
         continue;
       }
       try {
         balances[profile] = await walletBalanceFromConnection(fallbackConnection, wallet, key);
-        balances[profile].warning = "Helius RPC limit reached. Balance is using public Solana RPC; refresh the paid Helius key before starting copy trading.";
+        balances[profile].warning = "Public Solana balance check was rate-limited. Trading remains stopped during GMGN repair.";
         checkedWallets.set(wallet, balances[profile]);
       } catch (fallbackError) {
-        balances[profile].error = `Helius limit reached and fallback balance failed: ${fallbackError.message || "Balance check failed"}`;
+        balances[profile].error = `Public Solana balance check unavailable: ${fallbackError.message || "Balance check failed"}`;
       }
     }
   }
@@ -823,7 +831,7 @@ function clean(input) {
 function ready(state) {
   const s = state.settings;
   return Boolean(
-    s.heliusKey &&
+    (s.gmgnApiKey || process.env.GMGN_API_KEY) &&
     s.routeApi &&
     s.turnkeyOrgId &&
     s.turnkeyApiPublicKey &&
@@ -887,7 +895,7 @@ function profileSurviveMaxUsd(state, profile) {
 }
 
 function liveTradingAllowed(state, profile = "") {
-  if (!ready(state) || process.env.ENABLE_LIVE_TRADING !== "true" || process.env.EXECUTE_REAL_SWAPS !== "true") {
+  if (state.settings.providerRepairHold || !ready(state) || process.env.ENABLE_LIVE_TRADING !== "true" || process.env.EXECUTE_REAL_SWAPS !== "true") {
     return false;
   }
   if (!profile) return supportedProfiles.some((item) => liveTradingAllowed(state, item));
@@ -1290,7 +1298,7 @@ function signerId(state) {
 }
 
 function solanaConnection(settings = {}, { fastRead = false } = {}) {
-  const key = String(settings.heliusKey || "").trim();
+  const key = ""; // Paid Helius disabled: use public Solana verification only.
   const endpoint = key
     ? `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(key)}`
     : clusterApiUrl("mainnet-beta");
@@ -2346,17 +2354,12 @@ async function fetchGmgnTransactionsForAddress(settings, address) {
 }
 
 async function assertHeliusReadyForProfile(state, profile) {
+  if (state.settings.providerRepairHold) throw new Error("Trading stays stopped while GMGN access is being repaired.");
   const wallet = targetWallet(state, profile);
-  if (!state.settings?.heliusKey) throw new Error("Add the paid Helius API key before starting.");
-  if (!wallet) throw new Error(`Add the ${profileLabel(profile)} trader wallet before starting.`);
-  try {
-    await fetchTransactionsForAddress(state.settings.heliusKey, wallet);
-  } catch (error) {
-    if (isRateLimitError(error)) {
-      throw new Error("Helius is still rate-limited. Paste/save the paid Helius API key first; otherwise SignalPilot cannot see new Decu trades.");
-    }
-    throw error;
-  }
+  if (!wallet) throw new Error("Choose a trader wallet before starting.");
+  const apiKey=String(state.settings.gmgnApiKey || process.env.GMGN_API_KEY || "").trim();
+  if (!apiKey) throw new Error("GMGN API key is missing.");
+  await fetchOfficialGmgnTransactionsForAddress(apiKey,wallet);
 }
 
 function signalAgeMs(transaction = {}) {
@@ -2560,7 +2563,7 @@ async function readDirectTransaction(job) {
 
 const liveSubscriptions = new Map();
 async function syncLiveSubscriptions(state) {
-  const enabled = monitoringEnabled(state);
+  const enabled = false; // GMGN is the selected feed; no paid Helius subscriptions.
   const wanted = new Set(enabled ? supportedProfiles.map((p) => targetWallet(state,p)).filter(Boolean) : []);
   for (const [wallet, sub] of liveSubscriptions) {
     if (!wanted.has(wallet) || sub.apiKey !== state.settings.heliusKey) {
@@ -2593,7 +2596,7 @@ async function pollSignalFeeds() {
     const wallet = targetWallet(state, profile);
     if (!wallet) continue;
     const sources = [];
-    if (state.settings.heliusKey) sources.push(["Helius", () => fetchTransactionsForAddress(state.settings.heliusKey, wallet)]);
+    // GMGN is the only selected trader-activity feed.
     if (state.settings.gmgnApiKey || process.env.GMGN_API_KEY) sources.push(["GMGN", () => fetchGmgnTransactionsForAddress(state.settings, wallet)]);
     for (const [source, fetcher] of sources) {
       const key = `${profile}:${source}`;
@@ -3193,6 +3196,7 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/queue/start") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    if (state.settings.providerRepairHold) { send(response,409,{error:"Trading stays stopped while GMGN access is being repaired. It will not restart automatically."}); return true; }
     if (state.settings.modesConfirmed !== "yes") { send(response,409,{error:"Choose and save your trading mode before starting."}); return true; }
     if (!ready(state)) {
       send(response, 400, { error: "Engine Room is not complete yet." });
