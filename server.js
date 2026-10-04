@@ -1,3 +1,4 @@
+import { createRpcReadPool } from "./lib/rpc-read-pool.mjs";
 import { inspectSwapSignature } from "./lib/swap-signature.mjs";
 import { createGmgnRequestGate, gmgnRetryAt } from "./lib/gmgn-rate-limit.mjs";
 import { validateGrowthSettings, growthSnapshot, growthTradeable, growthTransition } from "./lib/growth-goal.mjs";
@@ -704,8 +705,8 @@ function statusPayload(state, session) {
       appVersion: "grow-to-target-v1",
       marketDataProvider: "GMGN",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
-      walletVerificationProvider: "Public Solana RPC",
-      paidHeliusEnabled: false,
+      walletVerificationProvider: (state.settings.heliusKey || process.env.HELIUS_API_KEY) ? "Helius RPC" : "Public Solana RPC",
+      paidHeliusEnabled: Boolean(state.settings.heliusKey || process.env.HELIUS_API_KEY),
       providerRepairHold: state.settings.providerRepairHold === true,
       liveTrading: productionExecution,
       liveTradingEnv,
@@ -1351,20 +1352,38 @@ function signerId(state) {
   return state.settings.frogSignerToken || state.settings.truenestSignerToken || tradeWallet(state);
 }
 
+const rpcConnections = new Map();
 function solanaConnection(settings = {}, { fastRead = false } = {}) {
-  const key = ""; // Paid Helius disabled: use public Solana verification only.
-  const endpoint = key
-    ? `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(key)}`
-    : clusterApiUrl("mainnet-beta");
-  return new Connection(endpoint, fastRead ? {
-    commitment: "confirmed", disableRetryOnRateLimit: true,
-    fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(2500) })
-  } : "confirmed");
+  // GMGN supplies trader signals. The configured RPC still verifies our wallet.
+  const key = String(settings.heliusKey || process.env.HELIUS_API_KEY || '').trim();
+  const endpoint = key ? `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(key)}` : clusterApiUrl('mainnet-beta');
+  if (!rpcConnections.has(endpoint)) {
+    const pool = createRpcReadPool({intervalMs: key ? 200 : 400});
+    const connection = new Connection(endpoint, {
+      commitment:'confirmed', disableRetryOnRateLimit:true,
+      fetch: async (url, options) => {
+        try { return pool.observe(await fetch(url,{...options,signal:AbortSignal.timeout(key ? 8000 : 4000)})); }
+        catch { throw new Error('Wallet verification connection failed or timed out.'); }
+      }
+    });
+    rpcConnections.set(endpoint,pool.wrap(connection));
+  }
+  const shared = rpcConnections.get(endpoint);
+  return new Proxy(shared,{get(target,property){
+    const value=Reflect.get(target,property,target);
+    if(typeof value!=='function')return value;
+    return (...args)=>{
+      const result=value(...args);
+      if(!result?.catch)return result;
+      return result.catch(error=>{
+        if(key)error.message=String(error.message).split(key).join('[redacted]');
+        throw error;
+      });
+    };
+  }});
 }
 
-function publicSolanaConnection() {
-  return new Connection(clusterApiUrl("mainnet-beta"), "confirmed");
-}
+function publicSolanaConnection() { return solanaConnection({}); }
 
 function isRateLimitError(error) {
   return /429|max usage|rate limit|resource exhausted/i.test(String(error?.message || error || ""));
@@ -2052,7 +2071,10 @@ function queueSourceObservation(profile,transaction,state) {
   sourceObservationQueue.set(key,{profile,transaction,wallet:targetWallet(state,profile),leg:primarySwapLeg(transaction,profile,state)});
   if(sourceObservationQueue.size>500)sourceObservationQueue.delete(sourceObservationQueue.keys().next().value);
 }
+let lastSourceReportAt = 0;
 async function updateSourceReports(connection) {
+ if(Date.now()-lastSourceReportAt<30000)return;
+ lastSourceReportAt=Date.now();
  const d=await executionJournal.load();d.sourceFills ||= [];d.sourceChecked ||= {};d.sourceUnknown ||= {};
  for(const [key,job] of [...sourceObservationQueue].slice(0,3)) {
    if(d.sourceChecked[key]){sourceObservationQueue.delete(key);continue;}
@@ -2073,15 +2095,18 @@ async function refreshExecutionReport(state) {
  // Import retained execution signatures read-only. Missing history remains explicitly incomplete.
  for(const trade of [...(state.trades || [])].reverse()) {
    const e=trade.execution, txid=e?.txid;
-   if(!txid || d.checked[txid] || d.pending[txid] || !['buy','sell'].includes(e.action))continue;
+   if(!txid || d.checked[txid] || Object.values(d.pending).some(p=>p.txid===txid) || !['buy','sell'].includes(e.action))continue;
    d.pending[txid]={txid,wallet:tradeWallet(state),profile:profileFromTrade(trade),mint:e.action==='buy'?e.outputMint:e.inputMint,side:e.action,source:canonicalSignalId(trade.signature),historical:true,submittedAt:Date.now()};
  }
  await executionJournal.save();
  await executionJournal.reconcile(connection);
- await updateSourceReports(connection);
+ // Optional trader statistics must not block our wallet exits.
+ let sourceReportError = '';
+ try { await updateSourceReports(connection); } catch(error) { sourceReportError = error.message; }
  const report=await executionJournal.snapshot();
  report.growth = growthSnapshot(d);
  report.source={};
+ report.sourceReportError = sourceReportError;
  const source=buildPositions(d.sourceFills || []);
  for(const profile of supportedProfiles) {
    const closed=source.closed.filter(f=>f.profile===profile);
