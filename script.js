@@ -1229,11 +1229,14 @@ function renderState(state) {
       : "Render monitoring is locked. Real trading cannot run until the Render environment is enabled.");
 
   if (backend.providerRepairHold) {
-    setText("engineStatus", "GMGN selected — trading stopped");
-    setText("engineSubtext", "GMGN will supply trader activity after its connection is repaired. Paid Helius is disabled for this site. Wallet verification uses free public Solana RPC. Trading will not restart automatically.");
-    setText("watchProfileStatus", "Selected trader saved. Trading stays stopped during GMGN repair.");
-    setText("feedConnectionStatus", "GMGN connection not verified. No automatic trading during repair.");
-    setText("queueControlStatus", "Trading stays stopped during GMGN repair.");
+    const checked = backend.gmgnConnectionCheck;
+    const connected = checked?.ok === true;
+    setText("engineStatus", connected ? "GMGN connected — trading stopped" : "GMGN selected — trading stopped");
+    setText("engineSubtext", connected ? "The read-only connection test succeeded. Automatic trading and buying remain OFF. Manual sales still require your confirmation." : "GMGN has not passed a connection check since this server restarted. Automatic trading remains OFF.");
+    setText("watchProfileStatus", connected ? "GMGN connection checked. Trading stays stopped." : "Selected trader saved. Trading stays stopped during GMGN repair.");
+    setText("feedConnectionStatus", connected ? `GMGN connection verified at ${new Date(checked.checkedAt).toLocaleString()}. Automatic trading stays OFF.` : "GMGN connection not verified. No automatic trading during repair.");
+    setText("queueControlStatus", "Automatic trading and buying stay OFF.");
+    if (checked && !$("checkGmgnConnection")?.disabled) setText("gmgnCheckResult", `${checked.message} Checked ${new Date(checked.checkedAt).toLocaleString()}.`);
     return;
   }
   if (!ready) {
