@@ -1,29 +1,30 @@
+import { gmgnRetryAt } from '../lib/gmgn-rate-limit.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs';
 const code=fs.readFileSync(new URL('../server.js',import.meta.url),'utf8');
-const requestCode=code.slice(code.indexOf('async function fetchOfficialGmgnTransactionsForAddress'),code.indexOf('async function fetchGmgnTransactionsForAddress'));
+const requestCode=code.slice(code.indexOf('async function requestOfficialGmgnTransactionsForAddress'),code.indexOf('async function fetchGmgnTransactionsForAddress'));
 function client(response) {
  let request;
- const c=vm.createContext({URL,Date,String,Array,JSON,AbortSignal,randomUUID:()=> 'test-uuid',gmgnActivityToTransaction:a=>a,fetch:async(url,options)=>{request={url,options};return response;}});
+ const c=vm.createContext({gmgnRetryAt,URL,Date,String,Array,JSON,AbortSignal,randomUUID:()=> 'test-uuid',gmgnActivityToTransaction:a=>a,fetch:async(url,options)=>{request={url,options};return response;}});
  vm.runInContext(requestCode,c);
  return {c,request:()=>request};
 }
 test('official read-only request uses API key, timestamp and repeated buy/sell filters',async()=>{
  const h=client({ok:true,headers:new Headers(),text:async()=>JSON.stringify({code:0,data:{activities:[{event_type:'buy'}]}})});
- assert.equal((await h.c.fetchOfficialGmgnTransactionsForAddress('secret','wallet')).length,1);
+ assert.equal((await h.c.requestOfficialGmgnTransactionsForAddress('secret','wallet')).length,1);
  assert.deepEqual(h.request().url.searchParams.getAll('type'),['buy','sell']);
  assert.equal(h.request().options.headers['X-APIKEY'],'secret');
  assert.equal(h.request().url.origin,'https://openapi.gmgn.ai');
 });
 test('security block reports the reason and request ID without raw response or credentials',async()=>{
  const h=client({ok:false,status:403,headers:new Headers({'cf-ray':'abc-123'}),text:async()=>'<html>browser_signature_banned Error 1010 secret-value</html>'});
- await assert.rejects(h.c.fetchOfficialGmgnTransactionsForAddress('secret','wallet'),e=>/1010/.test(e.message)&&/abc-123/.test(e.message)&&!e.message.includes('secret-value'));
+ await assert.rejects(h.c.requestOfficialGmgnTransactionsForAddress('secret','wallet'),e=>/1010/.test(e.message)&&/abc-123/.test(e.message)&&!e.message.includes('secret-value'));
 });
 test('unexpected successful payload cannot falsely report a connected empty feed',async()=>{
  const h=client({ok:true,headers:new Headers(),text:async()=>JSON.stringify({code:0,data:{wrong:[]}})});
- await assert.rejects(h.c.fetchOfficialGmgnTransactionsForAddress('secret','wallet'),/unexpected/);
+ await assert.rejects(h.c.requestOfficialGmgnTransactionsForAddress('secret','wallet'),/unexpected/);
 });
 test('read-only check leaves profiles stopped and does not save or run workers',async()=>{
  const state={settings:{gmgnApiKey:'secret'},profiles:{frog:{running:false}},strategy:{activeProfile:'frog'}};
@@ -50,4 +51,13 @@ test('repair release stops old sessions and preserves settings; explicit later s
  state.settings.providerRepairHold=true;
  c.releaseGmgnRepairHold(state);
  assert.equal(state.settings.providerRepairHold,true);
+});
+
+test('HTTP rate limits carry the provider reset time into the shared gate',async()=>{
+ const h=client({ok:false,status:429,headers:new Headers({'x-ratelimit-reset':'2000000000'}),text:async()=>'{"reset_at":2000000060}'});
+ await assert.rejects(h.c.requestOfficialGmgnTransactionsForAddress('secret','wallet'),e=>e.httpStatus===429 && e.retryAt===2000000060000);
+});
+test('rate limit in a successful HTTP envelope also pauses the shared gate',async()=>{
+ const h=client({ok:true,status:200,headers:new Headers(),text:async()=>'{"code":429,"reset_at":2000000060}'});
+ await assert.rejects(h.c.requestOfficialGmgnTransactionsForAddress('secret','wallet'),e=>e.httpStatus===429 && e.retryAt===2000000060000);
 });

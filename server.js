@@ -1,3 +1,4 @@
+import { createGmgnRequestGate, gmgnRetryAt } from "./lib/gmgn-rate-limit.mjs";
 import { validateGrowthSettings, growthSnapshot, growthTradeable, growthTransition } from "./lib/growth-goal.mjs";
 import { createTradingJournal } from "./lib/trading-journal.mjs";
 import { sellFraction, proportionalAmount, exitReason, trailingExit, takeBackExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
@@ -99,7 +100,7 @@ const supportedProfiles = ["safe", "frog", "truenest"];
 const protectedCapStrategyVersion = "decu-50-cap-v1";
 const surviveBuyUsd = 5;
 const defaultBuyMode = "limits";
-const gmgnPollMs = Number(process.env.GMGN_POLL_MS || 2000);
+const gmgnPollMs = Math.max(2000, Number(process.env.GMGN_POLL_MS) || 2000);
 const usdcDecimals = 6;
 const tokenProgramId = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const associatedTokenProgramId = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -2374,6 +2375,19 @@ function normalizeHeliusEnhancedTransaction(transaction = {}) {
 }
 
 const gmgnCache = new Map();
+const gmgnCooldownFile = path.join(dataDir, 'gmgn-cooldown.json');
+const gmgnRequestGate = createGmgnRequestGate({
+  intervalMs: process.env.GMGN_REQUEST_INTERVAL_MS,
+  load: async () => {
+    try { return JSON.parse(await readFile(gmgnCooldownFile, 'utf8')); }
+    catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
+  },
+  save: async value => {
+    await mkdir(dataDir, {recursive:true});
+    await writeFile(`${gmgnCooldownFile}.tmp`, JSON.stringify(value), {mode:0o600});
+    await rename(`${gmgnCooldownFile}.tmp`, gmgnCooldownFile);
+  }
+});
 let gmgnConnectionCheck = null;
 let gmgnCheckRunning = false;
 let gmgnLastCheckAt = 0;
@@ -2474,6 +2488,10 @@ function gmgnActivityToTransaction(activity = {}, wallet = "") {
 }
 
 async function fetchOfficialGmgnTransactionsForAddress(apiKey, address) {
+  return gmgnRequestGate.run(`${apiKey}:${address}`, () => requestOfficialGmgnTransactionsForAddress(apiKey, address));
+}
+
+async function requestOfficialGmgnTransactionsForAddress(apiKey, address) {
   const url = new URL("https://openapi.gmgn.ai/v1/user/wallet_activity");
   url.searchParams.set("chain", "sol");
   url.searchParams.set("wallet_address", address);
@@ -2499,10 +2517,11 @@ async function fetchOfficialGmgnTransactionsForAddress(apiKey, address) {
     if (/browser_signature_banned|error\s*(?:code[: ]*)?1010/i.test(body)) detail = 'GMGN security screening blocked this server (Cloudflare Error 1010). GMGN support must review this access block.';
     else if (response.status === 401) detail = 'GMGN rejected authentication. Check whether the saved read-only API key is valid.';
     else if (response.status === 403) detail = 'GMGN denied this request. The response does not establish whether the cause is API permissions or server access.';
-    else if (response.status === 429) detail = 'GMGN request limit reached. No automatic retries were started.';
+    else if (response.status === 429) detail = 'GMGN request limit reached.';
     else detail = `GMGN returned HTTP ${response.status}.`;
     const error = new Error(`${detail}${ray ? ` Request ID: ${ray}.` : ''}`);
     error.httpStatus = response.status;
+    if (response.status === 429) error.retryAt = gmgnRetryAt(response.headers, body);
     error.requestId = ray;
     throw error;
   }
@@ -2510,7 +2529,13 @@ async function fetchOfficialGmgnTransactionsForAddress(apiKey, address) {
   try { payload = JSON.parse(body); } catch { throw new Error('GMGN returned a non-JSON response; the connection is not verified.'); }
   if (payload.code !== undefined && String(payload.code) !== "0") {
     const code = String(payload.code).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40);
-    throw new Error(`GMGN API rejected the request with code ${code}. Check key permissions and account access.`);
+    const error = new Error(`GMGN API rejected the request with code ${code}. Check key permissions and account access.`);
+    if (code === '429' || /^RATE_LIMIT_/.test(code)) {
+      error.httpStatus = 429;
+      error.retryAt = gmgnRetryAt(response.headers, body);
+      error.message = 'GMGN request limit reached.';
+    }
+    throw error;
   }
   const data = payload?.data || payload;
   const activities = Array.isArray(data?.activities) ? data.activities : Array.isArray(payload?.activities) ? payload.activities : null;
@@ -2531,7 +2556,7 @@ async function fetchGmgnTransactionsForAddress(settings, address) {
   if (apiKey) {
     try {
       const transactions = await fetchOfficialGmgnTransactionsForAddress(apiKey, address);
-      gmgnCache.set(cacheKey, { at: now, transactions });
+      gmgnCache.set(cacheKey, { at: Date.now(), transactions });
       return transactions;
     } catch (error) {
       gmgnCache.set(cacheKey, { at: now, transactions: [], error });
@@ -2580,7 +2605,7 @@ async function fetchGmgnTransactionsForAddress(settings, address) {
       const transactions = activities
         .map((activity) => gmgnActivityToTransaction(activity, address))
         .filter(Boolean);
-      gmgnCache.set(cacheKey, { at: now, transactions });
+      gmgnCache.set(cacheKey, { at: Date.now(), transactions });
       return transactions;
     } catch (error) {
       lastError = error;
@@ -2850,7 +2875,7 @@ async function pollSignalFeeds() {
         wakeSellWorker().catch(() => {});
         wakeCopyWorker().catch(() => {});
       }).catch((error) => {
-        signalFeeds.set(key, { profile, source, wallet, checkedAt: new Date().toISOString(), error: error.message, transactions: [] });
+        signalFeeds.set(key, { profile, source, wallet, checkedAt: new Date().toISOString(), error: error.message, retryAt: error.retryAt || null, feedPaused: error.feedPaused || false, transactions: [] });
       }).finally(() => feedRequests.delete(key));
     }
   }
@@ -2859,7 +2884,7 @@ function feedHealth() {
   return Array.from(signalFeeds.values()).map(({ transactions, ...feed }) => ({
     ...feed, status: feed.source === "Solana live"
       ? feed.error ? "Direct lookup unavailable" : feed.checkedAt ? "Last transaction read" : "Waiting for activity"
-      : feed.error ? "Disconnected" : !feed.checkedAt ? "Connecting" : Date.now() - Date.parse(feed.checkedAt) > 3000 ? "Delayed" : "Connected"
+      : feed.error ? (feed.feedPaused ? "Paused" : "Disconnected") : !feed.checkedAt ? "Connecting" : Date.now() - Date.parse(feed.checkedAt) > Math.max(15000, gmgnPollMs * 3) ? "Delayed" : "Connected"
   }));
 }
 async function runCopyWorkerOnce() {
