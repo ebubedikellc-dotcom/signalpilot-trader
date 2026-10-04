@@ -1144,6 +1144,9 @@ function renderState(state) {
   const liveTradingEnv = backend.liveTradingEnv === true;
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
   const queueRunning = Boolean(profiles.safe?.running || profiles.frog?.running || profiles.truenest?.running);
+  setText("topStopStatus", queueRunning
+    ? "Trading is enabled. STOP turns off automatic buys and sells."
+    : "STOPPED — automatic buys and sells are off. Holdings remain in your wallet.");
   const queueActiveLabel = profileName(strategy.activeProfile || "frog");
   const buyMode = queueBuyMode(settings);
   const maxSurviveBuy = surviveMax(settings);
@@ -1874,8 +1877,19 @@ async function saveQueueSwitch() {
 }
 
 async function stopQueue() {
-  renderState(await api("/api/queue/stop", { method: "POST" }));
-  showBusinessMessage("Trading queue stopped.");
+  setText("topStopStatus", "Stopping… waiting for server confirmation.");
+  try {
+    const state = await api("/api/queue/stop", { method: "POST" });
+    renderState(state);
+    if (Object.values(state.profiles || {}).some((profile) => profile.running)) {
+      throw new Error("Stop is not confirmed. Tap STOP TRADING again.");
+    }
+    setText("topStopStatus", "STOPPED — automatic buys and sells are off. Holdings remain in your wallet.");
+    showBusinessMessage("Trading stopped. Automatic buys and sells are off.");
+  } catch (error) {
+    setText("topStopStatus", `STOP NOT CONFIRMED: ${error.message}`);
+    showBusinessMessage(`Stop not confirmed: ${error.message}`, true);
+  }
 }
 
 function on(id, event, handler) {
@@ -1915,6 +1929,7 @@ on("frogStart", "click", () => startProfile("frog"));
 on("frogStop", "click", () => stopProfile("frog"));
 on("queueStart", "click", startQueue);
 on("queueStop", "click", stopQueue);
+on("topStopTrading", "click", stopQueue);
 on("queueBuyModeSave", "click", () => saveBuyMode("queue"));
 on("saveQueueSwitch", "click", saveQueueSwitch);
 on("switchSafeBot", "click", () => switchQueueProfile("safe"));

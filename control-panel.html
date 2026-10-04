@@ -16,6 +16,10 @@
   </head>
   <body data-page="owner">
     <main class="app-shell control-shell">
+      <div class="emergency-trading-bar" role="region" aria-label="Stop trading">
+        <button id="topStopTrading" type="button">STOP TRADING</button>
+        <span id="topStopStatus" role="status" aria-live="polite">Stops automatic buys and sells. Does not sell your holdings.</span>
+      </div>
       <header class="topbar">
         <div class="top-trading-controls" aria-label="Trader selection mode">
           <label class="compact-auto-switch"><input id="automaticSwitch" type="checkbox"> Automatic</label>

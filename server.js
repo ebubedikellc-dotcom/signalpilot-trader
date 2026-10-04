@@ -1628,6 +1628,13 @@ async function executeCopiedSwap(profile, transaction, state) {
 }
 
 async function executeCopiedSwapLocked(profile, transaction, state) {
+  const currentControls = await readState();
+  if (!supportedProfiles.some((key) => currentControls.profiles?.[key]?.running)) {
+    return { status: "Skipped - trading stopped by owner" };
+  }
+  if (Number(currentControls.strategy?.controlRevision || 0) > Number(state.strategy?.controlRevision || 0)) {
+    state.strategy = currentControls.strategy;
+  }
   const leg = primarySwapLeg(transaction, profile, state);
   if (!leg?.inputMint || !leg?.outputMint || !leg?.amount) {
     return { status: "Skipped - unsupported swap format" };
@@ -1752,8 +1759,16 @@ async function executeCopiedSwapLocked(profile, transaction, state) {
   };
 }
 
-async function executeManualTokenSell(state, { profile, mint }) {
-  return withWalletOperation(() => executeManualTokenSellLocked(state, { profile, mint }));
+async function executeManualTokenSell(state, { profile, mint, automatic = false }) {
+  return withWalletOperation(async () => {
+    if (automatic) {
+      const current = await readState();
+      if (!supportedProfiles.some((key) => current.profiles?.[key]?.running)) {
+        throw new Error("Trading stopped by owner; automatic sell cancelled.");
+      }
+    }
+    return executeManualTokenSellLocked(state, { profile, mint });
+  });
 }
 
 async function executeManualTokenSellLocked(state, { profile, mint }) {
@@ -1837,7 +1852,7 @@ async function autoSellStuckTokenAfterSellSignal(state, profile, leg, sourceTrad
     const balance = await tokenBalanceRaw(connection, wallet, mint);
     if (!balance) continue;
 
-    const result = await executeManualTokenSell(state, { profile, mint });
+    const result = await executeManualTokenSell(state, { profile, mint, automatic: true });
     return {
       id: result.txid || randomUUID(),
       signature: result.txid || "",
@@ -1911,7 +1926,7 @@ async function autoSellStockCoinsFromHistory(state) {
       const balance = await tokenBalanceRaw(connection, wallet, mint);
       if (!balance) continue;
 
-      const result = await executeManualTokenSell(state, { profile, mint });
+      const result = await executeManualTokenSell(state, { profile, mint, automatic: true });
       const autoTrade = {
         id: result.txid || randomUUID(),
         signature: result.txid || "",
@@ -3070,6 +3085,7 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/queue/stop") {
+    return await withWalletOperation(async () => {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     supportedProfiles.forEach((profile) => {
@@ -3079,6 +3095,7 @@ async function handleApi(request, response, url) {
     state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
     state.strategy.paused = false;
     state.strategy.pauseReason = "";
+    state.strategy.controlRevision = Math.max(Date.now(), Number(state.strategy.controlRevision || 0) + 1);
     state.activity = [
       line("Trading queue stopped."),
       ...(state.activity || [])
@@ -3086,6 +3103,7 @@ async function handleApi(request, response, url) {
     await saveState(state);
     send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
     return true;
+    });
   }
 
   if (request.method === "POST" && url.pathname === "/api/queue/switch") {
