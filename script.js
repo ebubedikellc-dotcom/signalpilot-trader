@@ -1155,7 +1155,7 @@ function renderState(state) {
   if ($("changeTrader")) $("changeTrader").disabled = queueRunning;
   if ($("selectedTrader") && document.activeElement !== $("selectedTrader")) $("selectedTrader").value = strategy.activeProfile || "frog";
   setText("selectedTraderLabel", `Selected trader: ${queueActiveLabel}`);
-  setText("selectedModeLabel", `Mode: ${buyModeLabel(buyMode)}`);
+  setText("selectedModeLabel", `Mode: ${buyModeLabel(buyMode)}${settings.profitMode === "target" ? " · Grow to target" : ""}`);
   [
     ["switchSafeBot", "safe"],
     ["switchDekuBot", "frog"],
@@ -1184,6 +1184,7 @@ function renderState(state) {
       : `Ready: start your selected trader in ${strategy.autoSwitch ? "Automatic" : "Manual"} mode.`);
   setText("queueControlNote", buyModeNote(buyMode, maxSurviveBuy));
   explainSelectedMode();
+  renderGrowthPlan();
   setText("topActiveTrader", strategy.paused ? "Game stopped" : queueRunning ? queueActiveLabel : "Not trading");
   setText("topActiveTraderNote", strategy.paused
     ? strategy.pauseReason || "New buys stopped. Existing coins stay watched for sells."
@@ -2063,7 +2064,11 @@ function renderRemainingWallet(settings = {}) {
  setText("remainingUsdc",validCash ? money(cash) : "Unable to check");
  setText("remainingSol",validSol ? solAmount(b.sol) : "Unable to check");
  setText("remainingLocked",locked!==null ? money(locked) : "Unable to check");
- setText("remainingTradeable",validCash && locked!==null ? money(Math.max(0,Math.min(cash-locked,profileDeposit(settings)))) : "Unable to check");
+ const growth=latestState.growth;
+ const available=settings.profitMode === "target"
+   ? growth ? Math.max(0,Math.min(growth.availableUsd,cash-Math.max(locked,growth.excludedCash))) : 0
+   : Math.max(0,Math.min(cash-locked,profileDeposit(settings)));
+ setText("remainingTradeable",validCash && locked!==null ? money(available) : "Unable to check");
  setText("remainingCoins",tokenCount===null ? "Unable to check" : `${tokenCount} coin types`);
  setText("remainingCoinValue",tokenCount===0 ? "Other coin value: $0.00" : "Coin value: unable to check");
  setText("remainingTotal",validCash && validSol && b.sol===0 && tokenCount===0 ? money(cash) : "Unable to check");
@@ -2115,3 +2120,61 @@ $("checkGmgnConnection")?.addEventListener("click", async () => {
   } catch(error) { setText("gmgnCheckResult", error.message); }
   finally { button.disabled = false; }
 });
+
+
+let growthFormDirty = false;
+function explainGrowthPlan() {
+  const target = value("profitPlan") === "target";
+  if ($("growthInputs")) $("growthInputs").hidden = !target;
+  setText("growthPlanExplanation", target
+    ? `Start with ${money(Number(value("growthStartingAmount") || 100))}. Reuse this plan's profits until ${money(Number(value("growthTargetAmount") || 200))}, then sell its remaining coins and stop after confirmed cash reaches the target. Your selected trader and per-purchase limits still apply. Losses can reduce the balance; reaching the target is not guaranteed.`
+    : "Save profits separately keeps them out of later purchases.");
+}
+function renderGrowthPlan() {
+  if (!$('profitPlan')) return;
+  const settings = latestState.settings || {}, goal = latestState.growth;
+  const running = Object.values(latestState.profiles || {}).some(p => p.running);
+  if (!growthFormDirty) {
+    $('profitPlan').value = settings.profitMode || 'save';
+    $('growthStartingAmount').value = settings.growthPrincipal || '100';
+    $('growthTargetAmount').value = settings.growthTarget || '200';
+  }
+  for (const id of ['profitPlan','growthStartingAmount','growthTargetAmount','saveProfitPlan']) $(id).disabled = running;
+  $('saveProfitPlan').textContent = goal ? 'Save a new profit plan' : 'Save profit plan';
+  $('growthProgress').hidden = !goal;
+  if (goal) {
+    setText('growthStarted', money(goal.principal));
+    setText('growthCash', goal.netCashUsd === null ? 'Costs awaiting confirmation' : money(goal.netCashUsd));
+    setText('growthGoal', money(goal.target));
+    const message = goal.reviewMessage ? goal.reviewMessage : goal.status === 'completed' ? 'Target reached — automatic trading stopped.'
+      : !running ? 'Paused. Start Trading resumes this same plan.'
+      : goal.status === 'closing' ? 'Target estimate reached. New buys are blocked while the plan sells and confirms its holdings.'
+      : !goal.costsPriced || !goal.verified ? 'New buys are paused while costs or holdings are verified. Existing exits remain watched.'
+      : `Growing toward ${money(goal.target)}. Available for later purchases: ${money(goal.availableUsd)}. ${goal.pendingCount} transaction(s) awaiting confirmation.`;
+    setText('growthProgressStatus', message);
+    setText('growthEstimate', Number.isFinite(goal.estimatedTotalUsd)
+      ? `Last estimated cash plus sellable coins: ${money(goal.estimatedTotalUsd)} before final sale costs. Checked ${new Date(goal.quoteCheckedAt).toLocaleTimeString()}.`
+      : `Money still invested at purchase cost: ${money(goal.openCostUsd)}. No current total sale value confirmed.`);
+    if (goal.status === 'completed') setText('topStopStatus', `TARGET REACHED — ${money(goal.netCashUsd)}. Automatic trading stopped.`);
+  }
+  explainGrowthPlan();
+}
+async function saveGrowthPlan() {
+  const button = $('saveProfitPlan'); button.disabled = true;
+  setText('growthSaveStatus', 'Saving profit plan…');
+  try {
+    const result = await api('/api/growth/settings', {method:'POST',body:JSON.stringify({
+      profitMode:value('profitPlan'), growthPrincipal:value('growthStartingAmount'), growthTarget:value('growthTargetAmount')
+    })});
+    growthFormDirty = false;
+    renderState(result);
+    setText('growthSaveStatus', result.settings.profitMode === 'target'
+      ? `Saved: ${money(Number(result.settings.growthPrincipal))} → ${money(Number(result.settings.growthTarget))}. Trading remains stopped. Start Trading begins the plan after checking available funds.`
+      : 'Saved: profits will be kept separately. Trading remains stopped.');
+  } catch (error) { setText('growthSaveStatus', `Not saved: ${error.message}`); }
+  finally { button.disabled = Object.values(latestState.profiles || {}).some(p=>p.running); }
+}
+on('profitPlan','change',()=>{growthFormDirty=true;explainGrowthPlan();});
+on('growthStartingAmount','input',()=>{growthFormDirty=true;explainGrowthPlan();});
+on('growthTargetAmount','input',()=>{growthFormDirty=true;explainGrowthPlan();});
+on('saveProfitPlan','click',saveGrowthPlan);

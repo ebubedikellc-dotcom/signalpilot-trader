@@ -681,3 +681,14 @@ td { color: var(--muted); }
 .wallet-coin-card button { display: block; margin-top: 14px; }
 .coin-mint { display: block; overflow-wrap: anywhere; opacity: .8; }
 #walletSellReview button { margin: 8px 8px 0 0; }
+
+.growth-plan > label { display: block; margin-bottom: 8px; font-size: 20px; }
+.growth-plan select { width: 100%; max-width: 100%; font-size: 18px; }
+.growth-inputs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; margin-top: 16px; }
+.growth-inputs label { display: flex; flex-direction: column; gap: 8px; font-size: 20px; }
+.growth-inputs input { width: 100%; min-width: 0; box-sizing: border-box; font-size: 30px; padding: 12px; }
+.growth-plan button { padding: 14px 20px; margin: 8px 0; }
+.growth-plan p { line-height: 1.6; }
+#growthProgress { margin-top: 20px; }
+#growthProgressStatus { font-weight: 700; }
+@media(max-width:700px) { .growth-inputs { grid-template-columns: 1fr; } .growth-plan button { width: 100%; } }

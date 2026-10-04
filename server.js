@@ -1,3 +1,4 @@
+import { validateGrowthSettings, growthSnapshot, growthTradeable, growthTransition } from "./lib/growth-goal.mjs";
 import { createTradingJournal } from "./lib/trading-journal.mjs";
 import { sellFraction, proportionalAmount, exitReason, trailingExit, takeBackExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
 import { decodeDirectSwap, canonicalSignalId } from "./lib/direct-signals.mjs";
@@ -74,8 +75,10 @@ async function protectProfit(state, wallet, cash) {
   const prior = reserves[wallet];
   // Restore this owner's previously displayed reserve once, on ledger migration.
   const initial = wallet === "12HrFUw9v7em5ZQ1c3jcAFcSrfXSxqhHLqv1mSCbRprb" ? 35.327375 : 0;
+  const goal = (await executionJournal.load()).growthGoal;
+  const compounding = goal?.wallet === wallet;
   const principal = profileDepositUsd(state, "frog");
-  const locked = Math.max(prior?.lockedUsd ?? initial, principal > 0 ? cash - principal : 0);
+  const locked = Math.max(prior?.lockedUsd ?? initial, !compounding && principal > 0 ? cash - principal : 0);
   if (!prior || locked !== prior.lockedUsd) {
     reserves[wallet] = { ...prior, lockedUsd: locked, updatedAt: new Date().toISOString(), history: [...(prior?.history || []), ...(prior && locked > prior.lockedUsd ? [{time:new Date().toISOString(),added:locked-prior.lockedUsd,total:locked}] : [])] };
     await saveProfitReserves();
@@ -137,6 +140,9 @@ const defaultState = {
     truenestSurviveMode: "off",
     truenestBuyMode: defaultBuyMode,
     truenestSurviveMax: "5",
+    profitMode: "save",
+    growthPrincipal: "100",
+    growthTarget: "200",
     trailingStopPercent: "10",
     queueFailureSwitchLimit: "3",
     walletSync: "Turnkey server wallet",
@@ -230,6 +236,9 @@ const fields = [
   "truenestSurviveMode",
   "truenestBuyMode",
   "truenestSurviveMax",
+  "profitMode",
+  "growthPrincipal",
+  "growthTarget",
   "trailingStopPercent",
   "queueFailureSwitchLimit",
   "walletSync",
@@ -556,6 +565,9 @@ function publicSettings(settings = {}, includeSecrets = false) {
     safeSurviveMode: settings.safeSurviveMode === "on" ? "on" : "off",
     frogSurviveMode: settings.frogSurviveMode === "on" ? "on" : "off",
     truenestSurviveMode: settings.truenestSurviveMode === "on" ? "on" : "off",
+    profitMode: settings.profitMode || "save",
+    growthPrincipal: settings.growthPrincipal || "100",
+    growthTarget: settings.growthTarget || "200",
     trailingStopPercent: settings.trailingStopPercent || "10",
     safeBuyMode: normalizeBuyMode(settings.safeBuyMode),
     frogBuyMode: normalizeBuyMode(settings.frogBuyMode),
@@ -687,7 +699,7 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "gmgn-primary-repair-hold-v1",
+      appVersion: "grow-to-target-v1",
       marketDataProvider: "GMGN",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
       walletVerificationProvider: "Public Solana RPC",
@@ -1365,6 +1377,7 @@ function solanaAddress(value) {
 }
 
 async function executeSolWithdrawal(state, { profile, destination, amountSol }) {
+  await assertNoOpenGrowthPlan();
   if (!supportedProfiles.includes(profile)) throw new Error("Choose Frog, Deku, or Trunoest wallet.");
   const sourceWallet = tradeWallet(state, profile);
   const signer = signerId(state, profile) || sourceWallet;
@@ -1416,6 +1429,7 @@ async function executeUsdcWithdrawal(state, options) {
 }
 
 async function executeUsdcWithdrawalLocked(state, { profile, destination, amountUsd, profitOnly = false }) {
+  await assertNoOpenGrowthPlan();
   if (!supportedProfiles.includes(profile)) throw new Error("Choose Frog, Deku, or Trunoest wallet.");
   const sourceWallet = tradeWallet(state, profile);
   const signer = signerId(state, profile) || sourceWallet;
@@ -1495,10 +1509,122 @@ function profileDepositUsd(state, profile) {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+async function assertNoOpenGrowthPlan() {
+  const goal = (await executionJournal.load()).growthGoal;
+  if (goal && goal.status !== 'completed') throw new Error('Stop trading and close the growth plan before withdrawing, so its budget stays accurate.');
+}
+
+async function prepareGrowthSession(state) {
+  validateGrowthSettings('target', state.settings.growthPrincipal, state.settings.growthTarget);
+  const d = await executionJournal.load(), wallet = tradeWallet(state);
+  if (d.growthGoal) {
+    if (d.growthGoal.status === 'completed') throw new Error('Target already reached. Save a new profit plan to begin another one.');
+    if (d.growthGoal.wallet !== wallet) throw new Error('The growth plan belongs to another wallet.');
+    return; // Pause/restart resumes the same ledger, not a new $100 allocation.
+  }
+  await refreshExecutionReport(state);
+  const report = await executionJournal.snapshot();
+  if (Object.values(report.pending).some(p => p.wallet === wallet) ||
+      Object.values(report.positions).some(p => p.wallet === wallet && BigInt(p.raw) > 0n)) {
+    throw new Error('Close or reconcile existing copied holdings and pending trades before starting a separate growth plan.');
+  }
+  for (const p of Object.values(report.positions).filter(p => p.wallet === wallet && !p.verified)) {
+    const held = await tokenBalanceRaw(solanaConnection(state.settings), wallet, p.mint);
+    if (BigInt(held || '0') > 0n) throw new Error('An older copied holding still needs reconciliation before starting the growth plan.');
+  }
+  const cash = await tokenUiBalance(solanaConnection(state.settings), wallet, usdcMint);
+  const locked = await protectProfit(state, wallet, cash);
+  const principal = Number(state.settings.growthPrincipal);
+  if (!Number.isFinite(cash) || cash - locked < principal) throw new Error(`Grow to target needs $${principal.toFixed(2)} available USDC outside locked profit.`);
+  d.growthGoal = {id: randomUUID(), wallet, principal, target: Number(state.settings.growthTarget),
+    excludedCash: cash - principal, status: 'active', startedAt: new Date().toISOString()};
+  await executionJournal.save();
+}
+
+// Runs under the wallet queue. Quotes never count as a completed target.
+async function updateGrowthProgress() {
+  const d = await executionJournal.load();
+  if (!d.growthGoal) return;
+  const state = await readState(), goal = d.growthGoal;
+  const unpriced = [...d.fills, ...(d.charges || [])].filter(f => f.goalId === goal.id && !Number.isFinite(f.feeUsd));
+  if (unpriced.length) {
+    const market = await coinMarket(solMint);
+    if (market.priceUsd > 0) {
+      for (const fill of unpriced) {
+        if (!Number.isFinite(fill.costSol)) continue;
+        fill.feeUsd = Math.ceil(fill.costSol * market.priceUsd * 1e6) / 1e6;
+        fill.feePricedAt = new Date().toISOString();
+      }
+      await executionJournal.save();
+    }
+  }
+  let snapshot = growthSnapshot(d);
+  const running = supportedProfiles.some(p => state.profiles[p].running) && !emergencyStopRequested;
+  let estimatedSales;
+  if (running && goal.status === 'active' && snapshot.positions.length && snapshot.costsPriced && !snapshot.pendingCount &&
+      (!goal.quoteCheckedAt || Date.now() - Date.parse(goal.quoteCheckedAt) >= 5000)) {
+    estimatedSales = 0;
+    for (const p of snapshot.positions) {
+      try {
+        const quote = await jupiterJson('/swap/v2/order', {apiKey: jupiterApiKey(state.settings),
+          query: {inputMint: p.mint, outputMint: usdcMint, amount: p.raw, swapMode: 'ExactIn'}});
+        if (!quote.outAmount || quote.inAmount !== p.raw || !(Number(quote.outAmount) > 0)) throw new Error('Sell quote unavailable');
+        estimatedSales += Number(quote.outAmount) / 1e6;
+      } catch { estimatedSales = undefined; break; }
+    }
+    goal.estimatedTotalUsd = Number.isFinite(estimatedSales) ? snapshot.netCashUsd + estimatedSales : null;
+    goal.quoteCheckedAt = new Date().toISOString();
+  }
+  const next = growthTransition(snapshot, estimatedSales);
+  if (next === 'completed') {
+    if (goal.status !== 'completed') {
+      const walletCash = await tokenUiBalance(solanaConnection(state.settings), goal.wallet, usdcMint);
+      if (!Number.isFinite(walletCash) || walletCash - goal.excludedCash + 0.000001 < snapshot.cashUsd) {
+        goal.reviewMessage = 'Wallet cash differs from the plan records. New buys are blocked; check external transfers.';
+        await executionJournal.save();
+        if (executionReport) executionReport.growth = growthSnapshot(d);
+        return;
+      }
+    }
+    delete goal.reviewMessage;
+    // Idempotent across a crash between reserve write, goal write and control write.
+    const reserves = await readProfitReserves(), reserve = reserves[goal.wallet] || {lockedUsd: 0, history: []};
+    if (reserve.lastGrowthGoalId !== goal.id) {
+      const added = Math.max(0, snapshot.cashUsd - goal.principal);
+      reserve.lockedUsd += added;
+      reserve.lastGrowthGoalId = goal.id;
+      reserve.history = [...(reserve.history || []), {time: new Date().toISOString(), added, total: reserve.lockedUsd}];
+      reserves[goal.wallet] = reserve;
+      await saveProfitReserves();
+    }
+    goal.status = 'completed';
+    goal.completedAt ||= new Date().toISOString();
+    await executionJournal.save();
+    if (supportedProfiles.some(p => state.profiles[p].running)) {
+      for (const p of supportedProfiles) state.profiles[p].running = false;
+      state.strategy.controlRevision = Math.max(Date.now(), Number(state.strategy.controlRevision || 0) + 1);
+      state.strategy.pauseReason = `Grow to target completed: $${snapshot.netCashUsd.toFixed(2)}. Trading stopped.`;
+      state.activity = [line(state.strategy.pauseReason), ...(state.activity || [])].slice(0, 20);
+      emergencyStopRequested = true;
+      await saveState(state);
+    }
+  } else if (running) {
+    goal.status = next;
+    await executionJournal.save();
+  }
+  snapshot = growthSnapshot(d);
+  if (executionReport) executionReport.growth = snapshot;
+}
+
 async function profileTradeableUsdc(connection, state, profile, wallet) {
   const principal = profileDepositUsd(state, profile);
   const currentUsdc = await tokenUiBalance(connection, wallet, usdcMint);
   const locked = await protectProfit(state, wallet, currentUsdc);
+  if (state.settings.profitMode === "target") {
+    const snapshot = growthSnapshot(await executionJournal.load());
+    if (snapshot?.wallet !== wallet) return 0;
+    return growthTradeable(snapshot, currentUsdc, locked);
+  }
   return Math.max(0, Math.min(currentUsdc - locked, principal));
 }
 
@@ -1864,6 +1990,10 @@ async function hasPendingMint(wallet,mint) {
 }
 async function recordPendingSwap(info,signed,order) {
   const d=await executionJournal.load(),txid=transactionSignature(signed);
+  const goal = d.growthGoal;
+  if (goal && goal.status !== "completed" && goal.wallet === info.wallet) {
+    info = {...info, goalId: goal.id, ...(info.side === "buy" ? {reservedUsd: Number(order.inAmount)/1e6} : {})};
+  }
   if(await hasPendingMint(info.wallet,info.mint))throw new Error('Previous transaction for this coin awaits confirmation');
   d.pending[txid]={...info,txid,expires:order.lastValidBlockHeight,requestId:order.requestId,submittedAt:Date.now()};
   await executionJournal.save();return txid;
@@ -1941,6 +2071,7 @@ async function refreshExecutionReport(state) {
  await executionJournal.reconcile(connection);
  await updateSourceReports(connection);
  const report=await executionJournal.snapshot();
+ report.growth = growthSnapshot(d);
  report.source={};
  const source=buildPositions(d.sourceFills || []);
  for(const profile of supportedProfiles) {
@@ -1959,10 +2090,12 @@ async function runPositionWatch() {
   const state=await readState();
   if(!ready(state))return;
   await refreshExecutionReport(state);
+  await withWalletOperation(() => updateGrowthProgress());
   if(emergencyStopRequested || !supportedProfiles.some(p=>state.profiles[p].running))return;
   const d=await executionJournal.load();
   for(const position of Object.values(executionReport.positions)) {
-   if(!position.verified || BigInt(position.raw)<=0n || !(position.cost>0) || profileBuyMode(state,position.profile)==='exact')continue;
+   if(!position.verified || BigInt(position.raw)<=0n || !(position.cost>0) ||
+      (profileBuyMode(state,position.profile)==='exact' && d.growthGoal?.status !== 'closing'))continue;
    if(await hasPendingMint(position.wallet,position.mint))continue;
    try {
     await withWalletOperation(async()=>{
@@ -1977,7 +2110,10 @@ async function runPositionWatch() {
      if(!order.outAmount || order.inAmount!==p.raw || !order.transaction)throw new Error('Sell value unavailable; missing data is not a zero price');
      const proceeds=Number(order.outAmount)/1e6,mode=profileBuyMode(current,p.profile);
      let reason, salePosition=p;
-     if(mode==='trailing') {
+     const growth = growthSnapshot(d);
+     if(growth?.status === 'closing' && growth.wallet === p.wallet) {
+      reason = 'Grow to target: closing campaign holdings';
+     }else if(mode==='trailing') {
       d.trailingStops ||= {};
       const mark=trailingExit(p,proceeds,Number(current.settings.trailingStopPercent || 10),d.trailingStops[p.key]);
       if(!mark)throw new Error('Trailing stop needs a valid sell quote and verified purchase');
@@ -2000,7 +2136,7 @@ async function runPositionWatch() {
      }else reason=exitReason(mode,p.cost,proceeds);
      const noticeProceeds=Number(order.outAmount || 0)/1e6 || proceeds;
      const takeBackTrigger=mode==='takeback' && d.takeBackStops?.[p.key]?.trigger ? `; protection sell trigger $${d.takeBackStops[p.key].trigger.toFixed(2)}` : '';
-     d.notices[p.key]=`${reason || 'Watching'}: estimated sale $${noticeProceeds.toFixed(2)}, remaining cost $${p.cost.toFixed(2)}${mode==='trailing' ? `; trailing sell trigger $${d.trailingStops[p.key].trigger.toFixed(2)}` : ''}${takeBackTrigger}`;
+     d.notices[p.key]=`${reason || 'Watching'}: estimated sale $${noticeProceeds.toFixed(2)}, remaining cost $${p.cost.toFixed(2)}${mode==='trailing' && d.trailingStops?.[p.key] ? `; trailing sell trigger $${d.trailingStops[p.key].trigger.toFixed(2)}` : ''}${takeBackTrigger}`;
      if(!reason){await executionJournal.save();return;}
      const signed=await signSolanaTransaction(current,signerId(current),p.wallet,order.transaction);
      const before=await readState();
@@ -2061,6 +2197,11 @@ async function executeManualTokenSellLocked(state, { profile, mint, automatic = 
   const heldAmount = await tokenBalanceRaw(connection, wallet, tokenMint);
   if (!heldAmount) throw new Error(`${profileLabel(profile)} does not hold this token anymore.`);
 
+  const growth = growthSnapshot(await executionJournal.load());
+  if (growth && growth.status !== 'completed') {
+    const owned = growth.positions.find(p => p.profile === profile && p.mint === tokenMint);
+    if (!owned || owned.raw !== heldAmount) throw new Error('This whole-wallet sale mixes coins outside the growth plan. Use the tracked position exit.');
+  }
   let order;
   if (!automatic) {
     const preview = sellPreviews.get(previewId);
@@ -2953,6 +3094,7 @@ async function handleApi(request, response, url) {
       const cash = payload.walletBalances.frog;
       if (cash && !cash.error && Number.isFinite(cash.usdc)) await protectProfit(state, cash.address, cash.usdc);
       payload.profitReserves = await readProfitReserves();
+      if (payload.auth?.role === "owner") payload.growth = growthSnapshot(await executionJournal.load());
     });
     send(response, 200, payload);
     return true;
@@ -2981,6 +3123,38 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/growth/settings") {
+    const initial = await readState();
+    if (requireOwner(response, sessionFromRequest(request, initial))) return true;
+    const input = await readBody(request);
+    return withWalletOperation(async () => {
+      const state = await readState();
+      if (supportedProfiles.some(p => state.profiles[p].running)) {
+        send(response,409,{error:'Stop trading before changing the profit plan.'}); return true;
+      }
+      try { validateGrowthSettings(input.profitMode, input.growthPrincipal, input.growthTarget); }
+      catch(error) { send(response,400,{error:error.message}); return true; }
+      const d = await executionJournal.load(), snapshot = growthSnapshot(d);
+      if (snapshot && !snapshot.canChange) {
+        send(response,409,{error:'Close growth holdings and confirm pending trades and costs before changing this plan. Start resumes the same plan.'}); return true;
+      }
+      if (d.growthGoal) {
+        d.growthHistory ||= [];
+        d.growthHistory.push({...d.growthGoal, closedAt:new Date().toISOString(), closingCashUsd:snapshot.netCashUsd});
+        delete d.growthGoal;
+        await executionJournal.save();
+      }
+      state.settings.profitMode = input.profitMode;
+      state.settings.growthPrincipal = input.profitMode === 'target' ? String(Number(input.growthPrincipal)) : state.settings.growthPrincipal;
+      state.settings.growthTarget = input.profitMode === 'target' ? String(Number(input.growthTarget)) : state.settings.growthTarget;
+      state.strategy.controlRevision = Math.max(Date.now(), Number(state.strategy.controlRevision || 0) + 1);
+      state.activity = [line('Profit plan saved. Trading remains stopped.'), ...(state.activity || [])].slice(0,20);
+      await saveState(state);
+      send(response,200,{...statusPayload(state,{role:'owner',id:'owner'}),growth:null});
+      return true;
+    }, 100);
+  }
+
   if (request.method === "POST" && url.pathname === "/api/settings") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
@@ -2991,6 +3165,14 @@ async function handleApi(request, response, url) {
     }
     if (input.trailingStopPercent !== undefined && !(Number.isFinite(Number(input.trailingStopPercent)) && Number(input.trailingStopPercent)>0 && Number(input.trailingStopPercent)<100)) {
       send(response,400,{error:"Trailing fall percentage must be greater than 0 and less than 100."}); return true;
+    }
+    const campaign = (await executionJournal.load()).growthGoal;
+    const goalFields = ['profitMode','growthPrincipal','growthTarget'];
+    if (goalFields.some(k => input[k] !== undefined && String(input[k]) !== String(state.settings[k]))) {
+      send(response,409,{error:"Use Save profit plan to change Grow to target settings."}); return true;
+    }
+    if (campaign && ['frogTradeWallet','truenestTradeWallet','frogDeposit','truenestDeposit'].some(k => input[k] !== undefined && String(input[k]) !== String(state.settings[k]))) {
+      send(response,409,{error:"Finish or close the growth plan before changing its wallet or trading amount."}); return true;
     }
     state.settings = { ...state.settings, ...clean(input) };
     if (input.frogBuyMode !== undefined) state.settings.modesConfirmed = "yes";
@@ -3379,6 +3561,10 @@ async function handleApi(request, response, url) {
       await saveState(state);
       send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
       return true;
+    }
+    if (state.settings.profitMode === "target") {
+      try { await withWalletOperation(() => prepareGrowthSession(state)); }
+      catch(error) { send(response,409,{error:error.message}); return true; }
     }
     state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
     state.strategy.activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "safe";
