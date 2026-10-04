@@ -34,3 +34,20 @@ test('read-only check leaves profiles stopped and does not save or run workers',
  await c.handleApi({method:'POST'},{},{pathname:'/api/gmgn/check'});
  assert.equal(output.result.ok,true);assert.equal(output.result.tradingStarted,false);assert.equal(state.profiles.frog.running,false);
 });
+
+test('repair release stops old sessions and preserves settings; explicit later starts survive reads',()=>{
+ const c=vm.createContext({supportedProfiles:['safe','frog','truenest']});
+ vm.runInContext(code.slice(code.indexOf('function releaseGmgnRepairHold'),code.indexOf('function normalizeState')),c);
+ const state={settings:{providerRepairHold:true,frogSurviveMax:'30',trailingStopPercent:'10'},profiles:{safe:{running:true},frog:{running:true},truenest:{running:true}}};
+ c.releaseGmgnRepairHold(state);
+ assert.equal(state.settings.providerRepairHold,false);
+ assert.ok(Object.values(state.profiles).every(p=>!p.running));
+ assert.equal(state.settings.frogSurviveMax,'30');
+ assert.equal(state.settings.trailingStopPercent,'10');
+ state.profiles.safe.running=true;
+ c.releaseGmgnRepairHold(state);
+ assert.equal(state.profiles.safe.running,true);
+ state.settings.providerRepairHold=true;
+ c.releaseGmgnRepairHold(state);
+ assert.equal(state.settings.providerRepairHold,true);
+});

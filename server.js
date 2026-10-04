@@ -349,6 +349,15 @@ function isLegacyUnsupportedSwapSkip(trade = {}) {
   return String(trade.status || "") === "Skipped - unsupported swap format";
 }
 
+function releaseGmgnRepairHold(state) {
+  // Release the completed repair once, without resuming a saved trading session.
+  if (state.settings.gmgnRepairReleaseVersion !== "v1") {
+    for (const profile of supportedProfiles) state.profiles[profile].running = false;
+    state.settings.providerRepairHold = false;
+    state.settings.gmgnRepairReleaseVersion = "v1";
+  }
+}
+
 function normalizeState(state) {
   state.settings ||= {};
   for (const profile of ["safe", "frog", "truenest"]) state.settings[`${profile}UseProfit`] = "off";
@@ -414,10 +423,9 @@ function normalizeState(state) {
   state.activity = Array.isArray(state.activity) ? state.activity : [];
   state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
   state.strategy.activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "frog";
-  // Owner requested GMGN takeover with an explicit repair hold. No auto-resume.
+  // GMGN repair completed; owner must explicitly start a new session.
   state.settings.marketDataProvider = "gmgn";
-  state.settings.providerRepairHold = true;
-  for (const profile of supportedProfiles) state.profiles[profile].running = false;
+  releaseGmgnRepairHold(state);
   if (state.settings.manualModesVersion !== "v1") {
     for (const profile of supportedProfiles) state.profiles[profile].running = false;
     for (const profile of supportedProfiles) state.settings[`${profile}TradeMode`] = "both";
@@ -684,7 +692,7 @@ function statusPayload(state, session) {
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
       walletVerificationProvider: "Public Solana RPC",
       paidHeliusEnabled: false,
-      providerRepairHold: true,
+      providerRepairHold: state.settings.providerRepairHold === true,
       liveTrading: productionExecution,
       liveTradingEnv,
       productionExecution,
