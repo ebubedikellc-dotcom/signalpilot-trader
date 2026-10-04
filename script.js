@@ -2127,7 +2127,7 @@ function explainGrowthPlan() {
   const target = value("profitPlan") === "target";
   if ($("growthInputs")) $("growthInputs").hidden = !target;
   setText("growthPlanExplanation", target
-    ? `Start with ${money(Number(value("growthStartingAmount") || 100))}. Reuse this plan's profits until ${money(Number(value("growthTargetAmount") || 200))}, then sell its remaining coins and stop after confirmed cash reaches the target. Your selected trader and per-purchase limits still apply. Losses can reduce the balance; reaching the target is not guaranteed.`
+    ? `Start with ${money(Number(value("growthStartingAmount") || 100))}. Reinvest only the new profits earned by this amount until the plan's total reaches ${money(Number(value("growthTargetAmount") || 200))}, then sell its remaining coins and stop after confirmed cash reaches the target. Previously locked profit and other wallet funds stay outside this plan. Your selected trader and per-purchase limits still apply. Losses can reduce the balance; reaching the target is not guaranteed.`
     : "Save profits separately keeps them out of later purchases.");
 }
 function renderGrowthPlan() {

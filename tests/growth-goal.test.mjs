@@ -114,7 +114,7 @@ test('failed chain transactions retain goal fees and pending reservations surviv
   const file=path.join(dir,'journal.json'),j=createTradingJournal(file,'USDC'),d=await j.load();
   d.growthGoal=goal();d.pending.tx={goalId:'g1',wallet:'w',mint:'coin',side:'buy',reservedUsd:20,txid:'tx'};await j.save();
   const reload=createTradingJournal(file,'USDC');assert.equal(growthSnapshot(await reload.load()).availableUsd,80);
-  await reload.reconcile({getParsedTransaction:async()=>({blockTime:1,meta:{err:{failed:true},fee:5000}})});
+  await reload.reconcile({getParsedTransaction:async()=>({blockTime:1,transaction:{message:{accountKeys:['w']}},meta:{err:{failed:true},fee:5000,preBalances:[10000],postBalances:[5000]}})});
   const result=await reload.load();assert.equal(result.charges.length,1);assert.equal(result.charges[0].costSol,0.000005);
   assert.equal(growthSnapshot(result).availableUsd,0);result.charges[0].feeUsd=0.001;
   assert.equal(growthSnapshot(result).availableUsd,99.999);

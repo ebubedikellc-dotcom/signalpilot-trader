@@ -1,3 +1,4 @@
+import { inspectSwapSignature } from "./lib/swap-signature.mjs";
 import { createGmgnRequestGate, gmgnRetryAt } from "./lib/gmgn-rate-limit.mjs";
 import { validateGrowthSettings, growthSnapshot, growthTradeable, growthTransition } from "./lib/growth-goal.mjs";
 import { createTradingJournal } from "./lib/trading-journal.mjs";
@@ -1970,34 +1971,33 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     requestId: order.requestId,
     swapUsdValue: order.swapUsdValue,
     outAmount: order.outAmount,
-    txid: journalKey
+    txid: executed.signature || executed.txid || journalKey
   };
   };
   return walletLocked ? submit() : withWalletOperation(submit, leg.action === "sell" ? 100 : 0);
 }
 
-function transactionSignature(signed) {
-  const bytes=VersionedTransaction.deserialize(Buffer.from(signed.signedTransactionBase64,'base64')).signatures[0];
-  const alphabet='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-  let n=BigInt('0x'+Buffer.from(bytes).toString('hex')), out='';
-  while(n){out=alphabet[Number(n%58n)]+out;n/=58n;}
-  for(const b of bytes){if(b!==0)break;out='1'+out;}
-  if(!out || bytes.every(b=>b===0))throw new Error('Transaction is not signed');
-  return out;
+function transactionSignature(signed, wallet, order) {
+  const tx = VersionedTransaction.deserialize(Buffer.from(signed.signedTransactionBase64, 'base64'));
+  const original = VersionedTransaction.deserialize(Buffer.from(order.transaction, 'base64'));
+  return inspectSwapSignature(tx, original, wallet, order);
 }
 async function hasPendingMint(wallet,mint) {
   const d=await executionJournal.load();
   return Object.values(d.pending).some(p=>p.wallet===wallet && p.mint===mint);
 }
 async function recordPendingSwap(info,signed,order) {
-  const d=await executionJournal.load(),txid=transactionSignature(signed);
+  const d=await executionJournal.load(),txid=transactionSignature(signed,info.wallet,order);
+  const key=txid || `jupiter:${order.requestId}`;
   const goal = d.growthGoal;
   if (goal && goal.status !== "completed" && goal.wallet === info.wallet) {
     info = {...info, goalId: goal.id, ...(info.side === "buy" ? {reservedUsd: Number(order.inAmount)/1e6} : {})};
   }
   if(await hasPendingMint(info.wallet,info.mint))throw new Error('Previous transaction for this coin awaits confirmation');
-  d.pending[txid]={...info,txid,expires:order.lastValidBlockHeight,requestId:order.requestId,submittedAt:Date.now()};
-  await executionJournal.save();return txid;
+  if(d.pending[key])throw new Error('This order already awaits confirmation');
+  d.pending[key]={...info,txid,expires:order.lastValidBlockHeight,requestId:order.requestId,submittedAt:Date.now()};
+  if(!txid)d.notices[key]='Awaiting Jupiter co-signature and transaction ID. An uncertain submission will not be retried automatically.';
+  await executionJournal.save();return key;
 }
 async function recordExecutionResponse(key,result) {
   const d=await executionJournal.load();
@@ -2006,7 +2006,15 @@ async function recordExecutionResponse(key,result) {
     await executionJournal.save();throw new Error(d.notices[key]);
   }
   const returned=result.signature || result.txid;
-  if(returned && returned!==key)throw new Error('Execution returned a different signature; confirmation requires review');
+  const pending=d.pending[key];
+  if(!pending)throw new Error('Pending order is missing; confirmation requires review');
+  if(pending.txid && returned && returned!==pending.txid)throw new Error('Execution returned a different signature; confirmation requires review');
+  if(!pending.txid) {
+    if(typeof returned!=='string' || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(returned))throw new Error('Execution did not return a valid transaction ID; order remains reserved for review');
+    pending.txid=returned;
+    delete d.notices[key];
+    await executionJournal.save();
+  }
 }
 async function trackedPosition(state,profile,mint) {
   const snapshot=await executionJournal.snapshot();

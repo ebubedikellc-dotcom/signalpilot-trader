@@ -41,9 +41,10 @@
         <label for="profitPlan">Profit plan</label>
         <select id="profitPlan"><option value="save">Save profits separately</option><option value="target">Grow to target — reinvest profits, then stop</option></select>
         <div id="growthInputs" class="growth-inputs" hidden>
-          <label>Starting amount ($)<input id="growthStartingAmount" type="number" min="0.01" max="1000000000" step="0.01" inputmode="decimal" value="100"></label>
-          <label>Stop at ($)<input id="growthTargetAmount" type="number" min="0.02" max="1000000000" step="0.01" inputmode="decimal" value="200"></label>
+          <label>Amount I choose to trade ($)<input id="growthStartingAmount" type="number" min="0.01" max="1000000000" step="0.01" inputmode="decimal" value="100"></label>
+          <label>Target total, including starting money ($)<input id="growthTargetAmount" type="number" min="0.02" max="1000000000" step="0.01" inputmode="decimal" value="200"></label>
         </div>
+        <p>Choose your own starting amount and target total. Only this plan’s new trading profits are reinvested. Previously locked profit and the rest of your wallet are excluded. Example: $500 → $2,000 means earning $1,500, then stopping.</p>
         <p id="growthPlanExplanation">Save profits separately keeps them out of later purchases.</p>
         <button id="saveProfitPlan" type="button">Save profit plan</button>
         <p id="growthSaveStatus" role="status" aria-live="polite">Stop trading before changing this plan. Saving does not start trades.</p>
@@ -51,7 +52,7 @@
           <div class="wallet-remaining-grid">
             <article><span>Started with</span><strong id="growthStarted">$100.00</strong></article>
             <article><span>Confirmed plan cash, after costs</span><strong id="growthCash">Waiting</strong><small>Excludes money still in coins and other wallet funds.</small></article>
-            <article><span>Target</span><strong id="growthGoal">$200.00</strong></article>
+            <article><span>Target total</span><strong id="growthGoal">$200.00</strong></article>
           </div>
           <p id="growthProgressStatus" role="status"></p>
           <p id="growthEstimate"></p>
