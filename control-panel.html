@@ -17,18 +17,29 @@
   <body data-page="owner">
     <main class="app-shell control-shell">
       <div class="emergency-trading-bar" role="region" aria-label="Stop trading">
-        <button id="topStopTrading" type="button">STOP TRADING</button>
+        <div class="main-trading-buttons">
+          <button id="queueStart" class="primary-action" type="button" disabled>START TRADING</button>
+          <button id="topStopTrading" class="stop-action" type="button">STOP TRADING</button>
+          <button id="changeTrader" class="secondary-action" type="button">CHANGE TRADER</button>
+        </div>
+        <strong id="selectedTraderLabel">Selected trader: loading…</strong>
+        <div id="traderPicker" hidden>
+          <label>Who should I copy? <select id="selectedTrader"><option value="safe">Frog</option><option value="frog">Deku</option><option value="truenest">Trunoest</option></select></label>
+          <button id="saveSelectedTrader" type="button">Use this trader</button>
+          <small>Choose while stopped. Your selection stays until you change it.</small>
+        </div>
+        <details class="mode-picker"><summary id="selectedModeLabel">Trading mode</summary>
+          <label>Trading mode <select id="queueBuyMode"><option value="limits">Profit &amp; Loss Limits</option><option value="exact">Exact Copy</option><option value="loss">Loss Protection</option></select></label>
+          <label id="maximumBuyLabel">Maximum per purchase ($) <input id="queueSurviveMax" type="number" min="0.01" step="0.01" placeholder="Choose amount"></label>
+          <p id="modeExplanation"></p><button id="queueBuyModeSave" type="button">Save trading mode</button>
+        </details>
         <span id="topStopStatus" role="status" aria-live="polite">Stops automatic buys and sells. Does not sell your holdings.</span>
       </div>
       <header class="topbar">
-        <div class="top-trading-controls" aria-label="Trader selection mode">
-          <label class="compact-auto-switch"><input id="automaticSwitch" type="checkbox"> Automatic</label>
-          <button class="compact-manual-button" id="keepCurrentBot" type="button">Keep this trader - Manual</button>
-        </div>
         <div>
           <p class="eyebrow">Owner Control Panel</p>
           <h1>My trading room.</h1>
-          <p class="lede">Deposit once, start trading, watch profit, and withdraw from one clean page. Decu Win and Risk Win are separate watcher rooms, but they use the same funded trading wallet.</p>
+          <p class="lede">Choose who to copy and your trading mode. Only you change the selected trader. Your money and the trader’s own results are shown separately.</p>
           <div class="hero-actions">
             <a class="secondary-link" href="#tradePage">Go to trade page</a>
             <button class="secondary-link install-app-button" id="installOwnerApp" type="button">Install SignalPilot App</button>
@@ -90,12 +101,106 @@
           </div>
 
           <section id="tradePage" class="owner-page" data-owner-page="trade" aria-label="Trade page">
+            <section class="live-watch-panel" aria-labelledby="liveWatchTitle">
+              <div class="watch-top">
+                <div>
+                  <p class="eyebrow">Live Trading Watch</p>
+                  <h2 id="liveWatchTitle">Show me buy, sell, profit.</h2>
+                  <p>This is the screen to leave open or record when SignalPilot is copying trades.</p>
+                </div>
+                <div class="watch-live-badge" id="watchLiveBadge">Waiting</div>
+              </div>
+
+              <div class="watch-grid">
+                <article><span>My gains today</span><strong id="myTodayGains">Not verified</strong></article>
+                <article><span>My losses today</span><strong id="myTodayLosses">Not verified</strong></article>
+                <article><span>My net result today</span><strong id="myTodayNet">Not verified</strong><small id="myTodayNote">Confirmed sales, Africa/Lagos day. Open coins are separate.</small></article>
+                <article>
+                  <span>Watching</span>
+                  <strong id="watchProfileName">Decu Win</strong>
+                  <small id="watchProfileStatus">Waiting for Decu Win to start.</small>
+                </article>
+                <article>
+                  <span>Deposit</span>
+                  <strong id="watchDeposit">$0.00</strong>
+                  <small id="watchWallet">Wallet not connected yet</small>
+                </article>
+                <article>
+                  <span>My recorded net result</span>
+                  <strong id="watchProfit">$0.00</strong>
+                  <small id="watchProfitNote">No profit recorded yet.</small>
+                </article>
+                <article>
+                  <span>USDC now</span>
+                  <strong id="watchUsdcNow">$0.00</strong>
+                  <small id="watchLossNow">Coins still in your wallet: $0.00 | Total value: $0.00 | Real sold loss: $0.00</small>
+                </article>
+                <article>
+                  <span>Coins still in your wallet</span>
+                  <strong id="watchOpenValue">$0.00</strong>
+                  <small>Your remaining copied tokens. Dollar value may be unavailable.</small>
+                </article>
+                <article>
+                  <span>Total wallet value</span>
+                  <strong id="watchTotalValue">$0.00</strong>
+                  <small>USDC cash plus coin value tokens still in wallet.</small>
+                </article>
+                <article>
+                  <span>Trader’s own recorded result</span>
+                  <strong id="watchTraderPnl">$0.00</strong>
+                  <small id="watchTraderNote">Trader made/lost from visible signals.</small>
+                </article>
+                <article>
+                  <span>Trader’s own result today</span>
+                  <strong id="watchTraderToday">$0.00</strong>
+                  <small id="watchTraderTodayNote">Today profit/loss will show here.</small>
+                </article>
+                <article>
+                  <span>Last trader trade</span>
+                  <strong id="watchTraderLast">No trader result yet.</strong>
+                  <small>Shows his last closed profit or loss.</small>
+                </article>
+                <article>
+                  <span>Last action</span>
+                  <strong id="watchLastAction">Waiting</strong>
+                  <small id="watchLastToken">No buy or sell shown yet.</small>
+                </article>
+              </div>
+
+              <details><summary>Automatic sell checks and errors</summary><ul id="exitStatusList"></ul></details>
+              <div class="watch-chart-card">
+                <div class="chart-head">
+                  <strong>Trading movement</strong>
+                  <span id="watchChartNote">Chart starts when copied trades appear.</span>
+                </div>
+                <div class="watch-chart">
+                  <svg id="watchChartSvg" viewBox="0 0 640 220" role="img" aria-label="SignalPilot copied trade movement chart">
+                    <path class="chart-grid-line" d="M0 55H640M0 110H640M0 165H640"></path>
+                    <path id="watchChartPath" class="chart-path" d="M20 170 C140 170 160 110 260 120 S400 90 500 105 S600 70 620 86"></path>
+                    <circle id="watchChartDot" class="chart-dot" cx="620" cy="86" r="7"></circle>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="watch-tape">
+                <div class="chart-head">
+                  <strong>Buy / sell tape</strong>
+                  <span>Real copied signals will list here.</span>
+                </div>
+                <ul id="watchTape">
+                  <li>Waiting for Decu / Decu Win to make a trade.</li>
+                </ul>
+              </div>
+
+            </section>
+
+            <details class="wallet-tools"><summary>All holdings and extra wallet details</summary>
             <div class="metric-grid trading-summary">
               <article><span>Decu Win deposit</span><strong id="frogBalance">Deposit: $0.00</strong></article>
               <article><span>Decu Win USDC now</span><strong id="frogUsdcNow">$0.00</strong></article>
               <article><span>Decu Win tokens still in wallet</span><strong id="frogOpenValue">$0.00</strong></article>
               <article><span>Decu Win total value</span><strong id="frogTotalValue">$0.00</strong></article>
-              <article><span>Decu Win real sold loss</span><strong id="frogLoss">$0.00</strong></article>
+              <article><span>Difference from trading budget</span><strong id="frogLoss">$0.00</strong></article>
               <article><span>Decu Win SOL gas</span><strong id="frogSolBalance">Checking...</strong></article>
               <article><span>Decu Win profit</span><strong id="frogProfit">$0.00</strong></article>
               <article><span>Decu made / lost</span><strong id="frogTraderPnl">$0.00</strong></article>
@@ -104,7 +209,7 @@
               <article><span>Risk Win USDC now</span><strong id="truenestUsdcNow">$0.00</strong></article>
               <article><span>Risk Win tokens still in wallet</span><strong id="truenestOpenValue">$0.00</strong></article>
               <article><span>Risk Win total value</span><strong id="truenestTotalValue">$0.00</strong></article>
-              <article><span>Risk Win real sold loss</span><strong id="truenestLoss">$0.00</strong></article>
+              <article><span>Difference from trading budget</span><strong id="truenestLoss">$0.00</strong></article>
               <article><span>Risk Win SOL gas</span><strong id="truenestSolBalance">Checking...</strong></article>
               <article><span>Risk Win profit</span><strong id="truenestProfit">$0.00</strong></article>
               <article><span>Other guy made / lost</span><strong id="truenestTraderPnl">$0.00</strong></article>
@@ -142,120 +247,12 @@
               </ul>
             </section>
 
-            <section class="live-watch-panel" aria-labelledby="liveWatchTitle">
-              <div class="watch-top">
-                <div>
-                  <p class="eyebrow">Live Trading Watch</p>
-                  <h2 id="liveWatchTitle">Show me buy, sell, profit.</h2>
-                  <p>This is the screen to leave open or record when SignalPilot is copying trades.</p>
-                </div>
-                <div class="watch-live-badge" id="watchLiveBadge">Waiting</div>
-              </div>
-
-              <div class="watch-grid">
-                <article>
-                  <span>Watching</span>
-                  <strong id="watchProfileName">Decu Win</strong>
-                  <small id="watchProfileStatus">Waiting for Decu Win to start.</small>
-                </article>
-                <article>
-                  <span>Deposit</span>
-                  <strong id="watchDeposit">$0.00</strong>
-                  <small id="watchWallet">Wallet not connected yet</small>
-                </article>
-                <article>
-                  <span>Profit</span>
-                  <strong id="watchProfit">$0.00</strong>
-                  <small id="watchProfitNote">No profit recorded yet.</small>
-                </article>
-                <article>
-                  <span>USDC now</span>
-                  <strong id="watchUsdcNow">$0.00</strong>
-                  <small id="watchLossNow">Coins still in your wallet: $0.00 | Total value: $0.00 | Real sold loss: $0.00</small>
-                </article>
-                <article>
-                  <span>Coins still in your wallet</span>
-                  <strong id="watchOpenValue">$0.00</strong>
-                  <small>Your remaining copied tokens. Dollar value may be unavailable.</small>
-                </article>
-                <article>
-                  <span>Total wallet value</span>
-                  <strong id="watchTotalValue">$0.00</strong>
-                  <small>USDC cash plus coin value tokens still in wallet.</small>
-                </article>
-                <article>
-                  <span>Copied trader total</span>
-                  <strong id="watchTraderPnl">$0.00</strong>
-                  <small id="watchTraderNote">Trader made/lost from visible signals.</small>
-                </article>
-                <article>
-                  <span>Copied trader today</span>
-                  <strong id="watchTraderToday">$0.00</strong>
-                  <small id="watchTraderTodayNote">Today profit/loss will show here.</small>
-                </article>
-                <article>
-                  <span>Last trader trade</span>
-                  <strong id="watchTraderLast">No trader result yet.</strong>
-                  <small>Shows his last closed profit or loss.</small>
-                </article>
-                <article>
-                  <span>Last action</span>
-                  <strong id="watchLastAction">Waiting</strong>
-                  <small id="watchLastToken">No buy or sell shown yet.</small>
-                </article>
-              </div>
-
-              <div class="watch-chart-card">
-                <div class="chart-head">
-                  <strong>Trading movement</strong>
-                  <span id="watchChartNote">Chart starts when copied trades appear.</span>
-                </div>
-                <div class="watch-chart">
-                  <svg id="watchChartSvg" viewBox="0 0 640 220" role="img" aria-label="SignalPilot copied trade movement chart">
-                    <path class="chart-grid-line" d="M0 55H640M0 110H640M0 165H640"></path>
-                    <path id="watchChartPath" class="chart-path" d="M20 170 C140 170 160 110 260 120 S400 90 500 105 S600 70 620 86"></path>
-                    <circle id="watchChartDot" class="chart-dot" cx="620" cy="86" r="7"></circle>
-                  </svg>
-                </div>
-              </div>
-
-              <div class="watch-tape">
-                <div class="chart-head">
-                  <strong>Buy / sell tape</strong>
-                  <span>Real copied signals will list here.</span>
-                </div>
-                <ul id="watchTape">
-                  <li>Waiting for Decu / Decu Win to make a trade.</li>
-                </ul>
-              </div>
-
-            </section>
-
+            </details>
             <section class="queue-control-card" aria-labelledby="queueControlTitle">
               <div>
-                <p class="eyebrow">One Button Queue</p>
-                <h2 id="queueControlTitle">Control Decu and Risk together</h2>
+                <p class="eyebrow">Other traders</p>
+                <h2 id="queueControlTitle">Trader profit and loss</h2>
                 <p id="queueControlStatus">Choose a trader. Automatic switching is off.</p>
-              </div>
-              <div class="queue-actions">
-                <button class="primary-action" id="queueStart" type="button" disabled>Start trading queue</button>
-                <button class="stop-action" id="queueStop" type="button" disabled>Stop trading queue</button>
-                <label>Buy mode
-                  <select id="queueBuyMode">
-                    <option value="survive">Survive Mode</option>
-                    <option value="cap50">Highest buy $50 mode</option>
-                    <option value="exact">Copy exactly what trader does</option>
-                  </select>
-                </label>
-                <label>Survive highest buy <input id="queueSurviveMax" inputmode="decimal" placeholder="5"></label>
-                <label>Number of failures before the trade has switched <input id="queueFailureSwitchLimit" inputmode="numeric" placeholder="3"></label>
-                <button class="secondary-action" id="saveQueueSwitch" type="button">Save switch number</button>
-                <button class="survive-action" id="queueBuyModeSave" type="button">Save buy mode</button>
-              </div>
-              <div class="manual-switch-board" aria-label="Manual bot switch">
-                <button class="secondary-action" id="switchSafeBot" type="button">Switch to Frog safe bot</button>
-                <button class="secondary-action" id="switchDekuBot" type="button">Switch to Deku riskier bot</button>
-                <button class="secondary-action" id="switchTrunoestBot" type="button">Switch to Trunoest risk bot</button>
               </div>
               <div class="watched-bot-board" aria-label="Watched bot history">
                 <div>
@@ -282,7 +279,7 @@
               <small id="queueControlNote">Highest buy $50 mode means small buys copy exact, but any bigger buy stops at $50.</small>
             </section>
 
-            <div class="trade-room-grid">
+            <details class="wallet-tools"><summary>Wallet tools, deposits and withdrawals</summary><div class="trade-room-grid">
               <article class="trader-card trade-room-card beginner">
                 <div class="trader-head">
                   <div class="avatar frog-face" aria-hidden="true">S</div>
@@ -354,37 +351,15 @@
                 </label>
                 <button id="saveDecuDeposit" class="primary-action" type="button">Save Decu Win budget</button>
 
-                <div class="survive-panel">
-                  <input id="frogSurviveMode" type="hidden" value="off">
-                  <label>Decu Win buy mode
-                    <select id="frogBuyMode">
-                      <option value="survive">Survive Mode</option>
-                      <option value="cap50">Highest buy $50 mode</option>
-                      <option value="exact">Copy exactly what trader does</option>
-                    </select>
-                  </label>
-                  <label>Survive highest buy <input id="frogSurviveMax" inputmode="decimal" placeholder="5"></label>
-                  <button class="survive-action" id="frogBuyModeSave" type="button">Save Decu buy mode</button>
-                  <small id="frogSurviveNote">Highest buy $50 mode: Decu buys below $50 copy same amount; bigger buys cap at $50.</small>
-                </div>
+
 
                 <div class="button-row profile-only-controls hidden">
-                  <button class="primary-action" id="frogStart" disabled>Start Decu Win</button>
-                  <button class="stop-action" id="frogStop" disabled>Stop</button>
+
+
                 </div>
                 <small id="frogTradeModeStatus">Decu Win can buy and sell.</small>
 
-                <details class="emergency-panel">
-                  <summary>
-                    <span>Emergency / Advanced area</span>
-                    <small>Use only when you want to pause new buys or allow buys again.</small>
-                  </summary>
-                  <div class="emergency-actions">
-                    <button class="secondary-action" id="frogSellOnly" type="button">Stop buying, sell only</button>
-                    <button class="secondary-action" id="frogResumeBuying" type="button">Resume buying and selling</button>
-                  </div>
-                  <small>Sell only stops new buys but still allows sells. Resume buying and selling brings back the normal copy rule.</small>
-                </details>
+
 
                 <div class="withdraw-inline danger-box">
                   <h4>Manual sell from Decu Win</h4>
@@ -479,37 +454,15 @@
                 </label>
                 <button id="saveTruenestDeposit" class="primary-action" type="button">Save shared budget</button>
 
-                <div class="survive-panel">
-                  <input id="truenestSurviveMode" type="hidden" value="off">
-                  <label>Risk Win buy mode
-                    <select id="truenestBuyMode">
-                      <option value="survive">Survive Mode</option>
-                      <option value="cap50">Highest buy $50 mode</option>
-                      <option value="exact">Copy exactly what trader does</option>
-                    </select>
-                  </label>
-                  <label>Survive highest buy <input id="truenestSurviveMax" inputmode="decimal" placeholder="5"></label>
-                  <button class="survive-action" id="truenestBuyModeSave" type="button">Save Risk buy mode</button>
-                  <small id="truenestSurviveNote">Highest buy $50 mode: Risk Win buys below $50 copy same amount; bigger buys cap at $50.</small>
-                </div>
+
 
                 <div class="button-row profile-only-controls hidden">
-                  <button class="primary-action" id="truenestStart" disabled>Start Risk Win</button>
-                  <button class="stop-action" id="truenestStop" disabled>Stop</button>
+
+
                 </div>
                 <small id="truenestTradeModeStatus">Risk Win can buy and sell.</small>
 
-                <details class="emergency-panel">
-                  <summary>
-                    <span>Emergency / Advanced area</span>
-                    <small>Use only when you want to pause new buys or allow buys again.</small>
-                  </summary>
-                  <div class="emergency-actions">
-                    <button class="secondary-action" id="truenestSellOnly" type="button">Stop buying, sell only</button>
-                    <button class="secondary-action" id="truenestResumeBuying" type="button">Resume buying and selling</button>
-                  </div>
-                  <small>Sell only stops new buys but still allows sells. Resume buying and selling brings back the normal copy rule.</small>
-                </details>
+
 
                 <div class="withdraw-inline danger-box">
                   <h4>Manual sell while Risk Win is active</h4>
@@ -538,6 +491,7 @@
               <strong>Solana only.</strong>
               <span>For withdrawal, paste only a Solana wallet address. Test with small money first.</span>
             </div>
+          </details>
           </section>
 
           <section class="owner-page hidden" data-owner-page="settings" aria-label="Settings page">
@@ -607,7 +561,7 @@
               </div>
 
               <div class="form-grid vault-form">
-                <label>Vault mode <select id="vaultMode"><option value="private">Private - only me</option><option value="business" disabled>Business - users later</option></select></label>
+                <label>Account mode <select id="vaultMode"><option value="private">My Mode — only me</option><option value="business">Business Mode</option></select></label>
                 <label>Future profit fee <select id="vaultFeePercent"><option value="0">0% now</option><option value="10">10% later</option><option value="20">20% later</option></select></label>
                 <label>Owner fee wallet <input id="ownerFeeWallet" autocomplete="off" placeholder="Your business Solana wallet for future fees"></label>
                 <label>Vault note <input id="vaultNote" autocomplete="off" placeholder="Private vault first. Open to users later."></label>
@@ -747,6 +701,8 @@
               </ul>
             </section>
 
+            <section class="activity"><h2>My confirmed profit and loss log</h2><p>Actual USDC received minus matched purchase cost. SOL network fees are separate.</p><ul id="confirmedProfitLog"></ul></section>
+            <section class="activity"><h2>Locked-profit log</h2><ul id="lockedProfitLog"></ul></section>
             <section class="activity trade-history" aria-labelledby="historyTitle">
               <div>
                 <p class="eyebrow">Profit Tracking</p>

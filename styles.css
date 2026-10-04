@@ -634,3 +634,24 @@ td { color: var(--muted); }
   .section-title { align-items: stretch; flex-direction: column; }
   .secondary-action { width: 100%; }
 }
+
+/* Single owner control strip; keep emergency actions within thumb reach. */
+.emergency-trading-bar {position:sticky;top:0;z-index:1000;display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:12px;background:#10251f;border:2px solid #dc6262;border-radius:12px;max-height:65vh;overflow:auto;box-shadow:0 4px 20px #0007;}
+.main-trading-buttons {display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.main-trading-buttons button {font-size:15px;font-weight:800;min-height:48px;padding:10px 6px;white-space:normal;}
+#queueStart {background:#167548;color:white;} #topStopTrading {background:#b52936;color:white;} #changeTrader {background:#32475d;color:white;}
+.emergency-trading-bar button:disabled {opacity:.45;cursor:not-allowed;}
+.mode-picker summary,.wallet-tools>summary {cursor:pointer;font-size:17px;font-weight:700;padding:10px;}
+.mode-picker label,#traderPicker label {display:flex;flex-direction:column;gap:6px;margin:8px 0;}
+.mode-picker [hidden], [hidden] {display:none!important;}
+#topStopStatus {font-size:13px;line-height:1.4;} .topbar {margin-top:16px;}
+#modeExplanation {font-size:14px;line-height:1.5;}
+.watch-grid {grid-template-columns:repeat(auto-fit,minmax(180px,1fr));}
+.watch-grid article,.metric-grid article {min-width:0;overflow-wrap:anywhere;}
+.watch-grid strong {font-size:clamp(20px,4.5vw,30px);}
+#exitStatusList,#confirmedProfitLog,#lockedProfitLog {overflow-wrap:anywhere;max-height:400px;overflow:auto;}
+#confirmedProfitLog li,#lockedProfitLog li {padding:12px 0;border-bottom:1px solid #ffffff22;}
+.wallet-tools {margin-top:16px;} .wallet-tools .trade-room-grid {max-width:100%;}
+@media(max-width:600px){.control-shell{width:100%;padding:10px;} .main-trading-buttons{gap:5px}.main-trading-buttons button{font-size:13px}.watch-grid{grid-template-columns:1fr 1fr}.watch-grid small{font-size:12px}.topbar{display:block}.trade-room-grid{grid-template-columns:1fr}.queue-control-card{padding:14px;}}
+
+.emergency-trading-bar #topStopStatus{flex:0 0 auto;}

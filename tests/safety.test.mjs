@@ -1,3 +1,4 @@
+import { sellFraction, proportionalAmount } from '../lib/position-accounting.mjs';
 import { canonicalSignalId } from "../lib/direct-signals.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,24 +18,25 @@ test('poll cadence does not expire buys; a known subsequent source sell cancels 
 function executionHarness() {
  const submitted=[];let stopped=false;
  const state={profiles:{safe:{running:true}},strategy:{activeProfile:'safe'},settings:{}};
- const c=vm.createContext({Date,BigInt,Number,supportedProfiles:['safe'],signalFeeds:new Map(),targetWallet:()=> 'wallet',
+ const c=vm.createContext({Date,BigInt,Number,emergencyStopRequested:false,canonicalSignalId,sellFraction,proportionalAmount,
+ trackedPosition:async()=>({raw:'123'}),hasPendingMint:async()=>false,recordPendingSwap:async()=> 'test',recordExecutionResponse:async()=>{},supportedProfiles:['safe'],signalFeeds:new Map(),targetWallet:()=> 'wallet',
  readState:async()=>({...state,profiles:{safe:{running:!stopped}}}),primarySwapLeg:t=>t.leg,
- tradeWallet:()=> 'wallet',signerId:()=> 'wallet',jupiterApiKey:()=> 'test',solanaConnection:()=>({}),
+ tradeWallet:()=> 'wallet',signerId:()=> 'wallet',jupiterApiKey:()=> 'test',solanaConnection:()=>({getParsedTransaction:async()=>({meta:{preTokenBalances:[{owner:'wallet',mint:'COIN',uiTokenAmount:{amount:'123'}}],postTokenBalances:[]}})}),
  scaledCopyAmount:()=>({amount:'1'}),isQuoteMint:m=>m==='USDC',usdcMint:'USDC',profileSellOnly:()=>false,
  buyUsdAmount:()=>50,profileTradeableUsdc:async()=>100,profileBuyMode:()=> 'cap50',usdcRawFromUsd:x=>String(Math.floor(x*1e6)),
  tokenBalanceRaw:async()=> '123',profileCopySizing:()=> 'test',
  signSolanaTransaction:async()=>({signedTransactionBase64:'signed',signWith:'wallet'}),
  jupiterJson:async(path,options)=>{if(path.includes('execute')){submitted.push(options);return {signature:'test'}}return {transaction:'test',inAmount:options.query.amount,outAmount:'123'}}});
  vm.runInContext(section(server,'const walletJobs =','async function readProfitReserves'),c);
- vm.runInContext(section(server,'// Poll cadence','async function executeManualTokenSell('),c);
+ vm.runInContext(section(server,'// Poll cadence','function transactionSignature('),c);
  const buy={timestamp:Date.now()/1000-1,leg:{action:'buy',inputMint:'USDC',outputMint:'COIN',amount:'50000000',sourceUsd:50}};
  const sell={timestamp:1,leg:{action:'sell',inputMint:'COIN',outputMint:'USDC',amount:'123'}};
  return {c,state,buy,sell,submitted,stop:()=>{stopped=true}};
 }
 test('one-second-old buys and late sells are eligible; Stop during signing cancels submission',async()=>{
  const h=executionHarness();
- assert.equal((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,'Executed');
- assert.equal((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,'Executed');
+ assert.equal((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,'Submitted - confirmation pending');
+ assert.equal((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,'Submitted - confirmation pending');
  h.c.signSolanaTransaction=async()=>{h.stop();return {signedTransactionBase64:'test'}};
  assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/stopped/);
  assert.equal(h.submitted.length,2);
@@ -48,7 +50,7 @@ test('a sell submits while a different buy is still awaiting its quote',async()=
   return {transaction:'test',inAmount:options.query.amount,outAmount:'123'};
  };
  const pending=h.c.executeCopiedSwap('safe',h.buy,h.state);await started;
- assert.equal((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,'Executed');
+ assert.equal((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,'Submitted - confirmation pending');
  assert.equal(h.submitted.length,1);releaseQuote();await pending;assert.equal(h.submitted.length,2);
 });
 test('source exit received while a buy quote is pending cancels that buy',async()=>{
@@ -117,7 +119,7 @@ test('notification listeners cover all configured traders across manual switchin
 });
 test('sell-first processing keeps its checkpoint and blocks buying a coin already sold in that batch',async()=>{
  const executed=[];
- const c=vm.createContext({canonicalSignalId,Set,Number,Date,supportedProfiles:['safe'],copyableSignal:()=>true,
+ const c=vm.createContext({canonicalSignalId,Set,Number,Date,queueSourceObservation:()=>{},queueSourceSell:async()=>{},supportedProfiles:['safe'],copyableSignal:()=>true,
  primarySwapLeg:t=>t.leg,tradeFromTransaction:(_,t)=>({signature:t.signature}),
  liveTradingAllowed:()=>true,executeCopiedSwap:async(_,t)=>{executed.push(t.signature);return {status:'Executed'}},
  autoSellStuckTokenAfterSellSignal:async()=>null,applyAutoSwitchStrategy:()=>{},line:x=>x,profileLabel:p=>p,shouldLogNoSignal:()=>false});
@@ -136,7 +138,7 @@ test('the sell lane detects a newly arrived sell while the buy lane is waiting',
  let buyStarted,releaseBuy;const started=new Promise(r=>buyStarted=r),pending=new Promise(r=>releaseBuy=r);const seen=[];
  const c=vm.createContext({Map,Number,readState:async()=>state,supportedProfiles:['safe'],signalFeeds:feeds,
  targetWallet:()=> 'wallet',newestSignature:ts=>ts[0]?.signature,line:x=>x,
- autoSellStockCoinsFromHistory:async()=>{},saveState:async()=>{},
+ retrySourceSells:async()=>{},autoSellStockCoinsFromHistory:async()=>{},saveState:async()=>{},
  processSignalTransactions:async(_,profile,tx,newest,field,source,options)=>{
    if(options.side==='buy'){buyStarted();await pending;}
    else seen.push({signature:newest,field});
@@ -164,7 +166,7 @@ test('restart excludes buys from the stopped period without expiring new session
  state.profiles.safe.running=true;c.beginTradingSession(state);assert.equal(state.strategy.buySessionStartedAt,start);
 });
 test('dashboard status reports poll cadence without referencing a removed buy deadline',()=>{
- const c=vm.createContext({process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:500,
+ const c=vm.createContext({executionReport:null,process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:500,
  observationUntil:0,feedHealth:()=>[],liveSubscriptions:new Map(),customerPublic:x=>x});
  vm.runInContext(section(server,'function statusPayload(','async function walletBalances('),c);
  const result=c.statusPayload({settings:{},customers:[],profiles:{safe:{running:false}}},{role:'owner',id:'owner'});
@@ -173,7 +175,7 @@ test('dashboard status reports poll cadence without referencing a removed buy de
 });
 test('first direct notification is processed once even when GMGN later reports the same transaction',async()=>{
  let executions=0;const signature='A'.repeat(88);
- const c=vm.createContext({canonicalSignalId,Set,Number,Date,supportedProfiles:['safe'],copyableSignal:()=>true,
+ const c=vm.createContext({canonicalSignalId,Set,Number,Date,queueSourceObservation:()=>{},queueSourceSell:async()=>{},supportedProfiles:['safe'],copyableSignal:()=>true,
  primarySwapLeg:t=>t.leg,tradeFromTransaction:(_,t)=>({signature:t.signature}),liveTradingAllowed:()=>true,
  executeCopiedSwap:async()=>{executions++;return {status:'Executed'}},applyAutoSwitchStrategy:()=>{},line:x=>x,profileLabel:p=>p,shouldLogNoSignal:()=>false});
  vm.runInContext(section(server,'async function processSignalTransactions(','let wakeCopyWorker ='),c);

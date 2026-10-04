@@ -129,6 +129,7 @@ function queueFailureLimit(settings = {}) {
 }
 
 function signedMoney(value) {
+  if (!Number.isFinite(value)) return "Not verified";
   const amount = Number(value || 0);
   const sign = amount > 0 ? "+" : "";
   return `${sign}${money(amount)}`;
@@ -146,9 +147,8 @@ function traderSignalUsd(trade = {}) {
 }
 
 function traderPnlFromTrades(trades = [], profile = "frog") {
-  return trades
-    .filter((trade) => profileTradeMatches(profile, trade))
-    .reduce((sum, trade) => sum + traderSignalUsd(trade), 0);
+  const result=latestState.executionReport?.source?.[profile];
+  return result?.sales ? result.total : NaN;
 }
 
 function tradeDateValue(trade = {}) {
@@ -166,12 +166,12 @@ function sameLocalDay(leftMs, rightMs = Date.now()) {
 }
 
 function traderTodayPnlFromTrades(trades = [], profile = "frog") {
-  return trades
-    .filter((trade) => profileTradeMatches(profile, trade) && sameLocalDay(tradeDateValue(trade)))
-    .reduce((sum, trade) => sum + traderSignalUsd(trade), 0);
+  const result=latestState.executionReport?.source?.[profile];
+  return result?.sales ? result.net : NaN;
 }
 
 function todayPnlLabel(value, name = "Trader") {
+  if (!Number.isFinite(value)) return `${name}: profit not verified. Complete purchase costs and USD values are required.`;
   const amount = Number(value || 0);
   if (amount > 0) return `${name} today profit: ${signedMoney(amount)}`;
   if (amount < 0) return `${name} today loss: ${signedMoney(amount)}`;
@@ -210,7 +210,7 @@ function tradeDetailText(trade = {}) {
 function tradeWasExecuted(trade = {}) {
   const text = tradeStatusText(trade);
   if (text.includes("watched - inactive bot") || text.includes("skipped - no")) return false;
-  return text.includes("executed") || text.includes("manual sell sent") || Boolean(trade.execution?.txid);
+  return text === "executed" || Boolean(trade.execution?.confirmedAt);
 }
 
 function tradeUsdAmount(trade = {}) {
@@ -770,9 +770,9 @@ function localReady(data = payload()) {
 }
 
 function profileName(profile) {
-  if (profile === "safe") return "Frog safe bot";
-  if (profile === "truenest") return "Trunoest risk bot";
-  return "Deku riskier bot";
+  if (profile === "safe") return "Frog";
+  if (profile === "truenest") return "Trunoest";
+  return "Deku";
 }
 
 function profileStatusName(profile) {
@@ -802,35 +802,18 @@ function queueSurviveMode(settings = {}) {
   return queueBuyMode(settings) === "survive";
 }
 
-function normalizeBuyMode(mode) {
-  const value = String(mode || "").toLowerCase();
-  if (value === "survive" || value.includes("survive")) return "survive";
-  if (value === "exact" || value.includes("exact")) return "exact";
-  return "cap50";
-}
-
-function queueBuyMode(settings = {}) {
-  if (settings.frogBuyMode || settings.truenestBuyMode) {
-    return normalizeBuyMode(settings.frogBuyMode || settings.truenestBuyMode);
-  }
-  return settings.frogSurviveMode === "on" || settings.truenestSurviveMode === "on" ? "survive" : "cap50";
-}
-
-function buyModeLabel(mode) {
-  if (mode === "survive") return "Survive Mode";
-  if (mode === "exact") return "Copy exactly what trader does";
-  return "Highest buy $50 mode";
-}
-
-function surviveMax(settings = {}) {
-  const amount = Number(settings.frogSurviveMax || settings.truenestSurviveMax || 5);
-  return Number.isFinite(amount) && amount > 0 ? amount : 5;
-}
-
+function normalizeBuyMode(mode) { return mode === "exact" ? "exact" : mode === "loss" ? "loss" : "limits"; }
+function queueBuyMode(settings = {}) { return normalizeBuyMode(settings.frogBuyMode); }
+function buyModeLabel(mode) { return mode === "exact" ? "Exact Copy" : mode === "loss" ? "Loss Protection" : "Profit & Loss Limits"; }
+function surviveMax(settings = {}) { const amount = Number(settings.frogSurviveMax || 5); return amount > 0 ? amount : 5; }
 function buyModeNote(mode, max = 5) {
-  if (mode === "survive") return `Survive Mode: buys below $${max} copy exact, bigger buys use $${max} max.`;
-  if (mode === "exact") return "Copy exactly what trader does: buys use the same dollar amount as the copied trader.";
-  return "Highest buy $50 mode: buys below $50 copy exact, bigger buys use $50 max.";
+  if (mode === "exact") return "Same purchase amount as the trader. Sell when the trader sells. No independent profit or loss exit.";
+  return `Buy at most $${max} each time; copy smaller amounts as they are. Sell at a 30% loss${mode === "limits" ? " or 60% gain" : ""}, or when the trader sells — whichever comes first. Sale prices are not guaranteed.`;
+}
+function explainSelectedMode() {
+  const mode = normalizeBuyMode(value("queueBuyMode"));
+  if ($("maximumBuyLabel")) $("maximumBuyLabel").hidden = mode === "exact";
+  setText("modeExplanation", buyModeNote(mode, value("queueSurviveMax") || "your maximum"));
 }
 
 function normalizeCopyMode(mode) {
@@ -926,23 +909,14 @@ function renderRoomThread(profile, trades = []) {
   });
 }
 
-function renderWatchedBotBoard(trades = []) {
-  ["safe", "frog", "truenest"].forEach((profile) => {
-    const roomTrades = trades.filter((trade) => profileTradeMatches(profile, trade));
-    const latest = roomTrades[0];
-    const today = traderTodayPnlFromTrades(trades, profile);
-    const name = simpleProfileName(profile);
-    const direction = today > 0
-      ? `${name} is making money right now: ${signedMoney(today)} today.`
-      : today < 0
-        ? `${name} is losing right now: ${signedMoney(today)} today.`
-        : `${name} has no clear profit yet today.`;
-    const last = latest
-      ? ` Last: ${latest.action || "Signal"} - ${money(latest.amount)} - ${latest.status || "watched"}`
-      : " No watched trade yet.";
-    setText(`${profile}WatcherPnl`, signedMoney(traderPnlFromTrades(trades, profile)));
-    setText(`${profile}WatcherLast`, `${direction}${last}`);
-  });
+function renderWatchedBots(trades = []) {
+  for(const profile of ["safe","frog","truenest"]) {
+    const result=latestState.executionReport?.source?.[profile];
+    setText(`${profile}WatcherPnl`,result?.sales ? signedMoney(result.net) : "Not verified");
+    setText(`${profile}WatcherLast`,result?.sales
+      ? `${result.net>0 ? "Making money" : result.net<0 ? "Losing money" : "Break-even"} on matched USDC sales today. Partial history; before network fees. Updated ${new Date(result.updatedAt).toLocaleTimeString()}.`
+      : "Waiting for verified purchase costs and sale proceeds. No profit claim from deposits or cash flow.");
+  }
 }
 
 function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
@@ -1075,7 +1049,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = [], strategy = {
   const wallet = settings.frogTradeWallet || settings[`${prefix}TradeWallet`] || "";
   const balance = walletBalance(profile);
   const gasText = balance.error ? `Gas check: ${balance.error}` : `SOL gas: ${solAmount(balance.sol)}`;
-  const profit = Number(profiles[profile]?.profit || 0);
+  const profit = latestState.executionReport?.closed?.length ? latestState.executionReport.closed.reduce((sum,f)=>sum+f.pnl,0) : NaN;
   const usdcNow = balanceUsdc(profile);
   const openValue = profileOpenValue(trades, profile);
   const totalWalletValue = profileTotalWalletValue(settings, profile);
@@ -1097,16 +1071,16 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = [], strategy = {
   setText("watchDeposit", money(deposit));
   setText("watchWallet", wallet ? `Wallet ${wallet} | ${gasText}` : "Wallet not connected yet");
   setText("watchProfit", money(profit));
-  setText("watchProfitNote", profit > 0 ? "Profit is positive." : profit < 0 ? "Profit is negative." : "No profit recorded yet.");
+  setText("watchProfitNote", "Matched confirmed sales only; partial history, before SOL network fees. Open coins are separate.");
   setText("watchUsdcNow", money(usdcNow));
   setText("watchLossNow", `USDC cash: ${money(balanceUsdc(profile))} | Token value: ${money(openValue)} | Total: ${money(totalWalletValue)}`);
   setText("watchOpenValue", money(openValue));
   setText("watchTotalValue", money(totalWalletValue));
   setText("watchTraderPnl", signedMoney(traderPnl));
-  setText("watchTraderNote", `${label.includes("Deku") ? "Deku" : "Copied trader"} total visible made/lost from buy and sell signals.`);
+  setText("watchTraderNote", "Trader’s own matched USDC trades only. Partial history; SOL trades need historical dollar prices. This is not their complete wallet profit.");
   setText("watchTraderToday", signedMoney(traderTodayPnl));
-  setText("watchTraderTodayNote", todayPnlLabel(traderTodayPnl, label.includes("Deku") ? "Deku" : label));
-  setText("watchTraderLast", lastTraderResult.label);
+  setText("watchTraderTodayNote", todayPnlLabel(traderTodayPnl, label) + " Africa/Lagos day; matched USDC trades only, before network fees.");
+  setText("watchTraderLast", "See verified trader results above");
   setText("watchLastAction", lastTrade?.action || "Waiting");
   setText("watchLastToken", lastTrade ? `${lastTrade.token || "-"} - ${lastTrade.status || "Observed"}` : "No buy or sell shown yet.");
   setText("watchLiveBadge", running ? "Live watch ON" : "Waiting");
@@ -1148,6 +1122,7 @@ function renderState(state) {
   const strategy = latestState.strategy || {};
   const feedRows = backend.feeds || [];
   setText("feedConnectionStatus", (backend.observationUntil ? "Read-only connection check — trading remains stopped. " : "") + (feedRows.length ? feedRows.map((f) => `${profileName(f.profile)} ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`).join(" · ") : backend.observationUntil ? "Waiting for wallet activity." : "Feeds not checked while trading is stopped. GMGN connection is not yet verified."));
+  renderExecutionReport();
   const liveTradingEnv = backend.liveTradingEnv === true;
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
   const queueRunning = Boolean(profiles.safe?.running || profiles.frog?.running || profiles.truenest?.running);
@@ -1173,6 +1148,10 @@ function renderState(state) {
   if ($("truenestStop")) $("truenestStop").disabled = !profiles.truenest?.running;
   if ($("queueStart")) $("queueStart").disabled = !ready || heliusBlocked || queueRunning;
   if ($("queueStop")) $("queueStop").disabled = !queueRunning;
+  if ($("changeTrader")) $("changeTrader").disabled = queueRunning;
+  if ($("selectedTrader") && document.activeElement !== $("selectedTrader")) $("selectedTrader").value = strategy.activeProfile || "frog";
+  setText("selectedTraderLabel", `Selected trader: ${queueActiveLabel}`);
+  setText("selectedModeLabel", `Mode: ${buyModeLabel(buyMode)}`);
   [
     ["switchSafeBot", "safe"],
     ["switchDekuBot", "frog"],
@@ -1197,12 +1176,13 @@ function renderState(state) {
         : `Manual: ${queueActiveLabel} stays selected, winning or losing, until you change it. Existing coins stay watched for sells.`
       : `Ready: start your selected trader in ${strategy.autoSwitch ? "Automatic" : "Manual"} mode.`);
   setText("queueControlNote", buyModeNote(buyMode, maxSurviveBuy));
+  explainSelectedMode();
   setText("topActiveTrader", strategy.paused ? "Game stopped" : queueRunning ? queueActiveLabel : "Not trading");
   setText("topActiveTraderNote", strategy.paused
     ? strategy.pauseReason || "New buys stopped. Existing coins stay watched for sells."
     : queueRunning
       ? "This is the only bot using your money now."
-      : "Start trading queue to begin.");
+      : "Start Trading to begin.");
 
   setText("frogProfit", money(profiles.frog?.profit));
   setText("truenestProfit", money(profiles.truenest?.profit));
@@ -1227,7 +1207,7 @@ function renderState(state) {
   setText("truenestTraderTodayPnl", signedMoney(traderTodayPnlFromTrades(trades, "truenest")));
   renderRoomStatus("frog", settings, trades, backend);
   renderRoomStatus("truenest", settings, trades, backend);
-  renderWatchedBotBoard(trades);
+  renderWatchedBots(trades);
   renderLiveWatch(settings, profiles, trades, strategy);
   renderManualDeposit(settings);
   renderVault(settings, profiles);
@@ -1272,9 +1252,7 @@ function renderState(state) {
   if (profiles.safe?.running) running.push("Frog safe bot is running.");
   if (profiles.truenest?.running) running.push("Risk Win is running.");
   const activeStrategyLabel = profileName(strategy.activeProfile || "frog");
-  const strategyLine = strategy.paused
-    ? `Auto-paused: ${strategy.pauseReason || "restart required."}`
-    : `One-chart mode: ${activeStrategyLabel} active. Frog failures ${Number(strategy.safeLosses || 0)}/${queueFailureLimit(settings)}, Deku failures ${Number(strategy.frogLosses || 0)}/${queueFailureLimit(settings)}, Trunoest failures ${Number(strategy.truenestLosses || 0)}/${queueFailureLimit(settings)}. Switched-from traders are still watched for sells.`;
+  const strategyLine = `${activeStrategyLabel} selected. Automatic switching is off. Existing holdings retain their original trader's sell monitoring while trading runs.`;
 
   if (!productionExecution) {
     setText("engineStatus", running.length ? "Monitoring running" : "Ready to monitor");
@@ -1288,8 +1266,8 @@ function renderState(state) {
   setText("engineStatus", strategy.paused ? "Game stopped" : running.length ? "Production copy engine running" : "Production execution enabled");
   setText("engineSubtext", running.length
     ? strategyLine
-    : strategy.paused ? strategyLine : `Press Start trading queue to run Decu first. After ${queueFailureLimit(settings)} failures, it switches traders and still watches old sells.`);
-  setLog(state.activity?.length ? state.activity : ["Ready. Press Start trading queue."]);
+    : strategy.paused ? strategyLine : `Press Start Trading to copy your selected trader.`);
+  setLog(state.activity?.length ? state.activity : ["Ready. Press Start Trading."]);
 }
 
 function renderManualDeposit(settings = {}) {
@@ -1729,7 +1707,7 @@ async function saveTradeMode(profile, mode) {
   const message = mode === "sellOnly"
     ? `${profileName(profile)} Sell Only saved: new buys blocked, sells still allowed.`
     : `${profileName(profile)} can buy again.`;
-  renderState({ settings: data, profiles: {}, activity: [message] });
+
   renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
   showBusinessMessage(message);
 }
@@ -1743,6 +1721,9 @@ async function saveBuyMode(profile = "frog") {
   const selectedMax = profile === "queue"
     ? value("queueSurviveMax") || current.frogSurviveMax || "5"
     : value(`${prefix}SurviveMax`) || value("queueSurviveMax") || current.frogSurviveMax || "5";
+  if (selectedMode !== "exact" && (!Number.isFinite(Number(selectedMax)) || Number(selectedMax) <= 0)) {
+    showBusinessMessage("Enter a maximum buy amount greater than zero.", true); return;
+  }
   const data = {
     ...current,
     frogBuyMode: selectedMode,
@@ -1754,7 +1735,7 @@ async function saveBuyMode(profile = "frog") {
   };
   const max = surviveMax(data);
   const message = `Buy mode saved: ${buyModeLabel(selectedMode)}. ${buyModeNote(selectedMode, max)} Sells still follow.`;
-  renderState({ settings: data, profiles: {}, activity: [message] });
+
   renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
   showBusinessMessage(message);
 }
@@ -1845,7 +1826,7 @@ async function stopProfile(profile) {
 async function startQueue() {
   try {
     renderState(await api("/api/queue/start", { method: "POST" }));
-    showBusinessMessage(`Trading queue started. Decu goes first. After ${queueFailureLimit(latestState.settings)} failures, it switches traders and still watches old sells.`);
+    showBusinessMessage(`Trading started with ${profileName(latestState.strategy.activeProfile)}. You alone choose when to change trader.`);
   } catch (error) {
     if (error.payload?.status) renderState(error.payload.status);
     showBusinessMessage(error.message, true);
@@ -1858,7 +1839,8 @@ async function switchQueueProfile(profile) {
       method: "POST",
       body: JSON.stringify({ profile })
     }));
-    showBusinessMessage(`${profileName(profile)} is active for new buys. Other bots still watch sells.`);
+    showBusinessMessage(`${profileName(profile)} selected. Press Start Trading when ready.`);
+    if ($("traderPicker")) $("traderPicker").hidden = true;
   } catch (error) {
     if (error.payload?.status) renderState(error.payload.status);
     showBusinessMessage(error.message, true);
@@ -1992,3 +1974,34 @@ setMode(null);
 if (page === "owner") setupOwnerWebAppInstall();
 loadBusiness();
 if (page === "owner") setInterval(refresh, 5000);
+
+on("changeTrader", "click", () => { $("traderPicker").hidden = !$("traderPicker").hidden; });
+on("saveSelectedTrader", "click", () => switchQueueProfile(value("selectedTrader")));
+on("queueBuyMode", "change", explainSelectedMode);
+on("queueSurviveMax", "input", explainSelectedMode);
+
+function renderExecutionReport() {
+ const r=latestState.executionReport, today=r?.today;
+ setText("myTodayGains",today?.sales ? money(today.gains) : "Not verified");
+ setText("myTodayLosses",today?.sales ? money(today.losses) : "Not verified");
+ setText("myTodayNet",today?.sales ? signedMoney(today.net) : "Not verified");
+ setText("myTodayNote", r?.error ? `Verification unavailable: ${r.error}` : "Confirmed matched sales in Africa/Lagos today. Partial retained history; network fees and open coins are excluded.");
+ if($("exitStatusList")) {
+   $("exitStatusList").replaceChildren();
+   const messages=[...Object.values(r?.notices || {}),...(r?.pendingSells || []).map(x=>`${profileName(x.profile)}: ${x.message}`)];
+   for(const msg of messages.length?messages:["No verified exit checks yet. Trading remains off until you press Start."]) {const li=document.createElement("li");li.textContent=msg;$("exitStatusList").appendChild(li);}
+ }
+ if($("confirmedProfitLog")) {
+   $("confirmedProfitLog").replaceChildren();
+   const closed=[...(r?.closed||[])].reverse();
+   for(const fill of closed.slice(0,100)) {const li=document.createElement("li");li.textContent=`${new Date(fill.time).toLocaleString()} · ${profileName(fill.profile)} · ${fill.mint} · Sold ${money(fill.usd)} · Purchase cost ${money(fill.cost)} · ${signedMoney(fill.pnl)} before SOL network fees${fill.reason ? ' · '+fill.reason : ''}`;$("confirmedProfitLog").appendChild(li);}
+   if(!closed.length){const li=document.createElement("li");li.textContent="No matched, confirmed sales loaded yet. Historical records remain below.";$("confirmedProfitLog").appendChild(li);}
+ }
+ if($("lockedProfitLog")) {
+  $("lockedProfitLog").replaceChildren();
+  const reserves=Object.values(latestState.profitReserves || {});
+  const events=reserves.flatMap(r=>r.history || []).sort((a,b)=>Date.parse(b.time)-Date.parse(a.time));
+  for(const row of events){const li=document.createElement("li");li.textContent=`${new Date(row.time).toLocaleString()} · Added ${money(row.added)} · Locked total ${money(row.total)}`;$("lockedProfitLog").appendChild(li);}
+  if(!events.length){const li=document.createElement("li");li.textContent="Existing locked balance is shown above. No dated lock events recorded yet.";$("lockedProfitLog").appendChild(li);}
+ }
+}

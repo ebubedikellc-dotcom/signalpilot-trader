@@ -1,3 +1,5 @@
+import { createTradingJournal } from "./lib/trading-journal.mjs";
+import { sellFraction, proportionalAmount, exitReason, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
 import { decodeDirectSwap, canonicalSignalId } from "./lib/direct-signals.mjs";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
@@ -7,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Turnkey } from "@turnkey/sdk-server";
 import {
+  VersionedTransaction,
   Connection,
   LAMPORTS_PER_SOL,
   PublicKey,
@@ -74,7 +77,7 @@ async function protectProfit(state, wallet, cash) {
   const principal = profileDepositUsd(state, "frog");
   const locked = Math.max(prior?.lockedUsd ?? initial, principal > 0 ? cash - principal : 0);
   if (!prior || locked !== prior.lockedUsd) {
-    reserves[wallet] = { ...prior, lockedUsd: locked, updatedAt: new Date().toISOString() };
+    reserves[wallet] = { ...prior, lockedUsd: locked, updatedAt: new Date().toISOString(), history: [...(prior?.history || []), ...(prior && locked > prior.lockedUsd ? [{time:new Date().toISOString(),added:locked-prior.lockedUsd,total:locked}] : [])] };
     await saveProfitReserves();
   }
   state.profitReserves = reserves;
@@ -92,11 +95,14 @@ const decuWallet = "4vw54BmAogeRV3vPKWyFet5yf8DTLcREzdSzx4rw9Ud9";
 const supportedProfiles = ["safe", "frog", "truenest"];
 const protectedCapStrategyVersion = "decu-50-cap-v1";
 const surviveBuyUsd = 5;
-const defaultBuyMode = "cap50";
+const defaultBuyMode = "limits";
 const gmgnPollMs = Number(process.env.GMGN_POLL_MS || 2000);
 const usdcDecimals = 6;
 const tokenProgramId = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const associatedTokenProgramId = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+const executionJournal = createTradingJournal(path.join(dataDir, "execution-journal.json"), usdcMint);
+let executionReport = null;
+let emergencyStopRequested = false;
 
 const defaultState = {
   settings: {
@@ -278,6 +284,7 @@ async function saveStateSerialized(state) {
     const saved = JSON.parse(await readFile(dataFile, "utf8"));
     if (Number(saved.strategy?.controlRevision || 0) > Number(state.strategy?.controlRevision || 0)) {
       state.strategy = saved.strategy;
+      state.settings = saved.settings;
       for (const profile of supportedProfiles) {
         state.profiles[profile].running = saved.profiles[profile].running;
       }
@@ -319,10 +326,9 @@ function syncQueueSurviveSettings(settings = {}) {
 }
 
 function normalizeBuyMode(mode) {
-  const value = String(mode || "").toLowerCase();
-  if (value === "exact" || value.includes("exact")) return "exact";
-  if (value === "survive" || value.includes("survive")) return "survive";
-  return defaultBuyMode;
+  if (mode === "exact") return "exact";
+  if (mode === "loss") return "loss";
+  return "limits";
 }
 
 function normalizeUsdSetting(value, fallback) {
@@ -404,11 +410,20 @@ function normalizeState(state) {
   state.activity = Array.isArray(state.activity) ? state.activity : [];
   state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
   state.strategy.activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "frog";
+  if (state.settings.manualModesVersion !== "v1") {
+    for (const profile of supportedProfiles) state.profiles[profile].running = false;
+    for (const profile of supportedProfiles) state.settings[`${profile}TradeMode`] = "both";
+    state.settings.manualModesVersion = "v1";
+    state.settings.modesConfirmed = "no";
+    state.strategy.paused = false;
+    state.strategy.pauseReason = "";
+  }
+
   state.strategy.safeLosses = Math.max(0, Number(state.strategy.safeLosses || 0));
   state.strategy.frogLosses = Math.max(0, Number(state.strategy.frogLosses || 0));
   state.strategy.truenestLosses = Math.max(0, Number(state.strategy.truenestLosses || 0));
   state.strategy.paused = state.strategy.paused === true;
-  state.strategy.autoSwitch = state.strategy.autoSwitch === true;
+  state.strategy.autoSwitch = false;
   state.strategy.exhaustedProfiles = (state.strategy.exhaustedProfiles || []).filter((profile) => supportedProfiles.includes(profile));
   state.strategy.processedClosedTrades = Array.isArray(state.strategy.processedClosedTrades)
     ? state.strategy.processedClosedTrades.slice(0, 50)
@@ -647,9 +662,15 @@ function statusPayload(state, session) {
   return {
     ...state,
     settings: publicSettings(state.settings, isOwner),
+    trades: (state.trades || []).map(t => {
+      const fill=executionReport?.confirmed?.find(f=>f.txid===t.execution?.txid);
+      return fill ? {...t,status:"Executed",pnl:fill.pnl ?? 0,amount:fill.usd,execution:{...t.execution,status:"Executed",confirmedAt:new Date(fill.time).toISOString()}} : t;
+    }),
+    executionReport: isOwner ? executionReport : undefined,
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
+      appVersion: "manual-modes-v1",
       liveTrading: productionExecution,
       liveTradingEnv,
       productionExecution,
@@ -956,88 +977,7 @@ function tradeIsBuyExecutionFailure(trade = {}) {
   return tradeSide(trade) === "buy" && String(trade.status || "").toLowerCase().includes("execution failed");
 }
 
-function switchProfileAfterFailureLimit(state, profile, activeProfile, switchLimit, strategyEvents) {
-  if (!state.strategy.autoSwitch || state.strategy.paused) return;
-  const lossKey = strategyLossKey(profile);
-  if (profile !== state.strategy.activeProfile || Number(state.strategy[lossKey] || 0) < switchLimit) return;
-  state.strategy.exhaustedProfiles = [...new Set([...(state.strategy.exhaustedProfiles || []), profile])];
-  const nextProfile = bestRemainingProfile(state, profile);
-  if (!nextProfile) {
-    state.strategy.paused = true;
-    state.strategy.pauseReason = `All three traders reached ${switchLimit} consecutive failures. New buys stopped; existing coins remain watched for sells.`;
-    strategyEvents.push(`Game stopped: ${state.strategy.pauseReason}`);
-    return;
-  }
-  const nextScore = profileTraderScore(state, nextProfile);
-  state.strategy.activeProfile = nextProfile;
-  state.strategy[strategyLossKey(nextProfile)] = 0;
-  supportedProfiles.forEach((item) => {
-    state.profiles[item].running = true;
-  });
-  state.profiles[nextProfile].lastAction = new Date().toISOString();
-  strategyEvents.push(`${profileLabel(profile)} reached ${switchLimit} failures. SignalPilot switched to ${profileLabel(nextProfile)} because it has the best watched result among the remaining bots (${nextScore.toFixed(2)}), while old traders stay watched for sells.`);
-}
-
-function applyAutoSwitchStrategy(state, newTrades = []) {
-  state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
-  if (state.strategy.paused || !state.strategy.autoSwitch) return;
-
-  const combinedTrades = state.trades || [];
-  const switchLimit = queueFailureSwitchLimit(state);
-  const activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "frog";
-  const processedClosed = new Set(state.strategy.processedClosedTrades || []);
-  const processedFailures = new Set(state.strategy.processedSwitchFailures || []);
-  const strategyEvents = [];
-
-  for (const trade of newTrades) {
-    const profile = profileFromTrade(trade);
-    if (state.strategy.paused || profile !== state.strategy.activeProfile) continue;
-    const tradeId = trade.signature || trade.id;
-    if (!tradeId) continue;
-
-    if (tradeIsBuyExecutionFailure(trade)) {
-      if (processedFailures.has(tradeId)) continue;
-      processedFailures.add(tradeId);
-      const lossKey = strategyLossKey(profile);
-      state.strategy[lossKey] = Number(state.strategy[lossKey] || 0) + 1;
-      strategyEvents.push(`${profileLabel(profile)} buy execution failed ${state.strategy[lossKey]}/${switchLimit}.`);
-      switchProfileAfterFailureLimit(state, profile, activeProfile, switchLimit, strategyEvents);
-      continue;
-    }
-
-    if (tradeSide(trade) === "buy" && String(trade.status || "").toLowerCase().includes("executed")) {
-      state.strategy[strategyLossKey(profile)] = 0;
-      strategyEvents.push(`${profileLabel(profile)} buy executed; failure count reset.`);
-      continue;
-    }
-
-    if (processedClosed.has(tradeId) || tradeSide(trade) !== "sell") continue;
-
-    const closedPnl = closedTraderPnlUsd(combinedTrades, trade, profile);
-    if (closedPnl === null) continue;
-    processedClosed.add(tradeId);
-
-    const lossKey = strategyLossKey(profile);
-    if (closedPnl < 0) {
-      state.strategy[lossKey] = Number(state.strategy[lossKey] || 0) + 1;
-      strategyEvents.push(`${profileLabel(profile)} closed loss ${state.strategy[lossKey]}/${switchLimit} (${closedPnl.toFixed(2)}).`);
-    } else {
-      state.strategy[lossKey] = 0;
-      strategyEvents.push(`${profileLabel(profile)} closed profit ${closedPnl.toFixed(2)}; loss count reset.`);
-    }
-
-    switchProfileAfterFailureLimit(state, profile, activeProfile, switchLimit, strategyEvents);
-  }
-
-  state.strategy.processedClosedTrades = Array.from(processedClosed).slice(-50);
-  state.strategy.processedSwitchFailures = Array.from(processedFailures).slice(-80);
-  if (strategyEvents.length) {
-    state.activity = [
-      ...strategyEvents.reverse().map((message) => line(message)),
-      ...(state.activity || [])
-    ].slice(0, 20);
-  }
-}
+function applyAutoSwitchStrategy(state) { state.strategy.autoSwitch = false; }
 
 function targetWallet(state, profile) {
   return profileSetting(state, profile, "wallet", "");
@@ -1188,8 +1128,7 @@ function buyUsdAmount(state, profile, sourceUsd = 0) {
   const buyMode = profileBuyMode(state, profile);
   const usd = Number(sourceUsd);
   if (!Number.isFinite(usd) || usd <= 0) return 0;
-  if (buyMode === "survive") return Math.min(usd, profileSurviveMaxUsd(state, profile));
-  if (buyMode === "cap50") return Math.min(usd, 50);
+  if (buyMode !== "exact") return Math.min(usd, profileSurviveMaxUsd(state, profile));
   return usd;
 }
 
@@ -1685,11 +1624,12 @@ async function executeCopiedSwap(profile, transaction, state) {
 
 async function executeCopiedSwapLocked(profile, transaction, state, walletLocked = false) {
   const currentControls = await readState();
-  if (!supportedProfiles.some((key) => currentControls.profiles?.[key]?.running)) {
+  if (emergencyStopRequested || !supportedProfiles.some((key) => currentControls.profiles?.[key]?.running)) {
     return { status: "Skipped - trading stopped by owner" };
   }
   if (Number(currentControls.strategy?.controlRevision || 0) > Number(state.strategy?.controlRevision || 0)) {
     state.strategy = currentControls.strategy;
+    state.settings = currentControls.settings;
   }
   const leg = primarySwapLeg(transaction, profile, state);
   if (!leg?.inputMint || !leg?.outputMint || !leg?.amount) {
@@ -1756,15 +1696,18 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   }
 
   if (leg.action === "sell") {
-    let heldAmount = await tokenBalanceRaw(connection, wallet, leg.inputMint);
-    let sellNote = "Sell current copied token balance back to USDC";
-    if (!heldAmount) return { status: `Skipped - no ${leg.inputMint} balance to sell` };
-    inputMint = leg.inputMint;
-    outputMint = usdcMint;
-    copyAmount = {
-      amount: heldAmount,
-      note: sellNote
-    };
+    const tracked = await trackedPosition(state, profile, leg.inputMint);
+    if (!tracked || BigInt(tracked.raw) <= 0n) return {status:"Skipped - no verified copied holding for this trader"};
+    const sourceTx = await connection.getParsedTransaction(canonicalSignalId(transaction.signature), {commitment:"confirmed",maxSupportedTransactionVersion:1});
+    const fraction = sellFraction(sourceTx, targetWallet(state,profile), leg.inputMint);
+    if (!fraction) throw new Error("Cannot verify the trader's sold proportion yet; sell remains queued");
+    const heldAmount = await tokenBalanceRaw(connection,wallet,leg.inputMint);
+    if (BigInt(heldAmount || '0') < BigInt(tracked.raw)) throw new Error("Wallet holding differs from recorded holding; review required");
+    const amount = proportionalAmount(tracked.raw, fraction);
+    if (BigInt(amount) === 0n) return {status:"Skipped - proportional amount below one token unit"};
+    inputMint = leg.inputMint; outputMint = usdcMint;
+    copyAmount = {amount,note:"Copy the verified proportion sold by the original trader"};
+
   }
 
   const order = await jupiterJson("/swap/v2/order", {
@@ -1788,7 +1731,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   const submit = async () => {
     const checkControls = async () => {
       const current = await readState();
-      if (!supportedProfiles.some((key) => current.profiles?.[key]?.running)) return "Skipped - trading stopped by owner";
+      if (emergencyStopRequested || !supportedProfiles.some((key) => current.profiles?.[key]?.running)) return "Skipped - trading stopped by owner";
       if (leg.action === "buy") {
         if (current.strategy?.activeProfile !== profile || current.strategy?.paused || profileSellOnly(current, profile)) {
           return "Buy blocked: trading controls changed";
@@ -1798,6 +1741,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
       }
       return "";
     };
+    if (await hasPendingMint(wallet, leg.action === "buy" ? outputMint : inputMint)) return {status:"Skipped - prior transaction for this coin awaits confirmation"};
     let reason = await checkControls();
     if (reason) return { status: reason, detectedAt };
     if (leg.action === "buy") {
@@ -1813,6 +1757,11 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     if (reason) return { status: reason, detectedAt };
 
   const submittedAt = new Date().toISOString();
+  const journalKey = await recordPendingSwap({wallet,profile,mint:leg.action === "buy" ? outputMint : inputMint,side:leg.action,source:canonicalSignalId(transaction.signature)},signed,order);
+  if (emergencyStopRequested) {
+    const d=await executionJournal.load();delete d.pending[journalKey];await executionJournal.save();
+    return {status:"Skipped - trading stopped by owner"};
+  }
   const executed = await jupiterJson("/swap/v2/execute", {
     apiKey,
     method: "POST",
@@ -1823,11 +1772,12 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     }
   });
 
+  await recordExecutionResponse(journalKey,executed);
   return {
-    status: "Executed",
+    status: "Submitted - confirmation pending",
     detectedAt,
     submittedAt,
-    confirmedAt: new Date().toISOString(),
+
     action: leg.action,
     inputMint,
     outputMint,
@@ -1841,10 +1791,155 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     requestId: order.requestId,
     swapUsdValue: order.swapUsdValue,
     outAmount: order.outAmount,
-    txid: executed.signature || executed.txid || executed.transactionId || executed.swapTransaction || ""
+    txid: journalKey
   };
   };
   return walletLocked ? submit() : withWalletOperation(submit, leg.action === "sell" ? 100 : 0);
+}
+
+function transactionSignature(signed) {
+  const bytes=VersionedTransaction.deserialize(Buffer.from(signed.signedTransactionBase64,'base64')).signatures[0];
+  const alphabet='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let n=BigInt('0x'+Buffer.from(bytes).toString('hex')), out='';
+  while(n){out=alphabet[Number(n%58n)]+out;n/=58n;}
+  for(const b of bytes){if(b!==0)break;out='1'+out;}
+  if(!out || bytes.every(b=>b===0))throw new Error('Transaction is not signed');
+  return out;
+}
+async function hasPendingMint(wallet,mint) {
+  const d=await executionJournal.load();
+  return Object.values(d.pending).some(p=>p.wallet===wallet && p.mint===mint);
+}
+async function recordPendingSwap(info,signed,order) {
+  const d=await executionJournal.load(),txid=transactionSignature(signed);
+  if(await hasPendingMint(info.wallet,info.mint))throw new Error('Previous transaction for this coin awaits confirmation');
+  d.pending[txid]={...info,txid,expires:order.lastValidBlockHeight,requestId:order.requestId,submittedAt:Date.now()};
+  await executionJournal.save();return txid;
+}
+async function recordExecutionResponse(key,result) {
+  const d=await executionJournal.load();
+  if(result.status && result.status!=='Success') {
+    d.notices[key]=`Execution response: ${result.status}; checking chain before retrying`;
+    await executionJournal.save();throw new Error(d.notices[key]);
+  }
+  const returned=result.signature || result.txid;
+  if(returned && returned!==key)throw new Error('Execution returned a different signature; confirmation requires review');
+}
+async function trackedPosition(state,profile,mint) {
+  const snapshot=await executionJournal.snapshot();
+  const position=snapshot.positions[`${tradeWallet(state)}:${profile}:${mint}`];
+  return position?.verified ? position : null;
+}
+const sourceSellQueue = new Map();
+async function queueSourceSell(profile,transaction) {
+  const d=await executionJournal.load();d.sourceSells ||= {};
+  const key=canonicalSignalId(transaction.signature);
+  d.sourceSells[key] ||= {profile,transaction,queuedAt:Date.now()};
+  await executionJournal.save();
+}
+async function retrySourceSells(state) {
+  const d=await executionJournal.load();
+  for(const [key,job] of Object.entries(d.sourceSells || {})) {
+    if(Object.values(d.pending).some(p=>p.source===key))continue;
+    if(d.fills.some(f=>f.source===key && f.side==='sell')){delete d.sourceSells[key];await executionJournal.save();continue;}
+    if(job.lastAttempt && Date.now()-job.lastAttempt<5000)continue;
+    job.lastAttempt=Date.now();
+    try {
+      const result=await executeCopiedSwap(job.profile,job.transaction,state);
+      job.message=result.status;
+      // No position can be temporary while an earlier buy is being confirmed.
+      if(result.status.includes('no verified copied holding') && Date.now()-job.queuedAt>60000){
+        d.notices[key]='Source sale observed, but no verified copied holding was found. Check holdings.';
+      }
+    }catch(error){job.message=error.message;d.notices[key]=`Sell retry: ${error.message}`;}
+    await executionJournal.save();
+  }
+}
+const sourceObservationQueue = new Map();
+function queueSourceObservation(profile,transaction,state) {
+  const key=canonicalSignalId(transaction.signature);
+  sourceObservationQueue.set(key,{profile,transaction,wallet:targetWallet(state,profile),leg:primarySwapLeg(transaction,profile,state)});
+  if(sourceObservationQueue.size>500)sourceObservationQueue.delete(sourceObservationQueue.keys().next().value);
+}
+async function updateSourceReports(connection) {
+ const d=await executionJournal.load();d.sourceFills ||= [];d.sourceChecked ||= {};d.sourceUnknown ||= {};
+ for(const [key,job] of [...sourceObservationQueue].slice(0,3)) {
+   if(d.sourceChecked[key]){sourceObservationQueue.delete(key);continue;}
+   const {profile,transaction,wallet,leg}=job;
+   const tx=await connection.getParsedTransaction(key,{commitment:'confirmed',maxSupportedTransactionVersion:1});
+   if(!tx?.meta || tx.meta.err){sourceObservationQueue.delete(key);continue;}
+   const mint=leg.action==='buy'?leg.outputMint:leg.inputMint;
+   const amounts=tokenAmounts(tx,wallet,mint),cash=tokenAmounts(tx,wallet,usdcMint);
+   const raw=amounts.after-amounts.before,usd=Number(cash.after-cash.before)/1e6;
+   if((raw>0n && usd<0)||(raw<0n && usd>0))d.sourceFills.push({txid:key,wallet,profile,mint,side:raw>0n?'buy':'sell',raw:(raw<0n?-raw:raw).toString(),usd:Math.abs(usd),time:tx.blockTime*1000});
+   else d.sourceUnknown[profile]=true; // SOL trades need historical USD prices; don't invent them.
+   d.sourceChecked[key]=true;sourceObservationQueue.delete(key);await executionJournal.save();
+ }
+}
+async function refreshExecutionReport(state) {
+ const connection=solanaConnection(state.settings,{fastRead:true});
+ const d=await executionJournal.load();
+ // Import retained execution signatures read-only. Missing history remains explicitly incomplete.
+ for(const trade of [...(state.trades || [])].reverse()) {
+   const e=trade.execution, txid=e?.txid;
+   if(!txid || d.checked[txid] || d.pending[txid] || !['buy','sell'].includes(e.action))continue;
+   d.pending[txid]={txid,wallet:tradeWallet(state),profile:profileFromTrade(trade),mint:e.action==='buy'?e.outputMint:e.inputMint,side:e.action,source:canonicalSignalId(trade.signature),historical:true,submittedAt:Date.now()};
+ }
+ await executionJournal.save();
+ await executionJournal.reconcile(connection);
+ await updateSourceReports(connection);
+ const report=await executionJournal.snapshot();
+ report.source={};
+ const source=buildPositions(d.sourceFills || []);
+ for(const profile of supportedProfiles) {
+   const closed=source.closed.filter(f=>f.profile===profile);
+   report.source[profile]={...dailyResults(closed),total:closed.reduce((n,f)=>n+f.pnl,0),partial:true,unpriced:Boolean(d.sourceUnknown?.[profile]),updatedAt:new Date().toISOString()};
+ }
+ report.confirmed=d.fills.map(f=>({...f,pnl:report.closed.find(c=>c.txid===f.txid)?.pnl}));
+ report.updatedAt=new Date().toISOString();report.partialHistory=true;
+ report.pendingSells=Object.values(d.sourceSells || {}).map(j=>({profile:j.profile,message:j.message || 'Waiting to retry'}));
+ executionReport=report;
+}
+let riskWorking=false;
+async function runPositionWatch() {
+ if(riskWorking)return;riskWorking=true;
+ try {
+  const state=await readState();
+  if(!ready(state))return;
+  await refreshExecutionReport(state);
+  if(emergencyStopRequested || !supportedProfiles.some(p=>state.profiles[p].running))return;
+  const d=await executionJournal.load();
+  for(const position of Object.values(executionReport.positions)) {
+   if(!position.verified || BigInt(position.raw)<=0n || !(position.cost>0) || profileBuyMode(state,position.profile)==='exact')continue;
+   if(await hasPendingMint(position.wallet,position.mint))continue;
+   try {
+    await withWalletOperation(async()=>{
+     const current=await readState();
+     if(emergencyStopRequested || !supportedProfiles.some(p=>current.profiles[p].running) || !liveTradingAllowed(current,position.profile))return;
+     const p=await trackedPosition(current,position.profile,position.mint);
+     if(!p || BigInt(p.raw)<=0n || await hasPendingMint(p.wallet,p.mint))return;
+     const connection=solanaConnection(current.settings,{fastRead:true});
+     const held=await tokenBalanceRaw(connection,p.wallet,p.mint);
+     if(BigInt(held||'0')<BigInt(p.raw))throw new Error('Wallet balance changed; holding needs reconciliation');
+     const order=await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(current.settings),query:{inputMint:p.mint,outputMint:usdcMint,amount:p.raw,taker:p.wallet,swapMode:'ExactIn'}});
+     if(!order.outAmount || order.inAmount!==p.raw || !order.transaction)throw new Error('Sell value unavailable; missing data is not a zero price');
+     const proceeds=Number(order.outAmount)/1e6,reason=exitReason(profileBuyMode(current,p.profile),p.cost,proceeds);
+     d.notices[p.key]=`${reason || 'Watching'}: estimated sale $${proceeds.toFixed(2)}, remaining cost $${p.cost.toFixed(2)}`;
+     if(!reason){await executionJournal.save();return;}
+     const signed=await signSolanaTransaction(current,signerId(current),p.wallet,order.transaction);
+     const before=await readState();
+     if(emergencyStopRequested || !supportedProfiles.some(x=>before.profiles[x].running) || before.strategy.controlRevision!==current.strategy.controlRevision)return;
+     const key=await recordPendingSwap({...p,side:'sell',reason},signed,order);
+     if(emergencyStopRequested){delete d.pending[key];await executionJournal.save();return;}
+     const result=await jupiterJson('/swap/v2/execute',{apiKey:jupiterApiKey(current.settings),method:'POST',body:{signedTransaction:signed.signedTransactionBase64,requestId:order.requestId,lastValidBlockHeight:order.lastValidBlockHeight}});
+     await recordExecutionResponse(key,result);
+     d.notices[p.key]=`${reason}: sale submitted; awaiting chain confirmation`;
+     await executionJournal.save();
+    },100);
+   }catch(error){d.notices[position.key]=`Exit check: ${error.message}`;await executionJournal.save();}
+  }
+ }catch(error){executionReport={...(executionReport||{}),error:error.message};}
+ finally{riskWorking=false;}
 }
 
 async function executeManualTokenSell(state, { profile, mint, automatic = false }) {
@@ -1855,11 +1950,11 @@ async function executeManualTokenSell(state, { profile, mint, automatic = false 
         throw new Error("Trading stopped by owner; automatic sell cancelled.");
       }
     }
-    return executeManualTokenSellLocked(state, { profile, mint });
+    return executeManualTokenSellLocked(state, { profile, mint, automatic });
   }, 100);
 }
 
-async function executeManualTokenSellLocked(state, { profile, mint }) {
+async function executeManualTokenSellLocked(state, { profile, mint, automatic = false }) {
   const wallet = tradeWallet(state, profile);
   const signer = signerId(state, profile) || wallet;
   const tokenMint = solanaAddress(mint)?.toBase58();
@@ -1887,6 +1982,10 @@ async function executeManualTokenSellLocked(state, { profile, mint }) {
   }
 
   const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
+  if (automatic) {
+    const check=await readState();
+    if(emergencyStopRequested || !supportedProfiles.some(p=>check.profiles[p].running)) throw new Error("Trading stopped; sell cancelled before submission");
+  }
   const executed = await jupiterJson("/swap/v2/execute", {
     apiKey: jupiterApiKey(state.settings),
     method: "POST",
@@ -1921,44 +2020,7 @@ function roomMatchesProfile(trade = {}, profile = "") {
   return text.includes("decu win") || text.includes("deku") || text.includes("decu") || text.includes("smart win") || text.includes("deku riskier");
 }
 
-async function autoSellStuckTokenAfterSellSignal(state, profile, leg, sourceTrade = {}) {
-  if (leg?.action !== "sell" || !liveTradingAllowed(state, profile)) return null;
-  const wallet = tradeWallet(state, profile);
-  if (!wallet) return null;
-
-  const connection = solanaConnection(state.settings);
-  const candidates = [];
-  if (leg.inputMint && !isQuoteMint(leg.inputMint)) candidates.push(leg.inputMint);
-
-  for (const mint of candidates) {
-    const balance = await tokenBalanceRaw(connection, wallet, mint);
-    if (!balance) continue;
-
-    const result = await executeManualTokenSell(state, { profile, mint, automatic: true });
-    return {
-      id: result.txid || randomUUID(),
-      signature: result.txid || "",
-      time: new Date().toLocaleString("en-US", { hour12: false }),
-      profile: profileLabel(profile),
-      action: "Auto stuck sell",
-      token: result.inputMint,
-      tradedToken: result.inputMint,
-      tradedTokenMint: result.inputMint,
-      amount: Number(result.swapUsdValue || 0),
-      sourceUsd: 0,
-      sourceReceivedUsd: Number(result.swapUsdValue || 0),
-      traderPnlUsd: 0,
-      pnl: 0,
-      status: "Executed",
-      execution: {
-        ...result,
-        copySizingNote: `Auto stuck sell after Decu sell signal${sourceTrade.signature ? ` ${sourceTrade.signature}` : ""}; token was still in wallet`
-      }
-    };
-  }
-
-  return null;
-}
+async function autoSellStuckTokenAfterSellSignal() { return null; }
 
 function tradeMint(trade = {}) {
   return String(trade.tradedTokenMint || trade.execution?.inputMint || trade.execution?.outputMint || trade.token || "").trim();
@@ -1972,77 +2034,7 @@ function autoStockSellKey(profile, mint, sellTrade = {}) {
   return `${profile}:${mint}:${sellTrade.signature || sellTrade.id || sellTrade.time || "sell"}`;
 }
 
-async function autoSellStockCoinsFromHistory(state) {
-  if (!liveTradingAllowed(state)) return [];
-  state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
-  const processed = new Set(state.strategy.processedStockAutoSells || []);
-  const newTrades = [];
-  const trades = Array.isArray(state.trades) ? state.trades : [];
-
-  for (const profile of supportedProfiles) {
-    if (!liveTradingAllowed(state, profile)) continue;
-    const wallet = tradeWallet(state, profile);
-    if (!wallet) continue;
-    const connection = solanaConnection(state.settings);
-    const roomTrades = trades
-      .filter((trade) => roomMatchesProfile(trade, profile))
-      .slice()
-      .reverse();
-    const boughtMints = new Set();
-
-    for (const trade of roomTrades) {
-      const action = String(trade.action || "").toLowerCase();
-      const mint = tradeMint(trade);
-      if (!mint || isQuoteMint(mint)) continue;
-
-      if (action.includes("buy") && tradeLooksExecuted(trade)) {
-        boughtMints.add(mint);
-        continue;
-      }
-
-      if (!action.includes("sell") || !boughtMints.has(mint)) continue;
-      const key = autoStockSellKey(profile, mint, trade);
-      if (processed.has(key)) continue;
-      const balance = await tokenBalanceRaw(connection, wallet, mint);
-      if (!balance) { processed.add(key); continue; }
-
-      const result = await executeManualTokenSell(state, { profile, mint, automatic: true });
-      processed.add(key);
-      const autoTrade = {
-        id: result.txid || randomUUID(),
-        signature: result.txid || "",
-        time: new Date().toLocaleString("en-US", { hour12: false }),
-        profile: profileLabel(profile),
-        action: "Auto stock coin sell",
-        token: result.inputMint,
-        tradedToken: result.inputMint,
-        tradedTokenMint: result.inputMint,
-        amount: Number(result.swapUsdValue || 0),
-        sourceUsd: 0,
-        sourceReceivedUsd: Number(result.swapUsdValue || 0),
-        traderPnlUsd: 0,
-        pnl: 0,
-        status: "Executed",
-        execution: {
-          ...result,
-          copySizingNote: `Auto stock coin sell: trader sold ${mint} and wallet still held it`
-        }
-      };
-      newTrades.push(autoTrade);
-      state.activity = [
-        line(`${profileLabel(profile)} auto-sold stock coin ${mint.slice(0, 6)}...${mint.slice(-4)} because the trader already sold it.`),
-        ...(state.activity || [])
-      ].slice(0, 20);
-      break;
-    }
-  }
-
-  state.strategy.processedStockAutoSells = [...processed].slice(-80);
-  if (newTrades.length) {
-    state.trades = [...newTrades, ...(state.trades || [])].slice(0, 100);
-  }
-  return newTrades;
-}
+async function autoSellStockCoinsFromHistory(state) { return retrySourceSells(state); }
 
 function tradeFromTransaction(profile, transaction, state) {
   const status = liveTradingAllowed(state, profile)
@@ -2432,6 +2424,7 @@ async function processSignalTransactions(state, profile, transactions, newest, c
   for (const transaction of signalTransactions) {
     if (options.side && primarySwapLeg(transaction, profile, state)?.action !== options.side) continue;
     const trade = tradeFromTransaction(profile, transaction, state);
+    queueSourceObservation(profile, transaction, state);
     const leg = primarySwapLeg(transaction, profile, state);
     const alreadySold = leg?.action === "buy" && orderedUnseen.some((other) => {
       const otherLeg = primarySwapLeg(other, profile, state);
@@ -2461,22 +2454,8 @@ async function processSignalTransactions(state, profile, transactions, newest, c
     }
     newTrades.push(trade);
 
-    if (canExecute && leg?.action === "sell") {
-      try {
-        const stuckSellTrade = await autoSellStuckTokenAfterSellSignal(state, profile, leg, trade);
-        if (stuckSellTrade) {
-          newTrades.push(stuckSellTrade);
-          state.activity = [
-            line(`${profileLabel(profile)} auto-sold stuck token ${stuckSellTrade.tradedTokenMint.slice(0, 6)}...${stuckSellTrade.tradedTokenMint.slice(-4)} after Decu sell.`),
-            ...(state.activity || [])
-          ].slice(0, 20);
-        }
-      } catch (error) {
-        state.activity = [
-          line(`${profileLabel(profile)} stuck token auto-sell failed: ${error.message}`),
-          ...(state.activity || [])
-        ].slice(0, 20);
-      }
+    if (canExecute && leg?.action === "sell" && trade.execution?.txid == null) {
+      await queueSourceSell(profile, transaction);
     }
   }
 
@@ -2687,7 +2666,7 @@ async function runCopyWorkerOnce() {
   }
   const current = await readState();
   if (!supportedProfiles.some((p) => current.profiles?.[p]?.running)) return;
-  try { await autoSellStockCoinsFromHistory(state); }
+  try { await retrySourceSells(state); }
   catch (error) { state.activity = [line(`Automatic sell check: ${error.message}`), ...(state.activity || [])].slice(0,20); }
   await saveState(state);
 }
@@ -2710,6 +2689,8 @@ function startCopyWorker() {
       await saveState(state);
     } finally { working = false; }
   };
+  setInterval(() => { runPositionWatch().catch(() => {}); }, 2000);
+  runPositionWatch().catch(() => {});
   setInterval(() => { pollSignalFeeds().catch(() => {}); pumpDirectReads(); },500);
   setInterval(() => { wakeCopyWorker().catch(() => {}); },workerIntervalMs);
 }
@@ -2876,8 +2857,15 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/settings") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
-    state.settings = { ...state.settings, ...clean(await readBody(request)) };
+    const input = await readBody(request);
+    if (input.frogBuyMode !== undefined) {
+      if (!["limits", "exact", "loss"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose one of the three trading modes."}); return true; }
+      if (input.frogBuyMode !== "exact" && !(Number(input.frogSurviveMax)>0 && Number.isFinite(Number(input.frogSurviveMax)))) { send(response, 400, {error:"Enter a positive maximum purchase amount."}); return true; }
+    }
+    state.settings = { ...state.settings, ...clean(input) };
+    if (input.frogBuyMode !== undefined) state.settings.modesConfirmed = "yes";
     syncQueueSurviveSettings(state.settings);
+    state.strategy.controlRevision = Math.max(Date.now(), Number(state.strategy.controlRevision || 0) + 1);
     state.activity = [line("Engine Room saved."), ...(state.activity || [])].slice(0, 20);
     await saveState(state);
     send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
@@ -3194,28 +3182,20 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/queue/automatic") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
-    const body = await readBody(request);
-    state.strategy.autoSwitch = body.enabled === true;
-    state.strategy.controlRevision = Date.now();
-    state.strategy.exhaustedProfiles = [];
-    state.strategy.paused = false;
-    state.strategy.pauseReason = "";
-    for (const profile of supportedProfiles) state.strategy[strategyLossKey(profile)] = 0;
-    state.activity = [line(state.strategy.autoSwitch ? "Automatic switching enabled: each trader gets one turn before Game stopped." : "Manual copying enabled: keep the selected trader until the owner changes it."), ...(state.activity || [])].slice(0, 20);
-    await saveState(state);
-    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
+    send(response, 410, { error: "Automatic switching has been removed. Stop trading, then choose your trader." });
     return true;
   }
 
   if (request.method === "POST" && url.pathname === "/api/queue/start") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    if (state.settings.modesConfirmed !== "yes") { send(response,409,{error:"Choose and save your trading mode before starting."}); return true; }
     if (!ready(state)) {
       send(response, 400, { error: "Engine Room is not complete yet." });
       return true;
     }
     try {
-      await assertHeliusReadyForProfile(state, "frog");
+      await assertHeliusReadyForProfile(state, state.strategy.activeProfile);
     } catch (error) {
       state.activity = [
         line(`Trading queue start blocked: ${error.message}`),
@@ -3235,6 +3215,7 @@ async function handleApi(request, response, url) {
     state.strategy.truenestLosses = 0;
     state.strategy.safeLosses = 0;
     state.strategy.processedClosedTrades = [];
+    emergencyStopRequested = false;
     beginTradingSession(state);
     supportedProfiles.forEach((profile) => {
       state.profiles[profile].running = true;
@@ -3254,6 +3235,9 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/queue/stop") {
+    const stopState = await readState();
+    if (requireOwner(response, sessionFromRequest(request, stopState))) return true;
+    emergencyStopRequested = true;
     return await withWalletOperation(async () => {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
@@ -3284,32 +3268,17 @@ async function handleApi(request, response, url) {
       send(response, 400, { error: "Choose Frog, Deku, or Trunoest." });
       return true;
     }
-    try {
-      await assertHeliusReadyForProfile(state, profile);
-    } catch (error) {
-      state.activity = [
-        line(`${profileLabel(profile)} switch blocked: ${error.message}`),
-        ...(state.activity || [])
-      ].slice(0, 20);
-      await saveState(state);
-      send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
+    if (supportedProfiles.some((item) => state.profiles[item].running)) {
+      send(response, 409, { error: "Press Stop Trading before changing trader." });
       return true;
     }
-    state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
     state.strategy.activeProfile = profile;
-    state.strategy.controlRevision = Date.now();
     state.strategy.autoSwitch = false;
-    state.strategy.exhaustedProfiles = [];
+    state.strategy.controlRevision = Math.max(Date.now(), Number(state.strategy.controlRevision || 0) + 1);
     state.strategy.paused = false;
     state.strategy.pauseReason = "";
-    state.strategy[strategyLossKey(profile)] = 0;
-    beginTradingSession(state);
-    supportedProfiles.forEach((item) => {
-      state.profiles[item].running = true;
-    });
-    state.profiles[profile].lastAction = new Date().toISOString();
     state.activity = [
-      line(`Manual switch: ${profileLabel(profile)} is active for new buys. Other bots stay watched for sells.`),
+      line(`Selected ${profileLabel(profile)}. Trading remains stopped until you press Start Trading.`),
       ...(state.activity || [])
     ].slice(0, 20);
     await saveState(state);
@@ -3321,84 +3290,15 @@ async function handleApi(request, response, url) {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
-    const activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "safe";
-    if (!ready(state)) {
-      send(response, 400, { error: "Engine Room is not complete yet." });
-      return true;
-    }
-    try {
-      await assertHeliusReadyForProfile(state, activeProfile);
-    } catch (error) {
-      state.activity = [
-        line(`${profileLabel(activeProfile)} keep button blocked: ${error.message}`),
-        ...(state.activity || [])
-      ].slice(0, 20);
-      await saveState(state);
-      send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
-      return true;
-    }
-    state.strategy.activeProfile = activeProfile;
-    state.strategy.controlRevision = Date.now();
-    state.strategy.autoSwitch = false;
-    state.strategy.exhaustedProfiles = [];
-    state.strategy.paused = false;
-    state.strategy.pauseReason = "";
-    state.strategy[strategyLossKey(activeProfile)] = 0;
-    beginTradingSession(state);
-    supportedProfiles.forEach((profile) => {
-      state.profiles[profile].running = true;
-    });
-    state.profiles[activeProfile].lastAction = new Date().toISOString();
-    const switchLimit = queueFailureSwitchLimit(state);
-    state.activity = [
-      line(`${profileLabel(activeProfile)} kept active in Manual mode until the owner changes it. Other bots stay watched for sells.`),
-      ...(state.activity || [])
-    ].slice(0, 20);
-    await saveState(state);
-    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
+    send(response,410,{error:"Use Change Trader, then Start Trading at the top."});
     return true;
   }
 
   const startMatch = url.pathname.match(/^\/api\/start\/(safe|frog|truenest)$/);
   if (request.method === "POST" && startMatch) {
     const state = await readState();
-    if (requireOwner(response, sessionFromRequest(request, state))) return true;
-    if (!ready(state)) {
-      send(response, 400, { error: "Engine Room is not complete yet." });
-      return true;
-    }
-    const profile = startMatch[1];
-    try {
-      await assertHeliusReadyForProfile(state, profile);
-    } catch (error) {
-      state.activity = [
-        line(`${profileLabel(profile)} start blocked: ${error.message}`),
-        ...(state.activity || [])
-      ].slice(0, 20);
-      await saveState(state);
-      send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
-      return true;
-    }
-    state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
-    state.strategy.activeProfile = profile;
-    state.strategy.paused = false;
-    state.strategy.pauseReason = "";
-    state.strategy[strategyLossKey(profile)] = 0;
-    state.strategy.processedClosedTrades = [];
-    beginTradingSession(state);
-    supportedProfiles.forEach((item) => {
-      state.profiles[item].running = true;
-    });
-    state.profiles[profile].lastAction = new Date().toISOString();
-    state.activity = [
-      line(`${profileLabel(profile)} started in one-chart auto switch mode.`),
-      line(liveTradingAllowed(state, profile)
-        ? "Production execution is enabled. Copy worker can execute with the connected signer."
-        : "Monitoring is active. Real swap execution stays locked until EXECUTE_REAL_SWAPS=true is set in Render."),
-      ...(state.activity || [])
-    ].slice(0, 20);
-    await saveState(state);
-    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
+    if (requireOwner(response, sessionFromRequest(request,state))) return true;
+    send(response,410,{error:"Use Change Trader, then Start Trading at the top."});
     return true;
   }
 
