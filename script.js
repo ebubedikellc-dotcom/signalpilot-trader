@@ -1,3 +1,4 @@
+let walletPriceSnapshot = null;
 const fields = [
   "gmgnApiKey",
   "heliusKey",
@@ -2052,6 +2053,24 @@ function renderExecutionReport() {
  }
 }
 
+function walletValuation(balance, cash, prices, now = Date.now()) {
+ const fresh = prices?.wallet === balance.address && Number.isFinite(prices.receivedAt) && now - prices.receivedAt < 90000;
+ const priceOf = item => fresh && typeof item?.priceUsd === "number" && item.priceUsd > 0 && Number.isFinite(item.priceUsd) && now - item.checked < 90000 ? item.priceUsd : null;
+ const result = { total: Number.isFinite(cash) && !balance.error ? cash : null, coins: 0, unknown: 0, solPriced: false };
+ if (result.total === null || !balance.tokens) return { ...result, total: null };
+ const solPrice = priceOf(prices?.solMarket);
+ result.solPriced = Number.isFinite(balance.sol) && (balance.sol === 0 || solPrice !== null);
+ if (result.solPriced) result.total += balance.sol * (solPrice || 0);
+ for (const [mint, token] of Object.entries(balance.tokens)) {
+  if (mint === "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" || BigInt(token.raw || "0") <= 0n) continue;
+  const price = priceOf(prices?.coins?.find(c => c.mint === mint));
+  if (price === null || !Number.isFinite(token.amount)) result.unknown++;
+  else result.coins += token.amount * price;
+ }
+ result.total += result.coins;
+ return result;
+}
+
 function renderRemainingWallet(settings = {}) {
  const b=walletBalance("frog"), cash=balanceUsdc("frog");
  setText("savedTradingBudget",settings.frogDeposit !== undefined && settings.frogDeposit !== "" ? money(Number(settings.frogDeposit)) : "Not set");
@@ -2070,9 +2089,14 @@ function renderRemainingWallet(settings = {}) {
    : Math.max(0,Math.min(cash-locked,profileDeposit(settings)));
  setText("remainingTradeable",validCash && locked!==null ? money(available) : "Unable to check");
  setText("remainingCoins",tokenCount===null ? "Unable to check" : `${tokenCount} coin types`);
- setText("remainingCoinValue",tokenCount===0 ? "Other coin value: $0.00" : "Coin value: unable to check");
- setText("remainingTotal",validCash && validSol && b.sol===0 && tokenCount===0 ? money(cash) : "Unable to check");
- setText("remainingBalanceStatus",b.error ? "Balance check failed. Your provider is not returning a verified balance. This does not mean your wallet is empty." : b.updatedAt ? `Balance checked: ${new Date(b.updatedAt).toLocaleString()}. USDC and SOL are shown separately; a complete dollar total needs coin prices.` : "Waiting for a verified wallet balance.");
+ const valuation = walletValuation(b, cash, walletPriceSnapshot);
+ const complete = valuation.total !== null && valuation.solPriced && valuation.unknown === 0;
+ setText("remainingCoinValue",tokenCount===null ? "Waiting for verified holdings" : `${valuation.unknown ? "Priced coins" : "Other coin value"}: ${money(valuation.coins)}${valuation.unknown ? `; ${valuation.unknown} coin price unavailable` : ""}`);
+ setText("remainingTotal",valuation.total === null ? "Unable to check" : money(valuation.total));
+ setText("remainingTotalLabel",complete ? "Estimated total wallet value" : "Priced wallet subtotal");
+ const exclusions = [!valuation.solPriced ? "SOL price unavailable" : "", valuation.unknown ? `${valuation.unknown} coin price unavailable` : ""].filter(Boolean);
+ setText("remainingTotalNote",valuation.total === null ? "Waiting for verified wallet balances." : complete ? "USDC plus current SOL and coin market estimates, before fees." : `Excludes unpriced assets: ${exclusions.join("; ")}. Their value is unknown, not zero.`);
+ setText("remainingBalanceStatus",b.error ? "Balance check failed. Your provider is not returning a verified balance. This does not mean your wallet is empty." : b.updatedAt ? `Balance checked: ${new Date(b.updatedAt).toLocaleString()}. Market estimates exclude any assets whose prices are unavailable.` : "Waiting for a verified wallet balance.");
  setText("remainingWalletAddress",wallet ? `My wallet: ${wallet}` : "Wallet not connected");
 }
 
@@ -2085,6 +2109,8 @@ async function loadWalletCoins() {
   setText("walletCoinsStatus", "Checking wallet coins and market prices…");
   try {
     const data = await api("/api/owner/wallet-coins");
+    walletPriceSnapshot = { ...data, receivedAt: Date.now() };
+    renderRemainingWallet(latestState.settings);
     $("walletCoinsList").replaceChildren();
     for (const coin of data.coins) {
       const card = document.createElement("article");

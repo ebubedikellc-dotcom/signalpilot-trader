@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import fs from 'node:fs';
+const source=fs.readFileSync(new URL('../script.js',import.meta.url),'utf8');
+const c=vm.createContext({});
+vm.runInContext(source.slice(source.indexOf('function walletValuation('),source.indexOf('function renderRemainingWallet(')),c);
+const now=1800000000000;
+const balance={address:'wallet',sol:2,tokens:{coin:{raw:'100',amount:10}}};
+const prices={wallet:'wallet',receivedAt:now,solMarket:{priceUsd:100,checked:now},coins:[{mint:'coin',priceUsd:3,checked:now}]};
+test('values current holdings with fresh same-wallet prices',()=>{const r=c.walletValuation(balance,100,prices,now);assert.equal(r.total,330);assert.equal(r.coins,30);assert.equal(r.unknown,0);assert.equal(r.solPriced,true);});
+test('unknown token stays excluded and explicitly counted',()=>{const r=c.walletValuation(balance,100,{...prices,coins:[]},now);assert.equal(r.total,300);assert.equal(r.unknown,1);});
+test('stale prices and prices from another wallet cannot imply a complete total',()=>{for(const p of [{...prices,receivedAt:now-90001},{...prices,wallet:'other'},{...prices,solMarket:{priceUsd:100,checked:now-90001},coins:[]}]){const r=c.walletValuation(balance,100,p,now);assert.equal(r.total,100);assert.equal(r.solPriced,false);assert.equal(r.unknown,1);}});
+test('failed balances do not become a zero or stale total',()=>{assert.equal(c.walletValuation({...balance,error:'unavailable'},100,prices,now).total,null);});

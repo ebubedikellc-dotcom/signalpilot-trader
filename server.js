@@ -3520,7 +3520,8 @@ async function handleApi(request, response, url) {
         return { mint, ...t, ...market, estimatedUsd: market.priceUsd === null ? null : t.amount * market.priceUsd, canSell: !isQuoteMint(mint) };
       })));
     }
-    send(response, 200, { wallet: balance.address, checkedAt: balance.updatedAt, coins });
+    const solMarket = await coinMarket(solMint);
+    send(response, 200, { wallet: balance.address, checkedAt: balance.updatedAt, coins, solMarket });
     return true;
   }
 
