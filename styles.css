@@ -655,3 +655,5 @@ td { color: var(--muted); }
 @media(max-width:600px){.control-shell{width:100%;padding:10px;} .main-trading-buttons{gap:5px}.main-trading-buttons button{font-size:13px}.watch-grid{grid-template-columns:1fr 1fr}.watch-grid small{font-size:12px}.topbar{display:block}.trade-room-grid{grid-template-columns:1fr}.queue-control-card{padding:14px;}}
 
 .emergency-trading-bar #topStopStatus{flex:0 0 auto;}
+
+.single-wallet-tools{display:grid;gap:12px;padding:16px;overflow-wrap:anywhere}.single-wallet-tools label{display:grid;gap:6px}.single-wallet-tools input{width:100%;min-height:44px}.single-wallet-tools button{min-height:44px}.single-wallet-tools details{padding:12px;border:1px solid var(--line)}

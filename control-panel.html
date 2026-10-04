@@ -105,7 +105,7 @@
               <div class="watch-top">
                 <div>
                   <p class="eyebrow">Live Trading Watch</p>
-                  <h2 id="liveWatchTitle">Show me buy, sell, profit.</h2>
+                  <h2 id="liveWatchTitle">My selected trader and my results</h2>
                   <p>This is the screen to leave open or record when SignalPilot is copying trades.</p>
                 </div>
                 <div class="watch-live-badge" id="watchLiveBadge">Waiting</div>
@@ -194,29 +194,7 @@
 
             </section>
 
-            <details class="wallet-tools"><summary>All holdings and extra wallet details</summary>
-            <div class="metric-grid trading-summary">
-              <article><span>Decu Win deposit</span><strong id="frogBalance">Deposit: $0.00</strong></article>
-              <article><span>Decu Win USDC now</span><strong id="frogUsdcNow">$0.00</strong></article>
-              <article><span>Decu Win tokens still in wallet</span><strong id="frogOpenValue">$0.00</strong></article>
-              <article><span>Decu Win total value</span><strong id="frogTotalValue">$0.00</strong></article>
-              <article><span>Difference from trading budget</span><strong id="frogLoss">$0.00</strong></article>
-              <article><span>Decu Win SOL gas</span><strong id="frogSolBalance">Checking...</strong></article>
-              <article><span>Decu Win profit</span><strong id="frogProfit">$0.00</strong></article>
-              <article><span>Decu made / lost</span><strong id="frogTraderPnl">$0.00</strong></article>
-              <article><span>Decu today</span><strong id="frogTraderTodayPnl">$0.00</strong></article>
-              <article><span>Risk Win shared deposit</span><strong id="truenestBalance">Shared: $0.00</strong></article>
-              <article><span>Risk Win USDC now</span><strong id="truenestUsdcNow">$0.00</strong></article>
-              <article><span>Risk Win tokens still in wallet</span><strong id="truenestOpenValue">$0.00</strong></article>
-              <article><span>Risk Win total value</span><strong id="truenestTotalValue">$0.00</strong></article>
-              <article><span>Difference from trading budget</span><strong id="truenestLoss">$0.00</strong></article>
-              <article><span>Risk Win SOL gas</span><strong id="truenestSolBalance">Checking...</strong></article>
-              <article><span>Risk Win profit</span><strong id="truenestProfit">$0.00</strong></article>
-              <article><span>Other guy made / lost</span><strong id="truenestTraderPnl">$0.00</strong></article>
-              <article><span>Risk guy today</span><strong id="truenestTraderTodayPnl">$0.00</strong></article>
-              <article><span>Total saved deposit</span><strong id="manualDepositTotal">$0.00</strong></article>
-            </div>
-
+            <details class="wallet-tools"><summary>My coins: open, stuck and sold</summary>
             <section class="watch-tape open-holdings-panel" aria-labelledby="topOpenPositionsTitle">
               <div class="chart-head">
                 <strong id="topOpenPositionsTitle">Coins still in your wallet</strong>
@@ -256,17 +234,17 @@
               </div>
               <div class="watched-bot-board" aria-label="Watched bot history">
                 <div>
-                  <strong>Frog safe bot</strong>
+                  <strong>Frog</strong>
                   <span id="safeWatcherPnl">$0.00</span>
                   <small id="safeWatcherLast">No watched trade yet.</small>
                 </div>
                 <div>
-                  <strong>Deku riskier bot</strong>
+                  <strong>Deku</strong>
                   <span id="frogWatcherPnl">$0.00</span>
                   <small id="frogWatcherLast">No watched trade yet.</small>
                 </div>
                 <div>
-                  <strong>Trunoest risk bot</strong>
+                  <strong>Trunoest</strong>
                   <span id="truenestWatcherPnl">$0.00</span>
                   <small id="truenestWatcherLast">No watched trade yet.</small>
                 </div>
@@ -279,219 +257,32 @@
               <small id="queueControlNote">Highest buy $50 mode means small buys copy exact, but any bigger buy stops at $50.</small>
             </section>
 
-            <details class="wallet-tools"><summary>Wallet tools, deposits and withdrawals</summary><div class="trade-room-grid">
-              <article class="trader-card trade-room-card beginner">
-                <div class="trader-head">
-                  <div class="avatar frog-face" aria-hidden="true">S</div>
-                  <div>
-                    <span class="slot">Decu Win Room</span>
-                    <h2>Decu Win</h2>
-                    <p>Deposit here, start Decu Win, withdraw from Decu Win.</p>
-                  </div>
-                </div>
-
-                <div class="room-stat-grid">
-                  <div><span>Wins</span><strong id="frogWins">0</strong></div>
-                  <div><span>Copied signals</span><strong id="frogSignals">0</strong></div>
-                  <div><span>Profit made</span><strong id="frogRoomProfit">$0.00</strong></div>
-                  <div><span>USDC now</span><strong id="frogRoomUsdc">$0.00</strong></div>
-                  <div><span>Coins still in your wallet</span><strong id="frogRoomOpenValue">$0.00</strong></div>
-                  <div><span>Total value</span><strong id="frogRoomTotalValue">$0.00</strong></div>
-                  <div><span>Profit locked as USDC cash</span><strong id="frogRoomLockedProfit">$0.00</strong></div>
-                  <div><span>Tradeable head money</span><strong id="frogRoomTradeable">$0.00</strong></div>
-                  <div><span>Real sold loss</span><strong id="frogRoomLoss">$0.00</strong></div>
-                  <div><span>Decu made/lost</span><strong id="frogRoomTraderPnl">$0.00</strong></div>
-                  <div><span>Decu today</span><strong id="frogRoomTraderToday">$0.00</strong><small id="frogRoomTraderTodayNote">Decu today: $0.00</small></div>
-                  <div><span>Decu last trade</span><strong id="frogRoomTraderLast">No trader result yet.</strong></div>
-                </div>
-
-                <div class="room-copy-thread">
-                  <h4>Copy thread</h4>
-                  <ul id="frogRoomThread">
-                    <li>No Decu Win copied trade yet.</li>
-                  </ul>
-                </div>
-
-                <div class="room-copy-thread">
-                  <h4>Coins still in your wallet</h4>
-                  <ul id="frogOpenPositions">
-                    <li>No coin tokens still in wallet is showing now.</li>
-                  </ul>
-                </div>
-
-                <div class="room-copy-thread stock-coins-panel">
-                  <h4>Stuck coins</h4>
-                  <ul id="frogStockCoins">
-                    <li>No stock coin is showing now.</li>
-                  </ul>
-                </div>
-
-                <div class="room-copy-thread closed-trades-panel">
-                  <h4>Closed trades</h4>
-                  <p>Sold coins, including losses.</p>
-                  <ul id="frogClosedTrades">
-                    <li>No closed trade is showing now.</li>
-                  </ul>
-                </div>
-
-                <div class="address-card">
-                  <span>Deposit to Decu Win wallet</span>
-                  <strong id="manualDecuWallet">Wallet not connected yet</strong>
-                  <small id="manualDecuGas">SOL gas: checking...</small>
-                  <small id="manualDecuUsdc">USDC balance: checking...</small>
-                  <button id="copyManualDecuWallet" type="button" disabled>Copy Decu Win wallet</button>
-                </div>
-
-                <label>Decu Win trading budget <input id="manualDecuDeposit" inputmode="decimal" placeholder="0"></label>
-                <input id="frogTradeMode" type="hidden" value="both">
-                <label>Use locked profit to trade
-                  <select id="manualDecuUseProfit">
-                    <option value="off">OFF - protect profit</option>
-                  </select>
-                </label>
-                <button id="saveDecuDeposit" class="primary-action" type="button">Save Decu Win budget</button>
-
-
-
-                <div class="button-row profile-only-controls hidden">
-
-
-                </div>
-                <small id="frogTradeModeStatus">Decu Win can buy and sell.</small>
-
-
-
-                <div class="withdraw-inline danger-box">
-                  <h4>Manual sell from Decu Win</h4>
-                  <p>Use this when a coin is stuck. It sells the coin back to USDC and leaves SOL gas in the wallet.</p>
-                  <label>Token to sell <input id="frogSellMint" autocomplete="off" value="3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh"></label>
-                  <small>Keep about 0.02 to 0.03 SOL for gas. Do not sell the SOL gas unless you are closing everything.</small>
-                  <button id="frogSellTokenButton" class="stop-action" type="button">Sell Decu Win token to USDC</button>
-                  <small id="frogSellTokenResult">No manual sell sent yet.</small>
-                </div>
-
-                <div class="withdraw-inline">
-                  <h4>Withdraw from Decu Win</h4>
-                  <label>Profit USDC to wallet <input id="frogProfitWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
-                  <label>Profit amount in USDC <input id="frogProfitWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
-                  <button id="frogProfitWithdrawButton" class="primary-action" type="button">Withdraw Decu Win profit</button>
-                  <small id="frogProfitWithdrawResult">Profit stays locked until you withdraw it.</small>
-                  <label>Send to Solana wallet <input id="frogWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
-                  <label>Amount in SOL <input id="frogWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
-                  <button id="frogWithdrawButton" class="secondary-action" type="button">Withdraw Decu Win SOL</button>
-                  <small id="frogWithdrawResult">No Decu Win withdrawal sent yet.</small>
-                </div>
-              </article>
-
-              <article class="trader-card trade-room-card bigwin">
-                <div class="trader-head">
-                  <div class="avatar truenest-face" aria-hidden="true">R</div>
-                  <div>
-                    <span class="slot">Risk Win Room</span>
-                    <h2>Risk Win</h2>
-                    <p>Risk Win watches the risk trader, but buys and sells from the same funded Decu Win wallet.</p>
-                  </div>
-                </div>
-
-                <div class="room-stat-grid">
-                  <div><span>Wins</span><strong id="truenestWins">0</strong></div>
-                  <div><span>Copied signals</span><strong id="truenestSignals">0</strong></div>
-                  <div><span>Profit made</span><strong id="truenestRoomProfit">$0.00</strong></div>
-                  <div><span>USDC now</span><strong id="truenestRoomUsdc">$0.00</strong></div>
-                  <div><span>Coins still in your wallet</span><strong id="truenestRoomOpenValue">$0.00</strong></div>
-                  <div><span>Total value</span><strong id="truenestRoomTotalValue">$0.00</strong></div>
-                  <div><span>Profit locked as USDC cash</span><strong id="truenestRoomLockedProfit">$0.00</strong></div>
-                  <div><span>Tradeable head money</span><strong id="truenestRoomTradeable">$0.00</strong></div>
-                  <div><span>Real sold loss</span><strong id="truenestRoomLoss">$0.00</strong></div>
-                  <div><span>Other guy made/lost</span><strong id="truenestRoomTraderPnl">$0.00</strong></div>
-                  <div><span>Risk guy today</span><strong id="truenestRoomTraderToday">$0.00</strong><small id="truenestRoomTraderTodayNote">Risk guy today: $0.00</small></div>
-                  <div><span>Other guy last trade</span><strong id="truenestRoomTraderLast">No trader result yet.</strong></div>
-                </div>
-
-                <div class="room-copy-thread">
-                  <h4>Copy thread</h4>
-                  <ul id="truenestRoomThread">
-                    <li>No Risk Win copied trade yet.</li>
-                  </ul>
-                </div>
-
-                <div class="room-copy-thread">
-                  <h4>Coins still in your wallet</h4>
-                  <ul id="truenestOpenPositions">
-                    <li>No coin tokens still in wallet is showing now.</li>
-                  </ul>
-                </div>
-
-                <div class="room-copy-thread stock-coins-panel">
-                  <h4>Stuck coins</h4>
-                  <ul id="truenestStockCoins">
-                    <li>No stock coin is showing now.</li>
-                  </ul>
-                </div>
-
-                <div class="room-copy-thread closed-trades-panel">
-                  <h4>Closed trades</h4>
-                  <p>Sold coins, including losses.</p>
-                  <ul id="truenestClosedTrades">
-                    <li>No closed trade is showing now.</li>
-                  </ul>
-                </div>
-
-                <div class="address-card">
-                  <span>Risk Win uses main trading wallet</span>
-                  <strong id="manualTruenestWallet">Wallet not connected yet</strong>
-                  <small id="manualTruenestGas">SOL gas: checking...</small>
-                  <small id="manualTruenestUsdc">USDC balance: checking...</small>
-                  <button id="copyManualTruenestWallet" type="button" disabled>Copy main wallet</button>
-                </div>
-
-                <label>Shared trading budget <input id="manualTruenestDeposit" inputmode="decimal" placeholder="Same as Decu Win"></label>
-                <input id="truenestTradeMode" type="hidden" value="both">
-                <label>Use locked profit to trade
-                  <select id="manualTruenestUseProfit">
-                    <option value="off">OFF - protect profit</option>
-                  </select>
-                </label>
-                <button id="saveTruenestDeposit" class="primary-action" type="button">Save shared budget</button>
-
-
-
-                <div class="button-row profile-only-controls hidden">
-
-
-                </div>
-                <small id="truenestTradeModeStatus">Risk Win can buy and sell.</small>
-
-
-
-                <div class="withdraw-inline danger-box">
-                  <h4>Manual sell while Risk Win is active</h4>
-                  <p>Use this when a coin is stuck. It sells from the main trading wallet back to USDC and leaves SOL gas in the wallet.</p>
-                  <label>Token to sell <input id="truenestSellMint" autocomplete="off" placeholder="Paste token mint address"></label>
-                  <small>Keep about 0.02 to 0.03 SOL for gas. Do not sell the SOL gas unless you are closing everything.</small>
-                  <button id="truenestSellTokenButton" class="stop-action" type="button">Sell main-wallet token to USDC</button>
-                  <small id="truenestSellTokenResult">No manual sell sent yet.</small>
-                </div>
-
-                <div class="withdraw-inline">
-                  <h4>Withdraw from main wallet</h4>
-                  <label>Profit USDC to wallet <input id="truenestProfitWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
-                  <label>Profit amount in USDC <input id="truenestProfitWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
-                  <button id="truenestProfitWithdrawButton" class="primary-action" type="button">Withdraw main-wallet profit</button>
-                  <small id="truenestProfitWithdrawResult">Profit stays locked until you withdraw it.</small>
-                  <label>Send to Solana wallet <input id="truenestWithdrawWallet" autocomplete="off" placeholder="Paste Phantom, exchange, or buyer Solana address"></label>
-                  <label>Amount in SOL <input id="truenestWithdrawAmount" inputmode="decimal" placeholder="0.00"></label>
-                  <button id="truenestWithdrawButton" class="secondary-action" type="button">Withdraw main-wallet SOL</button>
-                  <small id="truenestWithdrawResult">No Risk Win withdrawal sent yet.</small>
-                </div>
-              </article>
-            </div>
-
-            <div class="deposit-help danger-help">
-              <strong>Solana only.</strong>
-              <span>For withdrawal, paste only a Solana wallet address. Test with small money first.</span>
-            </div>
-          </details>
+            <details class="wallet-tools"><summary>My wallet, trading budget and withdrawals</summary>
+              <div class="single-wallet-tools">
+                <h3>One wallet for the trader I choose</h3>
+                <strong id="manualDecuWallet">Wallet not verified</strong>
+                <small id="manualDecuGas">SOL gas: checking…</small>
+                <small id="manualDecuUsdc">USDC balance: checking…</small>
+                <button id="copyManualDecuWallet" type="button">Copy my deposit wallet address</button>
+                <label>My trading budget ($)<input id="manualDecuDeposit" type="number" min="0" step="0.01"></label>
+                <button id="saveDecuDeposit" type="button">Save my trading budget</button>
+                <p>Locked profit stays separate from the trading budget.</p>
+                <h4>Withdraw locked profit</h4>
+                <label>Destination Solana wallet<input id="frogProfitWithdrawWallet" autocomplete="off"></label>
+                <label>USDC amount<input id="frogProfitWithdrawAmount" type="number" min="0.01" step="0.01"></label>
+                <button id="frogProfitWithdrawButton" type="button">Withdraw my locked profit</button>
+                <small id="frogProfitWithdrawResult">No withdrawal requested.</small>
+                <details><summary>Manual coin sale and SOL withdrawal</summary>
+                  <label>Coin address to sell<input id="frogSellMint" autocomplete="off" placeholder="Paste the coin address"></label>
+                  <button id="frogSellTokenButton" type="button">Sell this coin for USDC</button>
+                  <small id="frogSellTokenResult">Manual sales require your action.</small>
+                  <label>Destination Solana wallet<input id="frogWithdrawWallet" autocomplete="off"></label>
+                  <label>SOL amount<input id="frogWithdrawAmount" type="number" min="0" step="0.000001"></label>
+                  <button id="frogWithdrawButton" type="button">Withdraw SOL</button>
+                  <small id="frogWithdrawResult">Keep SOL for transaction fees.</small>
+                </details>
+              </div>
+            </details>
           </section>
 
           <section class="owner-page hidden" data-owner-page="settings" aria-label="Settings page">
