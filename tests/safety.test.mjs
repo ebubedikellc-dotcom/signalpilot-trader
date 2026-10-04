@@ -49,7 +49,7 @@ test('sold-at-loss is closed; positive wallet quantity is open; absent wallet da
  assert.equal(c.openPositionsFromTrades(trades)[0].held,null);
 });
 test('a slow GMGN request does not prevent independent Helius delivery',async()=>{
- const c=vm.createContext({Date,Map,Set,Promise,supportedProfiles:['safe'],
+ const c=vm.createContext({Date,Map,Set,Promise,syncLiveSubscriptions:async()=>{},wakeCopyWorker:async()=>{},supportedProfiles:['safe'],
  readState:async()=>({profiles:{safe:{running:true}},settings:{heliusKey:'test',gmgnApiKey:'test'}}),
  targetWallet:()=> 'wallet',process:{env:{}},fetchTransactionsForAddress:async()=>[{signature:'new',timestamp:1}],
  fetchGmgnTransactionsForAddress:()=>new Promise(()=>{})});
@@ -63,4 +63,38 @@ test('stale worker cannot resume stopped trading',async()=>{
  vm.runInContext(section(server,'let stateSaveQueue =','async function readBody'),c);
  await c.saveState({strategy:{controlRevision:10},profiles:{safe:{running:true}}});
  assert.equal(disk.profiles.safe.running,false);
+});
+test('queued sells run before queued buys after the current operation completes',async()=>{
+ let unlock; const first=new Promise(r=>unlock=r);const order=[];
+ const c=vm.createContext({Promise});
+ vm.runInContext(section(server,'const walletJobs =','async function readProfitReserves'),c);
+ const running=c.withWalletOperation(async()=>{await first;order.push('running')});
+ const buy=c.withWalletOperation(async()=>order.push('buy'));
+ const sell=c.withWalletOperation(async()=>order.push('sell'),100);
+ unlock();await Promise.all([running,buy,sell]);assert.deepEqual(order,['running','sell','buy']);
+});
+test('notification listeners cover all configured traders across manual switching; Stop removes them',async()=>{
+ const callbacks=new Map();const removed=[];let id=0;
+ const c=vm.createContext({Map,Set,Date,supportedProfiles:['safe','frog','truenest'],PublicKey:class{constructor(x){this.value=x}},
+ targetWallet:(_,p)=>p,solanaConnection:()=>({onLogs:(wallet,cb)=>{callbacks.set(wallet.value,cb);return ++id},removeOnLogsListener:async n=>removed.push(n)})});
+ vm.runInContext(section(server,'let wakeCopyWorker =','const signalFeeds ='),c);
+ const state={profiles:{safe:{running:true}},settings:{heliusKey:'test'},strategy:{activeProfile:'safe'}};
+ await c.syncLiveSubscriptions(state);assert.equal(callbacks.size,3);
+ state.strategy.activeProfile='frog';await c.syncLiveSubscriptions(state);assert.equal(id,3);
+ state.profiles.safe.running=false;await c.syncLiveSubscriptions(state);assert.equal(removed.length,3);
+});
+test('sell-first processing keeps its checkpoint and blocks buying a coin already sold in that batch',async()=>{
+ const executed=[];
+ const c=vm.createContext({Set,Number,Date,supportedProfiles:['safe'],copyableSignal:()=>true,
+ primarySwapLeg:t=>t.leg,tradeFromTransaction:(_,t)=>({signature:t.signature}),
+ liveTradingAllowed:()=>true,executeCopiedSwap:async(_,t)=>{executed.push(t.signature);return {status:'Executed'}},
+ autoSellStuckTokenAfterSellSignal:async()=>null,applyAutoSwitchStrategy:()=>{},line:x=>x,profileLabel:p=>p,shouldLogNoSignal:()=>false});
+ vm.runInContext(section(server,'async function processSignalTransactions(','let wakeCopyWorker ='),c);
+ const state={profiles:{safe:{lastSignature:'old'}},strategy:{activeProfile:'safe'},trades:[]};
+ const tx=[{signature:'sell',timestamp:2,leg:{action:'sell',inputMint:'COIN'}},{signature:'buy',timestamp:1,leg:{action:'buy',outputMint:'COIN'}},{signature:'old'}];
+ await c.processSignalTransactions(state,'safe',tx,'sell','lastSignature','Helius',{side:'sell'});
+ assert.equal(state.profiles.safe.lastSignature,'old');
+ await c.processSignalTransactions(state,'safe',tx,'sell','lastSignature','Helius',{side:'buy'});
+ assert.deepEqual(executed,['sell']);assert.equal(state.profiles.safe.lastSignature,'sell');
+ assert.match(state.trades.find(t=>t.signature==='buy').status,/already sold/);
 });

@@ -22,12 +22,25 @@ const dataDir = process.env.DATA_DIR || path.join(__dirname, ".data");
 const dataFile = path.join(dataDir, "signalpilot-state.json");
 const profitReserveFile = path.join(dataDir, "profit-reserves.json");
 let profitReserves;
-let walletOperationQueue = Promise.resolve();
+const walletJobs = [];
+let walletBusy = false;
+async function drainWalletJobs() {
+  if (walletBusy) return;
+  walletBusy = true;
+  try {
+    while (walletJobs.length) {
+      walletJobs.sort((a,b) => b.priority - a.priority);
+      const job = walletJobs.shift();
+      try { job.resolve(await job.action()); } catch (error) { job.reject(error); }
+    }
+  } finally { walletBusy = false; }
+}
 
-function withWalletOperation(action) {
-  const result = walletOperationQueue.then(action);
-  walletOperationQueue = result.catch(() => {});
-  return result;
+function withWalletOperation(action, priority = 0) {
+  return new Promise((resolve, reject) => {
+    walletJobs.push({ action, priority, resolve, reject });
+    drainWalletJobs();
+  });
 }
 
 async function readProfitReserves() {
@@ -641,7 +654,8 @@ function statusPayload(state, session) {
       productionExecution,
       workerIntervalMs,
       maxSignalAgeMs: buyFreshnessLimitMs,
-      feeds: feedHealth()
+      feeds: feedHealth(),
+      liveNotifications: Array.from(liveSubscriptions, ([wallet, sub]) => ({ wallet, lastNotificationAt: sub.lastNotificationAt, status: sub.lastNotificationAt ? "Notification received" : "Registered; awaiting notification" }))
     },
     auth: session ? { role: session.role, id: session.id } : null
   };
@@ -1638,7 +1652,7 @@ function buyFreshnessError(transaction, now = Date.now()) {
 }
 
 async function executeCopiedSwap(profile, transaction, state) {
-  return withWalletOperation(() => executeCopiedSwapLocked(profile, transaction, state));
+  return withWalletOperation(() => executeCopiedSwapLocked(profile, transaction, state), primarySwapLeg(transaction, profile, state)?.action === "sell" ? 100 : 0);
 }
 
 async function executeCopiedSwapLocked(profile, transaction, state) {
@@ -2365,8 +2379,18 @@ async function processSignalTransactions(state, profile, transactions, newest, c
   }
 
   for (const transaction of signalTransactions) {
+    if (options.side && primarySwapLeg(transaction, profile, state)?.action !== options.side) continue;
     const trade = tradeFromTransaction(profile, transaction, state);
     const leg = primarySwapLeg(transaction, profile, state);
+    const alreadySold = leg?.action === "buy" && orderedUnseen.some((other) => {
+      const otherLeg = primarySwapLeg(other, profile, state);
+      return otherLeg?.action === "sell" && otherLeg.inputMint === leg.outputMint && Number(other.timestamp) >= Number(transaction.timestamp);
+    });
+    if (alreadySold) {
+      trade.status = "Buy blocked: trader already sold this coin in the received signals";
+      newTrades.push(trade);
+      continue;
+    }
     const activeProfile = supportedProfiles.includes(state.strategy?.activeProfile) ? state.strategy.activeProfile : "frog";
     const activeForBuys = profile === activeProfile;
     const canExecute = liveTradingAllowed(state, profile) && ((activeForBuys && !state.strategy?.paused) || leg?.action === "sell");
@@ -2405,7 +2429,7 @@ async function processSignalTransactions(state, profile, transactions, newest, c
     }
   }
 
-  state.profiles[profile][checkpointField] = newest;
+  if (options.side !== "sell") state.profiles[profile][checkpointField] = newest;
   if (newTrades.length) {
     state.trades = [...newTrades, ...(state.trades || [])].slice(0, 100);
     applyAutoSwitchStrategy(state, newTrades);
@@ -2417,10 +2441,35 @@ async function processSignalTransactions(state, profile, transactions, newest, c
   return newTrades;
 }
 
+let wakeCopyWorker = async () => {};
+const liveSubscriptions = new Map();
+async function syncLiveSubscriptions(state) {
+  const enabled = supportedProfiles.some((p) => state.profiles?.[p]?.running);
+  const wanted = new Set(enabled ? supportedProfiles.map((p) => targetWallet(state,p)).filter(Boolean) : []);
+  for (const [wallet, sub] of liveSubscriptions) {
+    if (!wanted.has(wallet)) {
+      liveSubscriptions.delete(wallet);
+      await sub.connection.removeOnLogsListener(sub.id).catch(() => {});
+    }
+  }
+  if (!enabled || !state.settings.heliusKey) return;
+  for (const wallet of wanted) {
+    if (liveSubscriptions.has(wallet)) continue;
+    const connection = solanaConnection(state.settings);
+    const sub = { connection, id: null, lastNotificationAt: null };
+    sub.id = connection.onLogs(new PublicKey(wallet), (event) => {
+      if (event.err) return;
+      sub.lastNotificationAt = new Date().toISOString();
+      pollSignalFeeds().catch(() => {});
+    }, "confirmed");
+    liveSubscriptions.set(wallet,sub);
+  }
+}
 const signalFeeds = new Map();
 const feedRequests = new Set();
 async function pollSignalFeeds() {
   const state = await readState();
+  await syncLiveSubscriptions(state);
   if (!supportedProfiles.some((p) => state.profiles?.[p]?.running)) return;
   for (const profile of supportedProfiles) {
     const wallet = targetWallet(state, profile);
@@ -2437,6 +2486,7 @@ async function pollSignalFeeds() {
         const checked = source === "GMGN" ? gmgnCache.get(`official:${wallet}`)?.at || Date.now() : Date.now();
         const at = new Date(checked).toISOString();
         signalFeeds.set(key, { profile, source, wallet, checkedAt: at, error: "", transactions: transactions.map((t) => ({ ...t, detectedAt: at })) });
+        wakeCopyWorker().catch(() => {});
       }).catch((error) => {
         signalFeeds.set(key, { profile, source, wallet, checkedAt: new Date().toISOString(), error: error.message, transactions: [] });
       }).finally(() => feedRequests.delete(key));
@@ -2451,17 +2501,20 @@ function feedHealth() {
 async function runCopyWorkerOnce() {
   const state = await readState();
   if (!supportedProfiles.some((p) => state.profiles?.[p]?.running)) return;
+  const cycleFeeds = new Map(signalFeeds);
   const active = state.strategy.activeProfile;
   const order = [active, ...supportedProfiles.filter((p) => p !== active)].filter(Boolean);
+  for (const side of ["sell", "buy"]) {
   for (const profile of order) {
     for (const source of ["Helius", "GMGN"]) {
-      const feed = signalFeeds.get(`${profile}:${source}`);
+      const feed = cycleFeeds.get(`${profile}:${source}`);
       if (!feed || feed.error || feed.wallet !== targetWallet(state, profile)) continue;
       const current = await readState();
       if (!supportedProfiles.some((p) => current.profiles?.[p]?.running)) return;
       if (Number(current.strategy.controlRevision || 0) > Number(state.strategy.controlRevision || 0)) state.strategy = current.strategy;
-      await processSignalTransactions(state, profile, feed.transactions, newestSignature(feed.transactions), source === "GMGN" ? "lastGmgnSignature" : "lastSignature", source);
+      await processSignalTransactions(state, profile, feed.transactions, newestSignature(feed.transactions), source === "GMGN" ? "lastGmgnSignature" : "lastSignature", source, { side });
     }
+  }
   }
   const current = await readState();
   if (!supportedProfiles.some((p) => current.profiles?.[p]?.running)) return;
@@ -2471,21 +2524,25 @@ async function runCopyWorkerOnce() {
 }
 
 function startCopyWorker() {
-  setInterval(() => { pollSignalFeeds().catch(() => {}); }, 500);
   let working = false;
-  setInterval(async () => {
+  let requested = false;
+  wakeCopyWorker = async () => {
+    requested = true;
     if (working) return;
     working = true;
     try {
-      await runCopyWorkerOnce();
+      do {
+        requested = false;
+        await runCopyWorkerOnce();
+      } while (requested);
     } catch (error) {
       const state = await readState();
-      state.activity = [line(`Copy worker warning: ${error.message}`), ...(state.activity || [])].slice(0, 20);
+      state.activity = [line(`Copy worker warning: ${error.message}`), ...(state.activity || [])].slice(0,20);
       await saveState(state);
-    } finally {
-      working = false;
-    }
-  }, workerIntervalMs);
+    } finally { working = false; }
+  };
+  setInterval(() => { pollSignalFeeds().catch(() => {}); },500);
+  setInterval(() => { wakeCopyWorker().catch(() => {}); },workerIntervalMs);
 }
 
 async function handleApi(request, response, url) {
@@ -3033,7 +3090,7 @@ async function handleApi(request, response, url) {
     await saveState(state);
     send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
     return true;
-    });
+    }, 1000);
   }
 
   if (request.method === "POST" && url.pathname === "/api/queue/switch") {
