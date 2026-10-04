@@ -705,7 +705,7 @@ function statusPayload(state, session) {
       appVersion: "grow-to-target-v1",
       marketDataProvider: "GMGN",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
-      walletVerificationProvider: (state.settings.heliusKey || process.env.HELIUS_API_KEY) ? "Helius RPC" : "Public Solana RPC",
+      walletVerificationProvider: (state.settings.heliusKey || process.env.HELIUS_API_KEY) ? "Helius RPC with controlled public fallback" : "Public Solana RPC",
       paidHeliusEnabled: Boolean(state.settings.heliusKey || process.env.HELIUS_API_KEY),
       providerRepairHold: state.settings.providerRepairHold === true,
       liveTrading: productionExecution,
@@ -1353,9 +1353,9 @@ function signerId(state) {
 }
 
 const rpcConnections = new Map();
-function solanaConnection(settings = {}, { fastRead = false } = {}) {
+function solanaConnection(settings = {}, { fastRead = false, publicOnly = false } = {}) {
   // GMGN supplies trader signals. The configured RPC still verifies our wallet.
-  const key = String(settings.heliusKey || process.env.HELIUS_API_KEY || '').trim();
+  const key = publicOnly ? '' : String(settings.heliusKey || process.env.HELIUS_API_KEY || '').trim();
   const endpoint = key ? `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(key)}` : clusterApiUrl('mainnet-beta');
   if (!rpcConnections.has(endpoint)) {
     const pool = createRpcReadPool({intervalMs: key ? 200 : 400});
@@ -1377,16 +1377,22 @@ function solanaConnection(settings = {}, { fastRead = false } = {}) {
       if(!result?.catch)return result;
       return result.catch(error=>{
         if(key)error.message=String(error.message).split(key).join('[redacted]');
+        // Fail over read-only verification on quota/availability errors. Each
+        // provider retains its own shared queue and Retry-After cooldown.
+        const safeRead=['getBalance','getParsedTokenAccountsByOwner','getParsedTransaction','getBlockHeight','getSignatureStatuses','getAccountInfo','getLatestBlockhash'].includes(property);
+        if(key && safeRead && (isRateLimitError(error) || /timed out|connection failed/i.test(error.message))) {
+          return solanaConnection({}, {publicOnly:true})[property](...args);
+        }
         throw error;
       });
     };
   }});
 }
 
-function publicSolanaConnection() { return solanaConnection({}); }
+function publicSolanaConnection() { return solanaConnection({}, {publicOnly:true}); }
 
 function isRateLimitError(error) {
-  return /429|max usage|rate limit|resource exhausted/i.test(String(error?.message || error || ""));
+  return /429|max usage|rate[ -]?limit|resource exhausted/i.test(String(error?.message || error || ""));
 }
 
 function solanaAddress(value) {

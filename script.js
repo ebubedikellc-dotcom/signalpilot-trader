@@ -1257,8 +1257,8 @@ function renderState(state) {
   }
 
   if (heliusBlocked) {
-    setText("engineStatus", "Helius key needs refresh");
-    setText("engineSubtext", "Balance is visible through backup Solana RPC, but copy trading stays locked until the paid Helius key is saved and no longer returns 429.");
+    setText("engineStatus", "Wallet verification unavailable");
+    setText("engineSubtext", "The wallet provider is limiting requests. Balance-dependent actions must wait for verified wallet data. GMGN connection status is shown separately.");
     setLog([
       "Helius is still returning 429 for the saved API key.",
       "Do not press Start yet. Refresh or paste/save the paid Helius API key first.",

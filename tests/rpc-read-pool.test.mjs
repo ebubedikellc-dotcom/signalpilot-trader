@@ -51,3 +51,18 @@ test('failure of optional trader statistics does not abort wallet report or dupl
  await c.refreshExecutionReport({settings:{},trades:[{execution:{txid:'tx',action:'buy'}}]});
  assert.equal(reconciled,1);assert.equal(c.executionReport.positions.coin.raw,'4');assert.match(c.executionReport.sourceReportError,/rate-limited/);assert.equal(Object.keys(d.pending).length,1);
 });
+
+test('only reads fail over when the configured provider is rate-limited; writes never retry elsewhere',async()=>{
+ const calls=[];
+ class Connection {
+  constructor(endpoint){this.endpoint=endpoint;}
+  async getBalance(){calls.push(this.endpoint);if(this.endpoint.includes('helius'))throw new Error('429 quota limit');return 123;}
+  async sendRawTransaction(){calls.push('write');throw new Error('429 quota limit');}
+ }
+ const c=vm.createContext({Map,Proxy,Reflect,String,process:{env:{HELIUS_API_KEY:'test-env-key'}},Connection,createRpcReadPool,clusterApiUrl:()=> 'https://public.example',AbortSignal,fetch:()=>{}});
+ vm.runInContext(source.slice(source.indexOf('const rpcConnections'),source.indexOf('function solanaAddress')),c);
+ const client=c.solanaConnection({heliusKey:'test-key'});
+ assert.equal(await client.getBalance('w'),123);
+ assert.deepEqual(calls,['https://mainnet.helius-rpc.com/?api-key=test-key','https://public.example']);
+ await assert.rejects(client.sendRawTransaction('bytes'),/429/);assert.equal(calls.at(-1),'write');assert.equal(calls.length,3);
+});
