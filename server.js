@@ -686,8 +686,8 @@ function statusPayload(state, session) {
 }
 
 async function walletBalances(state) {
-  const primaryConnection = solanaConnection(state.settings);
-  const fallbackConnection = publicSolanaConnection();
+  const primaryConnection = solanaConnection(state.settings, { fastRead: true });
+  const fallbackConnection = solanaConnection({}, { fastRead: true });
   const balances = {};
   const checkedWallets = new Map();
 
@@ -701,6 +701,9 @@ async function walletBalances(state) {
       usdc: null,
       error: ""
     };
+    // Share failures too: all profiles can use the same wallet, and retrying
+    // each one would block the dashboard behind repeated provider failures.
+    checkedWallets.set(wallet, balances[profile]);
 
     if (!key) {
       balances[profile].error = "Wallet not connected";
@@ -718,6 +721,7 @@ async function walletBalances(state) {
       try {
         balances[profile] = await walletBalanceFromConnection(fallbackConnection, wallet, key);
         balances[profile].warning = "Helius RPC limit reached. Balance is using public Solana RPC; refresh the paid Helius key before starting copy trading.";
+        checkedWallets.set(wallet, balances[profile]);
       } catch (fallbackError) {
         balances[profile].error = `Helius limit reached and fallback balance failed: ${fallbackError.message || "Balance check failed"}`;
       }

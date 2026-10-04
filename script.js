@@ -1660,8 +1660,10 @@ async function logout() {
   showBusinessMessage("Closed.");
 }
 
+let statusRefreshPending = false;
 async function refresh() {
-  if (page !== "owner") return;
+  if (page !== "owner" || statusRefreshPending) return;
+  statusRefreshPending = true;
   try {
     const state = await api("/api/status");
     if (state.auth?.role === "owner" || document.body.dataset.role === "owner") renderState(state);
@@ -1674,7 +1676,7 @@ async function refresh() {
     });
     setText("liveEnvStatus", "Backend is not answering, so live trading cannot be checked.");
     setLog(["Backend is not answering yet. Check Render service status."]);
-  }
+  } finally { statusRefreshPending = false; }
 }
 
 async function saveSettings() {
