@@ -35,6 +35,19 @@
         </details>
         <span id="topStopStatus" role="status" aria-live="polite">Stops automatic buys and sells. Does not sell your holdings.</span>
       </div>
+      <section class="wallet-remaining" aria-labelledby="walletRemainingTitle">
+        <h2 id="walletRemainingTitle">Money remaining in my wallet</h2>
+        <div class="wallet-remaining-grid">
+          <article><span>Cash remaining (USDC)</span><strong id="remainingUsdc">Checking…</strong><small>Includes any locked profit held in this wallet.</small></article>
+          <article><span>SOL remaining (network fees)</span><strong id="remainingSol">Checking…</strong></article>
+          <article><span>Locked profit</span><strong id="remainingLocked">Checking…</strong><small>Reserved by the app. Do not add this to cash again.</small></article>
+          <article><span>Cash available for trading</span><strong id="remainingTradeable">Checking…</strong><small>After locked profit and your trading budget limit.</small></article>
+          <article><span>Other coins in my wallet</span><strong id="remainingCoins">Checking…</strong><small id="remainingCoinValue">Coin value: unable to check</small></article>
+          <article><span>Total wallet value</span><strong id="remainingTotal">Unable to check</strong><small>Needs current USDC, SOL and coin prices.</small></article>
+        </div>
+        <p id="remainingBalanceStatus" role="status">Checking the wallet. Missing data will not be shown as zero.</p>
+        <small id="remainingWalletAddress" class="wallet-address"></small>
+      </section>
       <header class="topbar">
         <div>
           <p class="eyebrow">Owner Control Panel</p>

@@ -657,3 +657,12 @@ td { color: var(--muted); }
 .emergency-trading-bar #topStopStatus{flex:0 0 auto;}
 
 .single-wallet-tools{display:grid;gap:12px;padding:16px;overflow-wrap:anywhere}.single-wallet-tools label{display:grid;gap:6px}.single-wallet-tools input{width:100%;min-height:44px}.single-wallet-tools button{min-height:44px}.single-wallet-tools details{padding:12px;border:1px solid var(--line)}
+
+.wallet-remaining { margin: 20px 0; padding: 22px; border: 1px solid #2e897b; border-radius: 16px; background: #0b2725; }
+.wallet-remaining h2 { margin: 0 0 18px; font-size: 30px; }
+.wallet-remaining-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; }
+.wallet-remaining-grid article { display: flex; flex-direction: column; gap: 8px; padding: 16px; border-radius: 10px; background: #102f2d; }
+.wallet-remaining-grid strong { font-size: 30px; overflow-wrap: anywhere; }
+.wallet-remaining-grid small, #remainingBalanceStatus { color: #bccfce; }
+.wallet-remaining .wallet-address { display: block; overflow-wrap: anywhere; }
+@media(max-width:700px) { .wallet-remaining-grid { grid-template-columns: 1fr; } .wallet-remaining { padding: 16px; } }

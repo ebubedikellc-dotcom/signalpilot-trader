@@ -98,8 +98,8 @@ function heliusLimited() {
 }
 
 function balanceUsdc(profile) {
-  const value = Number(walletBalance(profile).usdc);
-  return Number.isFinite(value) ? value : 0;
+  const balance = walletBalance(profile);
+  return !balance.error && typeof balance.usdc === "number" && Number.isFinite(balance.usdc) ? balance.usdc : NaN;
 }
 
 function profileDeposit(settings = {}, profile = "frog") {
@@ -1210,6 +1210,7 @@ function renderState(state) {
   renderWatchedBots(trades);
   renderLiveWatch(settings, profiles, trades, strategy);
   renderManualDeposit(settings);
+  renderRemainingWallet(settings);
   renderVault(settings, profiles);
   renderTrades(trades);
   renderStockCoinHistory(trades);
@@ -1279,8 +1280,8 @@ function renderManualDeposit(settings = {}) {
   setText("manualTruenestWallet", frogWallet || "Wallet not connected yet");
   setText("manualDecuGas", frogBalance.error ? `SOL gas: ${frogBalance.error}` : `SOL gas: ${solAmount(frogBalance.sol)}`);
   setText("manualTruenestGas", frogBalance.error ? `SOL gas: ${frogBalance.error}` : `Same wallet gas: ${solAmount(frogBalance.sol)}`);
-  setText("manualDecuUsdc", `USDC balance: ${money(frogBalance.usdc)}`);
-  setText("manualTruenestUsdc", `Same wallet USDC: ${money(frogBalance.usdc)}`);
+  setText("manualDecuUsdc", `USDC balance: ${Number.isFinite(balanceUsdc("frog")) ? money(balanceUsdc("frog")) : "Unable to check"}`);
+  setText("manualTruenestUsdc", `Same wallet USDC: ${Number.isFinite(balanceUsdc("frog")) ? money(balanceUsdc("frog")) : "Unable to check"}`);
   setText("manualDepositTotal", money(frogDeposit));
   if ($("manualDecuDeposit") && document.activeElement !== $("manualDecuDeposit")) $("manualDecuDeposit").value = settings.frogDeposit || "";
   if ($("manualTruenestDeposit") && document.activeElement !== $("manualTruenestDeposit")) $("manualTruenestDeposit").value = settings.frogDeposit || "";
@@ -2006,4 +2007,23 @@ function renderExecutionReport() {
   for(const row of events){const li=document.createElement("li");li.textContent=`${new Date(row.time).toLocaleString()} · Added ${money(row.added)} · Locked total ${money(row.total)}`;$("lockedProfitLog").appendChild(li);}
   if(!events.length){const li=document.createElement("li");li.textContent="Existing locked balance is shown above. No dated lock events recorded yet.";$("lockedProfitLog").appendChild(li);}
  }
+}
+
+function renderRemainingWallet(settings = {}) {
+ const b=walletBalance("frog"), cash=balanceUsdc("frog");
+ const validCash=Number.isFinite(cash);
+ const validSol=!b.error && typeof b.sol === "number" && Number.isFinite(b.sol);
+ const wallet=b.address || settings.frogTradeWallet || "";
+ const reserve=latestState.profitReserves?.[wallet];
+ const locked=reserve && Number.isFinite(Number(reserve.lockedUsd)) ? Number(reserve.lockedUsd) : null;
+ const tokenCount=b.tokens && !b.error ? Object.entries(b.tokens).filter(([mint,t])=>mint!=="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" && BigInt(t.raw||"0")>0n).length : null;
+ setText("remainingUsdc",validCash ? money(cash) : "Unable to check");
+ setText("remainingSol",validSol ? solAmount(b.sol) : "Unable to check");
+ setText("remainingLocked",locked!==null ? money(locked) : "Unable to check");
+ setText("remainingTradeable",validCash && locked!==null ? money(Math.max(0,Math.min(cash-locked,profileDeposit(settings)))) : "Unable to check");
+ setText("remainingCoins",tokenCount===null ? "Unable to check" : `${tokenCount} coin types`);
+ setText("remainingCoinValue",tokenCount===0 ? "Other coin value: $0.00" : "Coin value: unable to check");
+ setText("remainingTotal",validCash && validSol && b.sol===0 && tokenCount===0 ? money(cash) : "Unable to check");
+ setText("remainingBalanceStatus",b.error ? "Balance check failed. Your provider is not returning a verified balance. This does not mean your wallet is empty." : b.updatedAt ? `Balance checked: ${new Date(b.updatedAt).toLocaleString()}. USDC and SOL are shown separately; a complete dollar total needs coin prices.` : "Waiting for a verified wallet balance.");
+ setText("remainingWalletAddress",wallet ? `My wallet: ${wallet}` : "Wallet not connected");
 }
