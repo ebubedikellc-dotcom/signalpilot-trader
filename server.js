@@ -1983,7 +1983,26 @@ async function runPositionWatch() {
  finally{riskWorking=false;}
 }
 
-async function executeManualTokenSell(state, { profile, mint, automatic = false }) {
+// Read-only market metadata. Never signs or submits a transaction.
+const coinMarketCache = new Map();
+const sellPreviews = new Map();
+async function coinMarket(mint) {
+  const cached = coinMarketCache.get(mint);
+  if (cached && Date.now() - cached.checked < 30000) return cached;
+  try {
+    const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(mint)}`, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error('Market data unavailable');
+    const data = await response.json();
+    const pairs = (data.pairs || []).filter(p => p.chainId === 'solana' && p.baseToken?.address === mint && Number(p.priceUsd) > 0)
+      .sort((a,b) => Number(b.liquidity?.usd || 0) - Number(a.liquidity?.usd || 0));
+    const best = pairs[0];
+    const result = { name: best?.baseToken?.name || 'Unknown token', symbol: best?.baseToken?.symbol || mint.slice(0,6), priceUsd: best ? Number(best.priceUsd) : null, checked: Date.now() };
+    coinMarketCache.set(mint, result);
+    return result;
+  } catch { return { name: 'Unknown token', symbol: mint.slice(0,6), priceUsd: null, checked: Date.now() }; }
+}
+
+async function executeManualTokenSell(state, { profile, mint, automatic = false, previewId }) {
   return withWalletOperation(async () => {
     if (automatic) {
       const current = await readState();
@@ -1991,11 +2010,11 @@ async function executeManualTokenSell(state, { profile, mint, automatic = false 
         throw new Error("Trading stopped by owner; automatic sell cancelled.");
       }
     }
-    return executeManualTokenSellLocked(state, { profile, mint, automatic });
+    return executeManualTokenSellLocked(state, { profile, mint, automatic, previewId });
   }, 100);
 }
 
-async function executeManualTokenSellLocked(state, { profile, mint, automatic = false }) {
+async function executeManualTokenSellLocked(state, { profile, mint, automatic = false, previewId }) {
   const wallet = tradeWallet(state, profile);
   const signer = signerId(state, profile) || wallet;
   const tokenMint = solanaAddress(mint)?.toBase58();
@@ -2007,22 +2026,24 @@ async function executeManualTokenSellLocked(state, { profile, mint, automatic = 
   const heldAmount = await tokenBalanceRaw(connection, wallet, tokenMint);
   if (!heldAmount) throw new Error(`${profileLabel(profile)} does not hold this token anymore.`);
 
-  const order = await jupiterJson("/swap/v2/order", {
-    apiKey: jupiterApiKey(state.settings),
-    query: {
-      inputMint: tokenMint,
-      outputMint: usdcMint,
-      amount: heldAmount,
-      taker: wallet,
-      swapMode: "ExactIn"
-    }
-  });
+  let order;
+  if (!automatic) {
+    const preview = sellPreviews.get(previewId);
+    sellPreviews.delete(previewId); // single-use even when a later step fails
+    if (!preview || preview.expiresAt < Date.now()) throw new Error('Sale preview expired. Check a new quote.');
+    if (preview.wallet !== wallet || preview.mint !== tokenMint || preview.profile !== profile || preview.raw !== heldAmount) throw new Error('Wallet or coin amount changed. Check a new quote.');
+    if (await hasPendingMint(wallet, tokenMint)) throw new Error('A transaction for this coin is still pending. Check its receipt before retrying.');
+    order = preview.order;
+  } else {
+    order = await jupiterJson('/swap/v2/order', { apiKey: jupiterApiKey(state.settings), query: { inputMint: tokenMint, outputMint: usdcMint, amount: heldAmount, taker: wallet, swapMode: 'ExactIn' } });
+  }
 
   if (!order.transaction) {
     throw new Error(`Jupiter could not build sell transaction${order.errorCode ? ` (${order.errorCode})` : ""}.`);
   }
 
   const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
+  const pendingKey = !automatic ? await recordPendingSwap({ wallet, mint: tokenMint, profile, side: 'sell', raw: heldAmount, source: `manual:${previewId}` }, signed, order) : null;
   if (automatic) {
     const check=await readState();
     if(emergencyStopRequested || !supportedProfiles.some(p=>check.profiles[p].running)) throw new Error("Trading stopped; sell cancelled before submission");
@@ -2036,6 +2057,8 @@ async function executeManualTokenSellLocked(state, { profile, mint, automatic = 
       lastValidBlockHeight: order.lastValidBlockHeight
     }
   });
+
+  if (pendingKey) await recordExecutionResponse(pendingKey, executed);
 
   return {
     status: "Executed",
@@ -3168,6 +3191,49 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/owner/wallet-coins') {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    const balances = await walletBalances(state);
+    const balance = balances.frog;
+    if (!balance || balance.error || !balance.tokens) { send(response, 503, { error: balance?.error || 'Wallet check unavailable' }); return true; }
+    const held = Object.entries(balance.tokens).filter(([mint,t]) => mint !== usdcMint && BigInt(t.raw || '0') > 0n);
+    const coins = [];
+    // Small batches keep many unsolicited wallet tokens from flooding the price provider.
+    for (let i=0; i<held.length; i+=5) {
+      coins.push(...await Promise.all(held.slice(i,i+5).map(async ([mint,t]) => {
+        const market = await coinMarket(mint);
+        return { mint, ...t, ...market, estimatedUsd: market.priceUsd === null ? null : t.amount * market.priceUsd, canSell: !isQuoteMint(mint) };
+      })));
+    }
+    send(response, 200, { wallet: balance.address, checkedAt: balance.updatedAt, coins });
+    return true;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/owner/sell-preview') {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    try {
+      const body = await readBody(request);
+      const profile = supportedProfiles.includes(body.profile) ? body.profile : 'frog';
+      const mint = solanaAddress(String(body.mint || '').trim())?.toBase58();
+      if (!mint || isQuoteMint(mint)) throw new Error('Choose a held token to sell.');
+      const wallet = tradeWallet(state, profile);
+      if (!wallet) throw new Error('Trading wallet is missing.');
+      const balance = await walletBalanceFromConnection(solanaConnection(state.settings), wallet, solanaAddress(wallet));
+      const held = balance.tokens[mint];
+      if (!held || BigInt(held.raw || '0') <= 0n) throw new Error('No remaining balance of this coin.');
+      const order = await jupiterJson('/swap/v2/order', { apiKey: jupiterApiKey(state.settings), query: { inputMint: mint, outputMint: usdcMint, amount: held.raw, taker: wallet, swapMode: 'ExactIn' } });
+      if (!order.transaction || order.inputMint !== mint || order.outputMint !== usdcMint || String(order.inAmount) !== held.raw || !(Number(order.outAmount) > 0)) throw new Error('No valid sale quote available. Nothing was sold.');
+      const market = await coinMarket(mint);
+      for (const [key,p] of sellPreviews) if (p.expiresAt < Date.now()) sellPreviews.delete(key);
+      const previewId = randomUUID(), expiresAt = Date.now() + 30000;
+      sellPreviews.set(previewId, { wallet, mint, profile, raw: held.raw, order, expiresAt });
+      send(response, 200, { previewId, expiresAt, wallet, mint, canExecute: liveTradingAllowed(state, profile), blockedReason: state.settings.providerRepairHold ? 'Sales are blocked by the current provider repair lock.' : 'Live sale execution is not enabled for this wallet.', amount: held.amount, name: market.name, symbol: market.symbol, expectedUsdc: Number(order.outAmount)/1e6, minimumUsdc: order.otherAmountThreshold ? Number(order.otherAmountThreshold)/1e6 : null, slippageBps: order.slippageBps ?? null, networkFeeSol: (Number(order.signatureFeeLamports || 0) + Number(order.prioritizationFeeLamports || 0) + Number(order.rentFeeLamports || 0))/1e9 });
+    } catch (error) { send(response, 400, { error: error.message }); }
+    return true;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/owner/sell-token") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
@@ -3177,7 +3243,7 @@ async function handleApi(request, response, url) {
     const stockOpenUsd = Number(body.stockOpenUsd || 0);
 
     try {
-      const result = await executeManualTokenSell(state, { profile, mint });
+      const result = await executeManualTokenSell(state, { profile, mint, previewId: body.previewId });
       const soldUsd = Number(result.swapUsdValue || 0);
       const stuckPnl = stockOpenUsd > 0 ? soldUsd - stockOpenUsd : 0;
       const stockStatus = stockOpenUsd > 0

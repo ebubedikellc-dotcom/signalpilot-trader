@@ -1804,30 +1804,45 @@ async function ownerWithdraw(profile = "frog", options = {}) {
 async function ownerSellToken(profile = "frog", options = {}) {
   const prefix = profile === "truenest" ? "truenest" : "frog";
   const mint = String(options.mint || value(`${prefix}SellMint`) || "").trim();
-  const resultNode = options.resultId ? $(options.resultId) : $(`${prefix}SellTokenResult`);
-  if (resultNode) resultNode.textContent = "Selling token to USDC...";
+  const review = $("walletSellReview");
+  if (!review) return;
+  review.hidden = false;
+  review.textContent = "Getting a sale quote. Nothing has been sold.";
+  review.scrollIntoView({ behavior: "smooth", block: "center" });
   try {
-    const result = await api("/api/owner/sell-token", {
-      method: "POST",
-      body: JSON.stringify({
-        profile,
-        mint,
-        stockOpenUsd: options.openUsd ? String(options.openUsd) : ""
-      })
-    });
-    renderState(result.status);
-    const signature = result.trade?.execution?.txid || result.trade?.signature || "";
-    if (resultNode) {
-      resultNode.innerHTML = signature
-        ? `Manual sell sent. <a href="https://solscan.io/tx/${encodeURIComponent(signature)}" target="_blank" rel="noopener">Open Solscan receipt</a>`
-        : "Manual sell sent.";
-    }
-    showBusinessMessage("Manual sell sent.");
-  } catch (error) {
-    if (resultNode) resultNode.textContent = error.message;
-    showBusinessMessage(error.message, true);
-  }
+    const quote = await api("/api/owner/sell-preview", { method: "POST", body: JSON.stringify({profile, mint}) });
+    review.innerHTML = `<h3>Review sale: ${escapeHtml(quote.symbol)}</h3>
+      <p>${escapeHtml(quote.name)} · ${escapeHtml(String(quote.amount))} tokens</p>
+      <p class="coin-mint">${escapeHtml(mint)}</p>
+      <p>Expected money back: <strong>${money(quote.expectedUsdc)} USDC</strong></p>
+      <p>${quote.minimumUsdc === null ? "Minimum received is not supplied by the provider." : `Minimum received: ${money(quote.minimumUsdc)} USDC.`} ${quote.slippageBps === null ? "" : `Slippage: ${(Number(quote.slippageBps)/100).toFixed(2)}%.`}</p>
+      <p>Reported network costs: ${escapeHtml(String(quote.networkFeeSol))} SOL. Additional costs may apply. USDC stays in your wallet.</p>
+      <p id="walletQuoteExpiry">Quote expires in 30 seconds.</p>
+      <button type="button" id="confirmWalletCoinSale">Confirm sale of ${escapeHtml(quote.symbol)} to USDC</button>
+      <button type="button" id="cancelWalletCoinSale">Cancel</button>`;
+    const confirm = $("confirmWalletCoinSale");
+    if (!quote.canExecute) { confirm.disabled = true; setText("walletQuoteExpiry", quote.blockedReason); }
+    const expiry = setTimeout(() => { confirm.disabled = true; if (confirm.isConnected) setText("walletQuoteExpiry", "Quote expired. Tap Sell to check a fresh quote."); }, Math.max(0, quote.expiresAt-Date.now()));
+    $("cancelWalletCoinSale").onclick = () => { clearTimeout(expiry); review.hidden = true; review.replaceChildren(); };
+    confirm.onclick = async () => {
+      if (!quote.canExecute || Date.now() >= quote.expiresAt) { confirm.disabled = true; return; }
+      confirm.disabled = true;
+      $("cancelWalletCoinSale").disabled = true;
+      clearTimeout(expiry);
+      setText("walletQuoteExpiry", "Submitting your sale. Do not click again.");
+      try {
+        const result = await api("/api/owner/sell-token", { method:"POST", body:JSON.stringify({ profile, mint, previewId:quote.previewId }) });
+        renderState(result.status);
+        const txid = result.trade?.execution?.txid || result.trade?.signature;
+        review.innerHTML = `<p>Sale submitted. Refresh wallet balances to check the received USDC.</p>${txid ? `<a href="https://solscan.io/tx/${encodeURIComponent(txid)}" target="_blank" rel="noopener">View transaction receipt</a>` : ""}`;
+        await loadWalletCoins();
+      } catch(error) {
+        review.textContent = `Sale not confirmed: ${error.message}. Check the wallet and transaction history before trying again.`;
+      }
+    };
+  } catch (error) { review.textContent = `Cannot prepare sale: ${error.message}. Nothing was submitted.`; }
 }
+
 
 async function copyTextFromNode(id, label) {
   const text = $(id)?.textContent?.trim() || "";
@@ -2052,3 +2067,37 @@ function renderRemainingWallet(settings = {}) {
  setText("remainingBalanceStatus",b.error ? "Balance check failed. Your provider is not returning a verified balance. This does not mean your wallet is empty." : b.updatedAt ? `Balance checked: ${new Date(b.updatedAt).toLocaleString()}. USDC and SOL are shown separately; a complete dollar total needs coin prices.` : "Waiting for a verified wallet balance.");
  setText("remainingWalletAddress",wallet ? `My wallet: ${wallet}` : "Wallet not connected");
 }
+
+// Whole-wallet holdings are independent of copied-trade history.
+let walletCoinsLoading = false;
+async function loadWalletCoins() {
+  if (!$("walletCoinsList") || walletCoinsLoading) return;
+  walletCoinsLoading = true;
+  $("refreshWalletCoins").disabled = true;
+  setText("walletCoinsStatus", "Checking wallet coins and market prices…");
+  try {
+    const data = await api("/api/owner/wallet-coins");
+    $("walletCoinsList").replaceChildren();
+    for (const coin of data.coins) {
+      const card = document.createElement("article");
+      card.className = "wallet-coin-card";
+      card.innerHTML = `<strong>${escapeHtml(coin.name)} (${escapeHtml(coin.symbol)})</strong>
+        <p>Amount: ${escapeHtml(String(coin.amount))}</p>
+        <p>Estimated worth: <strong>${coin.estimatedUsd === null ? "Price unavailable" : money(coin.estimatedUsd)}</strong></p>
+        <small class="coin-mint">${escapeHtml(coin.mint)}</small>`;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `Sell ${coin.symbol} — check quote`;
+      button.disabled = !coin.canSell;
+      button.onclick = () => ownerSellToken("frog", {mint:coin.mint});
+      card.append(button);
+      $("walletCoinsList").append(card);
+    }
+    setText("walletCoinsStatus", data.coins.length ? `Checked ${new Date(data.checkedAt).toLocaleString()}. Market estimates before fees; check a sale quote for the amount you could receive.` : "No other tokens remain in this wallet.");
+  } catch(error) {
+    $("walletCoinsList").replaceChildren();
+    setText("walletCoinsStatus", `Unable to check coins: ${error.message}`);
+  } finally { walletCoinsLoading = false; $("refreshWalletCoins").disabled = false; }
+}
+$("refreshWalletCoins")?.addEventListener("click", loadWalletCoins);
+if ($("walletCoinsList")) { loadWalletCoins(); setInterval(loadWalletCoins, 60000); }

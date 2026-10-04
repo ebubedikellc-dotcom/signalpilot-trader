@@ -674,3 +674,10 @@ td { color: var(--muted); }
 .wallet-budget-control button { margin: 10px; padding: 14px 20px; font-weight: 700; }
 #savedTradingBudget { font-size: 30px; }
 @media(max-width:700px) { .wallet-budget-control button { margin: 12px 0; width: 100%; } }
+
+.wallet-coins { margin-top: 24px; padding-top: 18px; border-top: 1px solid #33505e; }
+#walletCoinsList { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 14px; }
+.wallet-coin-card, #walletSellReview { padding: 18px; margin-top: 14px; border: 1px solid #33505e; border-radius: 14px; background: #10232d; }
+.wallet-coin-card button { display: block; margin-top: 14px; }
+.coin-mint { display: block; overflow-wrap: anywhere; opacity: .8; }
+#walletSellReview button { margin: 8px 8px 0 0; }

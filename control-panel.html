@@ -55,6 +55,14 @@
           <p id="tradingBudgetHelp">This is your total trading budget, not the maximum for one purchase. The app can only use available cash outside locked profit. Saving does not start trading.</p>
           <p id="tradingBudgetSaveStatus" role="status">Your saved amount stays unchanged until you save a new one.</p>
         </div>
+        <section class="wallet-coins" aria-labelledby="walletCoinsTitle">
+          <h3 id="walletCoinsTitle">Other coins I can sell</h3>
+          <p>All remaining wallet tokens, including coins outside copied trades. Selling converts a coin to USDC in this wallet.</p>
+          <button type="button" id="refreshWalletCoins">Refresh coin values</button>
+          <p id="walletCoinsStatus" role="status">Loading wallet coins…</p>
+          <div id="walletCoinsList"></div>
+          <div id="walletSellReview" hidden aria-live="polite"></div>
+        </section>
         <p id="remainingBalanceStatus" role="status">Checking the wallet. Missing data will not be shown as zero.</p>
         <small id="remainingWalletAddress" class="wallet-address"></small>
       </section>
