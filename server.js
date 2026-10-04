@@ -698,7 +698,22 @@ function statusPayload(state, session) {
   };
 }
 
+const walletReadCache = new Map();
 async function walletBalances(state) {
+  const key = supportedProfiles.map(profile => tradeWallet(state, profile)).join(':');
+  const cached = walletReadCache.get(key);
+  if (cached && (cached.pending || Date.now() < cached.expiresAt)) return cached.promise;
+  const entry = { pending: true, expiresAt: 0 };
+  entry.promise = readWalletBalances(state).then(balances => {
+    entry.pending = false;
+    entry.expiresAt = Date.now() + (Object.values(balances).some(b => b.error) ? 5000 : 15000);
+    return balances;
+  }, error => { walletReadCache.delete(key); throw error; });
+  walletReadCache.set(key, entry);
+  return entry.promise;
+}
+
+async function readWalletBalances(state) {
   const primaryConnection = solanaConnection(state.settings, { fastRead: true });
   const fallbackConnection = solanaConnection({}, { fastRead: true });
   const balances = {};
@@ -897,6 +912,17 @@ function profileBuyMode(state, profile) {
 function profileSurviveMaxUsd(state, profile) {
   const value = Number(profileSetting(state, profile, "surviveMax", "5"));
   return Number.isFinite(value) && value > 0 ? value : surviveBuyUsd;
+}
+
+// An owner-confirmed token sale needs the wallet and swap route, not the trader feed.
+// This permission is used only by the manual preview/confirm path.
+function manualSellingAllowed(state, profile = "frog") {
+  const settings = state.settings;
+  return Boolean(process.env.ENABLE_LIVE_TRADING === "true" && process.env.EXECUTE_REAL_SWAPS === "true"
+    && jupiterApiKey(settings) && settings.turnkeyOrgId && settings.turnkeyApiPublicKey
+    && settings.turnkeyApiPrivateKey && tradeWallet(state) && signerId(state)
+    && profileLiveTradingSwitch(state, profile) === "on"
+    && profileWalletSync(state, profile) === "Turnkey server wallet");
 }
 
 function liveTradingAllowed(state, profile = "") {
@@ -2020,7 +2046,7 @@ async function executeManualTokenSellLocked(state, { profile, mint, automatic = 
   const tokenMint = solanaAddress(mint)?.toBase58();
   if (!wallet || !signer) throw new Error(`${profileLabel(profile)} trading wallet or signer is missing.`);
   if (!tokenMint || isQuoteMint(tokenMint)) throw new Error("Enter the held token mint to sell.");
-  if (!liveTradingAllowed(state, profile)) throw new Error(`${profileLabel(profile)} live trading is not enabled.`);
+  if (!(automatic ? liveTradingAllowed(state, profile) : manualSellingAllowed(state, profile))) throw new Error(`${profileLabel(profile)} sale execution is not enabled.`);
 
   const connection = solanaConnection(state.settings);
   const heldAmount = await tokenBalanceRaw(connection, wallet, tokenMint);
@@ -3229,7 +3255,7 @@ async function handleApi(request, response, url) {
       for (const [key,p] of sellPreviews) if (p.expiresAt < Date.now()) sellPreviews.delete(key);
       const previewId = randomUUID(), expiresAt = Date.now() + 30000;
       sellPreviews.set(previewId, { wallet, mint, profile, raw: held.raw, order, expiresAt });
-      send(response, 200, { previewId, expiresAt, wallet, mint, canExecute: liveTradingAllowed(state, profile), blockedReason: state.settings.providerRepairHold ? 'Sales are blocked by the current provider repair lock.' : 'Live sale execution is not enabled for this wallet.', amount: held.amount, name: market.name, symbol: market.symbol, expectedUsdc: Number(order.outAmount)/1e6, minimumUsdc: order.otherAmountThreshold ? Number(order.otherAmountThreshold)/1e6 : null, slippageBps: order.slippageBps ?? null, networkFeeSol: (Number(order.signatureFeeLamports || 0) + Number(order.prioritizationFeeLamports || 0) + Number(order.rentFeeLamports || 0))/1e9 });
+      send(response, 200, { previewId, expiresAt, wallet, mint, canExecute: manualSellingAllowed(state, profile), blockedReason: 'Manual sale execution requires the enabled server wallet, signing credentials and swap route.', amount: held.amount, name: market.name, symbol: market.symbol, expectedUsdc: Number(order.outAmount)/1e6, minimumUsdc: order.otherAmountThreshold ? Number(order.otherAmountThreshold)/1e6 : null, slippageBps: order.slippageBps ?? null, networkFeeSol: (Number(order.signatureFeeLamports || 0) + Number(order.prioritizationFeeLamports || 0) + Number(order.rentFeeLamports || 0))/1e9 });
     } catch (error) { send(response, 400, { error: error.message }); }
     return true;
   }
@@ -3272,6 +3298,7 @@ async function handleApi(request, response, url) {
         ...(state.activity || [])
       ].slice(0, 20);
       await saveState(state);
+      walletReadCache.clear();
       send(response, 200, { trade, status: statusPayload(state, { role: "owner", id: "owner" }) });
     } catch (error) {
       state.activity = [
