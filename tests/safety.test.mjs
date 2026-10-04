@@ -5,29 +5,60 @@ import fs from 'node:fs';
 const server=fs.readFileSync(new URL('../server.js',import.meta.url),'utf8');
 const script=fs.readFileSync(new URL('../script.js',import.meta.url),'utf8');
 const section=(s,a,b)=>s.slice(s.indexOf(a),s.indexOf(b,s.indexOf(a)));
-test('buy deadline: late, missing and future timestamps fail closed',()=>{
- const c=vm.createContext({Date});
- vm.runInContext(section(server,'const buyFreshnessLimitMs','async function executeCopiedSwap('),c);
- assert.equal(c.buyFreshnessError({timestamp:100},100500),'');
- assert.match(c.buyFreshnessError({timestamp:100},100501),/blocked/);
- assert.match(c.buyFreshnessError({},100000),/unavailable/);
- assert.match(c.buyFreshnessError({timestamp:101},100000),/clock/);
+test('poll cadence does not expire buys; a known subsequent source sell cancels them',()=>{
+ const feeds=new Map();const c=vm.createContext({Number,signalFeeds:feeds,primarySwapLeg:t=>t.leg,targetWallet:()=> 'wallet'});
+ vm.runInContext(section(server,'// Poll cadence','async function executeCopiedSwap('),c);
+ const buy={timestamp:100,leg:{action:'buy',outputMint:'COIN'}};
+ assert.equal(c.buySignalError('safe',buy,{}),'');
+ feeds.set('safe:Helius',{profile:'safe',wallet:'wallet',transactions:[{timestamp:101,leg:{action:'sell',inputMint:'COIN'}}]});
+ assert.match(c.buySignalError('safe',buy,{}),/already sold/);
 });
-test('expired buy never submits, including expiry during signing; an old sell still submits',async()=>{
- let now=100000, action='buy', submitted=0;
- class Clock extends Date { static now(){return now;} }
+function executionHarness() {
+ const submitted=[];let stopped=false;
  const state={profiles:{safe:{running:true}},strategy:{activeProfile:'safe'},settings:{}};
- const c=vm.createContext({Date:Clock,BigInt,supportedProfiles:['safe'],readState:async()=>state,
- primarySwapLeg:()=>({action,inputMint:action==='buy'?'USDC':'COIN',outputMint:action==='buy'?'COIN':'USDC',amount:'50000000',sourceUsd:50}),
+ const c=vm.createContext({Date,BigInt,Number,supportedProfiles:['safe'],signalFeeds:new Map(),targetWallet:()=> 'wallet',
+ readState:async()=>({...state,profiles:{safe:{running:!stopped}}}),primarySwapLeg:t=>t.leg,
  tradeWallet:()=> 'wallet',signerId:()=> 'wallet',jupiterApiKey:()=> 'test',solanaConnection:()=>({}),
  scaledCopyAmount:()=>({amount:'1'}),isQuoteMint:m=>m==='USDC',usdcMint:'USDC',profileSellOnly:()=>false,
- buyUsdAmount:()=>50,profileTradeableUsdc:async()=>100,profileBuyMode:()=> 'cap50',usdcRawFromUsd:()=> '50000000',
+ buyUsdAmount:()=>50,profileTradeableUsdc:async()=>100,profileBuyMode:()=> 'cap50',usdcRawFromUsd:x=>String(Math.floor(x*1e6)),
  tokenBalanceRaw:async()=> '123',profileCopySizing:()=> 'test',
- signSolanaTransaction:async()=>{now=100600;return {signedTransactionBase64:'test',signWith:'wallet'}},
- jupiterJson:async(path)=>{if(path.includes('execute')){submitted++;return {signature:'test'}}return {transaction:'test',inAmount:'50000000',outAmount:'123'}}});
- vm.runInContext(section(server,'const buyFreshnessLimitMs','async function executeManualTokenSell('),c);
- assert.match((await c.executeCopiedSwapLocked('safe',{timestamp:100},state)).status,/blocked/);assert.equal(submitted,0);
- action='sell';assert.equal((await c.executeCopiedSwapLocked('safe',{timestamp:1},state)).status,'Executed');assert.equal(submitted,1);
+ signSolanaTransaction:async()=>({signedTransactionBase64:'signed',signWith:'wallet'}),
+ jupiterJson:async(path,options)=>{if(path.includes('execute')){submitted.push(options);return {signature:'test'}}return {transaction:'test',inAmount:options.query.amount,outAmount:'123'}}});
+ vm.runInContext(section(server,'const walletJobs =','async function readProfitReserves'),c);
+ vm.runInContext(section(server,'// Poll cadence','async function executeManualTokenSell('),c);
+ const buy={timestamp:Date.now()/1000-1,leg:{action:'buy',inputMint:'USDC',outputMint:'COIN',amount:'50000000',sourceUsd:50}};
+ const sell={timestamp:1,leg:{action:'sell',inputMint:'COIN',outputMint:'USDC',amount:'123'}};
+ return {c,state,buy,sell,submitted,stop:()=>{stopped=true}};
+}
+test('one-second-old buys and late sells are eligible; Stop during signing cancels submission',async()=>{
+ const h=executionHarness();
+ assert.equal((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,'Executed');
+ assert.equal((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,'Executed');
+ h.c.signSolanaTransaction=async()=>{h.stop();return {signedTransactionBase64:'test'}};
+ assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/stopped/);
+ assert.equal(h.submitted.length,2);
+});
+test('a sell submits while a different buy is still awaiting its quote',async()=>{
+ const h=executionHarness();let releaseQuote,quoteStarted;
+ const started=new Promise(r=>quoteStarted=r),waiting=new Promise(r=>releaseQuote=r);
+ h.c.jupiterJson=async(path,options)=>{
+  if(path.includes('execute')){h.submitted.push(options);return {signature:'test'}}
+  if(options.query.inputMint==='USDC'){quoteStarted();await waiting;}
+  return {transaction:'test',inAmount:options.query.amount,outAmount:'123'};
+ };
+ const pending=h.c.executeCopiedSwap('safe',h.buy,h.state);await started;
+ assert.equal((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,'Executed');
+ assert.equal(h.submitted.length,1);releaseQuote();await pending;assert.equal(h.submitted.length,2);
+});
+test('source exit received while a buy quote is pending cancels that buy',async()=>{
+ const h=executionHarness();const original=h.c.jupiterJson;
+ h.c.jupiterJson=async(...args)=>{
+  const result=await original(...args);
+  if(args[0].includes('order'))h.c.signalFeeds.set('safe:Helius',{profile:'safe',wallet:'wallet',transactions:[{...h.sell,timestamp:h.buy.timestamp+1}]});
+  return result;
+ };
+ assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/already sold/);
+ assert.equal(h.submitted.length,0);
 });
 test('sold-at-loss is closed; positive wallet quantity is open; absent wallet data is unknown',()=>{
  let balance={tokens:{},updatedAt:new Date().toISOString()};
@@ -49,7 +80,7 @@ test('sold-at-loss is closed; positive wallet quantity is open; absent wallet da
  assert.equal(c.openPositionsFromTrades(trades)[0].held,null);
 });
 test('a slow GMGN request does not prevent independent Helius delivery',async()=>{
- const c=vm.createContext({Date,Map,Set,Promise,syncLiveSubscriptions:async()=>{},wakeCopyWorker:async()=>{},supportedProfiles:['safe'],
+ const c=vm.createContext({Date,Map,Set,Promise,syncLiveSubscriptions:async()=>{},wakeCopyWorker:async()=>{},wakeSellWorker:async()=>{},supportedProfiles:['safe'],
  readState:async()=>({profiles:{safe:{running:true}},settings:{heliusKey:'test',gmgnApiKey:'test'}}),
  targetWallet:()=> 'wallet',process:{env:{}},fetchTransactionsForAddress:async()=>[{signature:'new',timestamp:1}],
  fetchGmgnTransactionsForAddress:()=>new Promise(()=>{})});
@@ -97,4 +128,37 @@ test('sell-first processing keeps its checkpoint and blocks buying a coin alread
  await c.processSignalTransactions(state,'safe',tx,'sell','lastSignature','Helius',{side:'buy'});
  assert.deepEqual(executed,['sell']);assert.equal(state.profiles.safe.lastSignature,'sell');
  assert.match(state.trades.find(t=>t.signature==='buy').status,/already sold/);
+});
+test('the sell lane detects a newly arrived sell while the buy lane is waiting',async()=>{
+ const state={profiles:{safe:{running:true,lastSignature:'old'}},strategy:{activeProfile:'safe'},activity:[]};
+ const feeds=new Map([['safe:Helius',{profile:'safe',wallet:'wallet',transactions:[{signature:'buy'}]}]]);
+ let buyStarted,releaseBuy;const started=new Promise(r=>buyStarted=r),pending=new Promise(r=>releaseBuy=r);const seen=[];
+ const c=vm.createContext({Map,Number,readState:async()=>state,supportedProfiles:['safe'],signalFeeds:feeds,
+ targetWallet:()=> 'wallet',newestSignature:ts=>ts[0]?.signature,line:x=>x,
+ autoSellStockCoinsFromHistory:async()=>{},saveState:async()=>{},
+ processSignalTransactions:async(_,profile,tx,newest,field,source,options)=>{
+   if(options.side==='buy'){buyStarted();await pending;}
+   else seen.push({signature:newest,field});
+ }});
+ vm.runInContext('let wakeSellWorker = async()=>{};'+section(server,'async function runCopyWorkerOnce()','function startCopyWorker()'),c);
+ const run=c.runCopyWorkerOnce();await started;
+ feeds.set('safe:Helius',{profile:'safe',wallet:'wallet',transactions:[{signature:'sell'}]});
+ await vm.runInContext('wakeSellWorker()',c);
+ assert(seen.some(x=>x.signature==='sell'&&x.field==='lastSignatureSell'));
+ releaseBuy();await run;
+});
+test('a prepared buy cannot spend funds that became locked before submission',async()=>{
+ const h=executionHarness();let reads=0;
+ h.c.profileTradeableUsdc=async()=>++reads===1?100:10;
+ assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/locked profit protected/);
+ assert.equal(h.submitted.length,0);
+});
+test('restart excludes buys from the stopped period without expiring new session trades',()=>{
+ const c=vm.createContext({Date,Number,supportedProfiles:['safe'],signalFeeds:new Map(),primarySwapLeg:t=>t.leg,targetWallet:()=> 'wallet'});
+ vm.runInContext(section(server,'function beginTradingSession','async function executeCopiedSwap('),c);
+ const state={strategy:{},profiles:{safe:{running:false}}};c.beginTradingSession(state);
+ const start=state.strategy.buySessionStartedAt;
+ assert.match(c.buySignalError('safe',{timestamp:Math.floor(start/1000)-1},state),/predates/);
+ assert.equal(c.buySignalError('safe',{timestamp:Math.floor(start/1000),leg:{action:'buy',outputMint:'COIN'}},state),'');
+ state.profiles.safe.running=true;c.beginTradingSession(state);assert.equal(state.strategy.buySessionStartedAt,start);
 });

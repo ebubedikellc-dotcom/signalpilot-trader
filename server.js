@@ -1641,21 +1641,43 @@ async function latestHeldCopiedToken(connection, state, profile, wallet) {
   return null;
 }
 
-const buyFreshnessLimitMs = 500;
-function buyFreshnessError(transaction, now = Date.now()) {
-  const sourceMs = Number(transaction.timestamp) * 1000;
-  if (!Number.isFinite(sourceMs) || sourceMs <= 0) return "Buy blocked: source timestamp unavailable";
-  const age = now - sourceMs;
-  if (age < 0) return "Buy blocked: source clock is ahead; freshness unverified";
-  if (age > buyFreshnessLimitMs) return `Buy blocked: signal is ${Math.round(age)}ms old; maximum 500ms`;
+function beginTradingSession(state) {
+  if (!supportedProfiles.some((p) => state.profiles?.[p]?.running)) {
+    state.strategy.buySessionStartedAt = Date.now();
+    state.strategy.controlRevision = Math.max(Date.now(), Number(state.strategy.controlRevision || 0) + 1);
+  }
+}
+
+// Poll cadence is not a buy-expiration deadline. A known source exit cancels a pending buy.
+function buySignalError(profile, transaction, state) {
+  const started = Number(state.strategy?.buySessionStartedAt || 0);
+  if (started && (!Number(transaction.timestamp) || Number(transaction.timestamp) * 1000 < Math.floor(started / 1000) * 1000)) {
+    return "Buy blocked: source trade predates this trading session";
+  }
+  const buy = primarySwapLeg(transaction, profile, state);
+  for (const feed of signalFeeds.values()) {
+    if (feed.profile !== profile || feed.wallet !== targetWallet(state, profile)) continue;
+    for (const other of feed.transactions || []) {
+      const sell = primarySwapLeg(other, profile, state);
+      if (sell?.action === "sell" && sell.inputMint === buy?.outputMint &&
+          Number(other.timestamp) >= Number(transaction.timestamp)) {
+        return "Buy blocked: trader already sold this coin in the received signals";
+      }
+    }
+  }
   return "";
 }
 
 async function executeCopiedSwap(profile, transaction, state) {
-  return withWalletOperation(() => executeCopiedSwapLocked(profile, transaction, state), primarySwapLeg(transaction, profile, state)?.action === "sell" ? 100 : 0);
+  if (primarySwapLeg(transaction, profile, state)?.action === "sell") {
+    // Recheck the held balance after any submitted buy finishes.
+    return withWalletOperation(() => executeCopiedSwapLocked(profile, transaction, state, true), 100);
+  }
+  // Buy quote preparation must not monopolize the wallet while a sell is waiting.
+  return executeCopiedSwapLocked(profile, transaction, state);
 }
 
-async function executeCopiedSwapLocked(profile, transaction, state) {
+async function executeCopiedSwapLocked(profile, transaction, state, walletLocked = false) {
   const currentControls = await readState();
   if (!supportedProfiles.some((key) => currentControls.profiles?.[key]?.running)) {
     return { status: "Skipped - trading stopped by owner" };
@@ -1670,7 +1692,7 @@ async function executeCopiedSwapLocked(profile, transaction, state) {
 
   if (leg.action === "buy") {
     if (state.strategy?.activeProfile !== profile) return { status: "Buy blocked: trader selection changed" };
-    const reason = buyFreshnessError(transaction);
+    const reason = buySignalError(profile, transaction, state);
     if (reason) return { status: reason };
   }
   const detectedAt = transaction.detectedAt || new Date().toISOString();
@@ -1682,6 +1704,7 @@ async function executeCopiedSwapLocked(profile, transaction, state) {
   let inputMint = leg.inputMint;
   let outputMint = leg.outputMint;
   let copyAmount = scaledCopyAmount(leg.amount, state, profile);
+  let sourceBuyUsd = 0;
 
   if (leg.action === "buy" && isQuoteMint(leg.outputMint)) {
     return { status: "Skipped - buy signal did not show a token bought" };
@@ -1709,9 +1732,10 @@ async function executeCopiedSwapLocked(profile, transaction, state) {
         sourceUsd = Number(valuation.outAmount || 0) / 1_000_000;
       }
     }
+    sourceBuyUsd = sourceUsd;
     let buyUsd = buyUsdAmount(state, profile, sourceUsd);
     if (!buyUsd) return { status: "Skipped - trader buy value could not be determined" };
-    const tradeableUsdc = await profileTradeableUsdc(connection, state, profile, wallet);
+    const tradeableUsdc = await withWalletOperation(() => profileTradeableUsdc(connection, state, profile, wallet));
     if (tradeableUsdc <= 0) return { status: "Skipped - no tradeable USDC after profit lock" };
     if (profileBuyMode(state, profile) === "exact" && buyUsd > tradeableUsdc) {
       return { status: "Skipped - insufficient tradeable USDC to copy the exact amount" };
@@ -1755,16 +1779,33 @@ async function executeCopiedSwapLocked(profile, transaction, state) {
     throw new Error("Swap request exceeds the authorized buy amount; locked profit was not released");
   }
 
-  if (leg.action === "buy") {
-    const reason = buyFreshnessError(transaction);
+  const submit = async () => {
+    const checkControls = async () => {
+      const current = await readState();
+      if (!supportedProfiles.some((key) => current.profiles?.[key]?.running)) return "Skipped - trading stopped by owner";
+      if (leg.action === "buy") {
+        if (current.strategy?.activeProfile !== profile || current.strategy?.paused || profileSellOnly(current, profile)) {
+          return "Buy blocked: trading controls changed";
+        }
+        const reason = buySignalError(profile, transaction, current);
+        if (reason) return reason;
+      }
+      return "";
+    };
+    let reason = await checkControls();
     if (reason) return { status: reason, detectedAt };
-  }
-  const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
+    if (leg.action === "buy") {
+      const current = await readState();
+      const available = Math.min(await profileTradeableUsdc(connection, current, profile, wallet),
+        buyUsdAmount(current, profile, sourceBuyUsd));
+      if (BigInt(copyAmount.amount) > BigInt(usdcRawFromUsd(available))) {
+        return { status: "Buy blocked: available trading funds changed; locked profit protected", detectedAt };
+      }
+    }
+    const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
+    reason = await checkControls();
+    if (reason) return { status: reason, detectedAt };
 
-  if (leg.action === "buy") {
-    const reason = buyFreshnessError(transaction);
-    if (reason) return { status: reason, detectedAt };
-  }
   const submittedAt = new Date().toISOString();
   const executed = await jupiterJson("/swap/v2/execute", {
     apiKey,
@@ -1796,6 +1837,8 @@ async function executeCopiedSwapLocked(profile, transaction, state) {
     outAmount: order.outAmount,
     txid: executed.signature || executed.txid || executed.transactionId || executed.swapTransaction || ""
   };
+  };
+  return walletLocked ? submit() : withWalletOperation(submit, leg.action === "sell" ? 100 : 0);
 }
 
 async function executeManualTokenSell(state, { profile, mint, automatic = false }) {
@@ -1807,7 +1850,7 @@ async function executeManualTokenSell(state, { profile, mint, automatic = false 
       }
     }
     return executeManualTokenSellLocked(state, { profile, mint });
-  });
+  }, 100);
 }
 
 async function executeManualTokenSellLocked(state, { profile, mint }) {
@@ -2429,7 +2472,7 @@ async function processSignalTransactions(state, profile, transactions, newest, c
     }
   }
 
-  if (options.side !== "sell") state.profiles[profile][checkpointField] = newest;
+  if (options.side !== "sell" || options.advanceCheckpoint) state.profiles[profile][checkpointField] = newest;
   if (newTrades.length) {
     state.trades = [...newTrades, ...(state.trades || [])].slice(0, 100);
     applyAutoSwitchStrategy(state, newTrades);
@@ -2442,6 +2485,7 @@ async function processSignalTransactions(state, profile, transactions, newest, c
 }
 
 let wakeCopyWorker = async () => {};
+let wakeSellWorker = async () => {};
 const liveSubscriptions = new Map();
 async function syncLiveSubscriptions(state) {
   const enabled = supportedProfiles.some((p) => state.profiles?.[p]?.running);
@@ -2486,6 +2530,7 @@ async function pollSignalFeeds() {
         const checked = source === "GMGN" ? gmgnCache.get(`official:${wallet}`)?.at || Date.now() : Date.now();
         const at = new Date(checked).toISOString();
         signalFeeds.set(key, { profile, source, wallet, checkedAt: at, error: "", transactions: transactions.map((t) => ({ ...t, detectedAt: at })) });
+        wakeSellWorker().catch(() => {});
         wakeCopyWorker().catch(() => {});
       }).catch((error) => {
         signalFeeds.set(key, { profile, source, wallet, checkedAt: new Date().toISOString(), error: error.message, transactions: [] });
@@ -2501,20 +2546,50 @@ function feedHealth() {
 async function runCopyWorkerOnce() {
   const state = await readState();
   if (!supportedProfiles.some((p) => state.profiles?.[p]?.running)) return;
-  const cycleFeeds = new Map(signalFeeds);
   const active = state.strategy.activeProfile;
   const order = [active, ...supportedProfiles.filter((p) => p !== active)].filter(Boolean);
-  for (const side of ["sell", "buy"]) {
+  // Both lanes share one cycle state, but keep independent feed checkpoints.
+  // Only submission is serialized; buy quotation cannot stop sell detection.
   for (const profile of order) {
-    for (const source of ["Helius", "GMGN"]) {
-      const feed = cycleFeeds.get(`${profile}:${source}`);
-      if (!feed || feed.error || feed.wallet !== targetWallet(state, profile)) continue;
-      const current = await readState();
-      if (!supportedProfiles.some((p) => current.profiles?.[p]?.running)) return;
-      if (Number(current.strategy.controlRevision || 0) > Number(state.strategy.controlRevision || 0)) state.strategy = current.strategy;
-      await processSignalTransactions(state, profile, feed.transactions, newestSignature(feed.transactions), source === "GMGN" ? "lastGmgnSignature" : "lastSignature", source, { side });
+    for (const field of ["lastSignature", "lastGmgnSignature"]) {
+      state.profiles[profile][`${field}Sell`] ||= state.profiles[profile][field];
     }
   }
+  const pass = async (side, feeds) => {
+    for (const profile of order) {
+      for (const source of ["Helius", "GMGN"]) {
+        const feed = feeds.get(`${profile}:${source}`);
+        if (!feed || feed.error || feed.wallet !== targetWallet(state, profile)) continue;
+        const current = await readState();
+        if (!supportedProfiles.some((p) => current.profiles?.[p]?.running)) return;
+        if (Number(current.strategy.controlRevision || 0) > Number(state.strategy.controlRevision || 0)) state.strategy = current.strategy;
+        const field = source === "GMGN" ? "lastGmgnSignature" : "lastSignature";
+        await processSignalTransactions(state, profile, feed.transactions, newestSignature(feed.transactions),
+          side === "sell" ? `${field}Sell` : field, source, { side, advanceCheckpoint: true });
+      }
+    }
+  };
+  let sellTask = null;
+  let sellRequested = false;
+  const requestSells = () => {
+    sellRequested = true;
+    if (!sellTask) {
+      sellTask = (async () => {
+        do { sellRequested = false; await pass("sell", new Map(signalFeeds)); } while (sellRequested);
+      })().catch((error) => {
+        state.activity = [line(`Sell worker warning: ${error.message}`), ...(state.activity || [])].slice(0,20);
+      }).finally(() => { sellTask = null; });
+    }
+    return sellTask;
+  };
+  wakeSellWorker = requestSells;
+  try {
+    await requestSells();
+    await pass("buy", new Map(signalFeeds));
+    await requestSells();
+  } finally {
+    wakeSellWorker = async () => {};
+    if (sellTask) await sellTask;
   }
   const current = await readState();
   if (!supportedProfiles.some((p) => current.profiles?.[p]?.running)) return;
@@ -3054,6 +3129,7 @@ async function handleApi(request, response, url) {
     state.strategy.truenestLosses = 0;
     state.strategy.safeLosses = 0;
     state.strategy.processedClosedTrades = [];
+    beginTradingSession(state);
     supportedProfiles.forEach((profile) => {
       state.profiles[profile].running = true;
     });
@@ -3121,6 +3197,7 @@ async function handleApi(request, response, url) {
     state.strategy.paused = false;
     state.strategy.pauseReason = "";
     state.strategy[strategyLossKey(profile)] = 0;
+    beginTradingSession(state);
     supportedProfiles.forEach((item) => {
       state.profiles[item].running = true;
     });
@@ -3161,6 +3238,7 @@ async function handleApi(request, response, url) {
     state.strategy.paused = false;
     state.strategy.pauseReason = "";
     state.strategy[strategyLossKey(activeProfile)] = 0;
+    beginTradingSession(state);
     supportedProfiles.forEach((profile) => {
       state.profiles[profile].running = true;
     });
@@ -3201,6 +3279,7 @@ async function handleApi(request, response, url) {
     state.strategy.pauseReason = "";
     state.strategy[strategyLossKey(profile)] = 0;
     state.strategy.processedClosedTrades = [];
+    beginTradingSession(state);
     supportedProfiles.forEach((item) => {
       state.profiles[item].running = true;
     });
