@@ -1,3 +1,4 @@
+import { decodeDirectSwap, canonicalSignalId } from "./lib/direct-signals.mjs";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { createReadStream } from "node:fs";
@@ -655,6 +656,7 @@ function statusPayload(state, session) {
       workerIntervalMs,
       maxSignalAgeMs: null,
       pollIntervalMs: 500,
+      observationUntil: observationUntil > Date.now() ? new Date(observationUntil).toISOString() : null,
       feeds: feedHealth(),
       liveNotifications: Array.from(liveSubscriptions, ([wallet, sub]) => ({ wallet, lastNotificationAt: sub.lastNotificationAt, status: sub.lastNotificationAt ? "Notification received" : "Registered; awaiting notification" }))
     },
@@ -1344,12 +1346,15 @@ function signerId(state) {
   return state.settings.frogSignerToken || state.settings.truenestSignerToken || tradeWallet(state);
 }
 
-function solanaConnection(settings = {}) {
+function solanaConnection(settings = {}, { fastRead = false } = {}) {
   const key = String(settings.heliusKey || "").trim();
   const endpoint = key
     ? `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(key)}`
     : clusterApiUrl("mainnet-beta");
-  return new Connection(endpoint, "confirmed");
+  return new Connection(endpoint, fastRead ? {
+    commitment: "confirmed", disableRetryOnRateLimit: true,
+    fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(2500) })
+  } : "confirmed");
 }
 
 function publicSolanaConnection() {
@@ -2381,7 +2386,7 @@ function shouldLogNoSignal(state, profile) {
 async function processSignalTransactions(state, profile, transactions, newest, checkpointField, sourceLabel, options = {}) {
   if (!newest) return [];
 
-  if (!state.profiles[profile][checkpointField]) {
+  if (!state.profiles[profile][checkpointField] && !options.realtime) {
     state.profiles[profile][checkpointField] = newest;
     state.activity = [line(`${profileLabel(profile)} ${sourceLabel} worker synced to latest wallet activity.`), ...(state.activity || [])].slice(0, 20);
     return [];
@@ -2394,11 +2399,13 @@ async function processSignalTransactions(state, profile, transactions, newest, c
   }
 
   if (!unseen.length) return [];
-  const existing = new Set((state.trades || []).map((trade) => trade.signature || trade.id));
+  const existing = new Set((state.trades || []).map((trade) => canonicalSignalId(trade.signature || trade.id)));
   const orderedUnseen = [...unseen].reverse();
   const signalTransactions = orderedUnseen
     .filter((transaction) => {
-      if (existing.has(transaction.signature) || !copyableSignal(profile, transaction, state)) return false;
+      const id = canonicalSignalId(transaction.signature);
+      if (existing.has(id) || !copyableSignal(profile, transaction, state)) return false;
+      existing.add(id);
       return true;
     });
   const newTrades = [];
@@ -2487,12 +2494,88 @@ async function processSignalTransactions(state, profile, transactions, newest, c
 
 let wakeCopyWorker = async () => {};
 let wakeSellWorker = async () => {};
+let observationUntil = 0;
+function monitoringEnabled(state) {
+  return supportedProfiles.some((p) => state.profiles?.[p]?.running) || Date.now() < observationUntil;
+}
+const directReadJobs = new Map();
+const directReadSeen = new Set();
+let directReadsActive = 0;
+function queueDirectRead(wallet, signature, sub) {
+  if (!signature) return;
+  const key = `${wallet}:${signature}`;
+  if (directReadSeen.has(key) || directReadJobs.has(key)) return;
+  // Bounded queue: history polling remains the recovery path if notification traffic bursts.
+  if (directReadJobs.size >= 128) return;
+  directReadJobs.set(key, { key, wallet, signature, sub, observedAt: new Date().toISOString(), attempts: 0, dueAt: 0, active: false });
+  pumpDirectReads();
+}
+function pumpDirectReads() {
+  for (const job of directReadJobs.values()) {
+    if (directReadsActive >= 2) break;
+    if (job.active || job.dueAt > Date.now()) continue;
+    job.active = true;
+    directReadsActive++;
+    readDirectTransaction(job).catch(() => {
+      job.attempts++;
+      if (job.attempts >= 3) directReadJobs.delete(job.key);
+      else job.dueAt = Date.now() + 1000;
+    }).finally(() => {
+      job.active = false;
+      directReadsActive--;
+      pumpDirectReads();
+    });
+  }
+}
+async function readDirectTransaction(job) {
+  const state = await readState();
+  if (!monitoringEnabled(state) || liveSubscriptions.get(job.wallet) !== job.sub) {
+    directReadJobs.delete(job.key);
+    return;
+  }
+  job.attempts++;
+  try {
+    const tx = await job.sub.connection.getParsedTransaction(job.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+    if (!tx) throw new Error("Confirmed transaction not available yet");
+    const current = await readState();
+    if (!monitoringEnabled(current) || liveSubscriptions.get(job.wallet) !== job.sub) {
+      directReadJobs.delete(job.key);
+      return;
+    }
+    const decoded = decodeDirectSwap(tx, job.wallet, job.signature, job.observedAt);
+    const at = new Date().toISOString();
+    for (const profile of supportedProfiles.filter((p) => targetWallet(current,p) === job.wallet)) {
+      const key = `${profile}:Solana live`;
+      const prior = signalFeeds.get(key);
+      const transactions = prior?.wallet === job.wallet ? prior.transactions || [] : [];
+      signalFeeds.set(key, { profile, source: "Solana live", wallet: job.wallet, checkedAt: at, error: "",
+        decodedCount: (prior?.decodedCount || 0) + (decoded ? 1 : 0),
+        lastDecodedSignature: decoded?.signature || prior?.lastDecodedSignature || null,
+        notificationToDecodeMs: decoded ? Math.max(0, Date.parse(at) - Date.parse(job.observedAt)) : prior?.notificationToDecodeMs ?? null,
+        transactions: decoded ? [decoded, ...transactions.filter((t) => t.signature !== decoded.signature)].slice(0,128) : transactions });
+    }
+    directReadSeen.add(job.key);
+    if (directReadSeen.size > 1024) directReadSeen.delete(directReadSeen.values().next().value);
+    directReadJobs.delete(job.key);
+    if (decoded) { wakeSellWorker().catch(() => {}); wakeCopyWorker().catch(() => {}); }
+  } catch (error) {
+    for (const profile of supportedProfiles.filter((p) => targetWallet(state,p) === job.wallet)) {
+      const key = `${profile}:Solana live`;
+      const prior = signalFeeds.get(key);
+      signalFeeds.set(key, { profile, source: "Solana live", wallet: job.wallet, checkedAt: new Date().toISOString(),
+        transactions: prior?.wallet === job.wallet ? prior.transactions || [] : [], error: "Direct transaction lookup unavailable; history backup retained" });
+    }
+    if (job.attempts >= 3) directReadJobs.delete(job.key);
+    else job.dueAt = Date.now() + 500;
+  }
+}
+
 const liveSubscriptions = new Map();
 async function syncLiveSubscriptions(state) {
-  const enabled = supportedProfiles.some((p) => state.profiles?.[p]?.running);
+  const enabled = monitoringEnabled(state);
   const wanted = new Set(enabled ? supportedProfiles.map((p) => targetWallet(state,p)).filter(Boolean) : []);
   for (const [wallet, sub] of liveSubscriptions) {
-    if (!wanted.has(wallet)) {
+    if (!wanted.has(wallet) || sub.apiKey !== state.settings.heliusKey) {
       liveSubscriptions.delete(wallet);
       await sub.connection.removeOnLogsListener(sub.id).catch(() => {});
     }
@@ -2500,11 +2583,12 @@ async function syncLiveSubscriptions(state) {
   if (!enabled || !state.settings.heliusKey) return;
   for (const wallet of wanted) {
     if (liveSubscriptions.has(wallet)) continue;
-    const connection = solanaConnection(state.settings);
-    const sub = { connection, id: null, lastNotificationAt: null };
+    const connection = solanaConnection(state.settings, { fastRead: true });
+    const sub = { connection, id: null, lastNotificationAt: null, apiKey: state.settings.heliusKey };
     sub.id = connection.onLogs(new PublicKey(wallet), (event) => {
       if (event.err) return;
       sub.lastNotificationAt = new Date().toISOString();
+      queueDirectRead(wallet, event.signature, sub);
       pollSignalFeeds().catch(() => {});
     }, "confirmed");
     liveSubscriptions.set(wallet,sub);
@@ -2512,6 +2596,7 @@ async function syncLiveSubscriptions(state) {
 }
 const signalFeeds = new Map();
 const feedRequests = new Set();
+const feedStartedAt = new Map();
 async function pollSignalFeeds() {
   const state = await readState();
   await syncLiveSubscriptions(state);
@@ -2524,7 +2609,8 @@ async function pollSignalFeeds() {
     if (state.settings.gmgnApiKey || process.env.GMGN_API_KEY) sources.push(["GMGN", () => fetchGmgnTransactionsForAddress(state.settings, wallet)]);
     for (const [source, fetcher] of sources) {
       const key = `${profile}:${source}`;
-      if (feedRequests.has(key)) continue;
+      if (feedRequests.has(key) || Date.now() - (feedStartedAt.get(key) || 0) < (source === "GMGN" ? 1000 : 500)) continue;
+      feedStartedAt.set(key, Date.now());
       feedRequests.add(key);
       if (!signalFeeds.has(key)) signalFeeds.set(key, { profile, source, wallet, checkedAt: null, error: "", transactions: [] });
       Promise.resolve().then(fetcher).then((transactions) => {
@@ -2541,7 +2627,9 @@ async function pollSignalFeeds() {
 }
 function feedHealth() {
   return Array.from(signalFeeds.values()).map(({ transactions, ...feed }) => ({
-    ...feed, status: feed.error ? "Disconnected" : !feed.checkedAt ? "Connecting" : Date.now() - Date.parse(feed.checkedAt) > 3000 ? "Delayed" : "Connected"
+    ...feed, status: feed.source === "Solana live"
+      ? feed.error ? "Direct read failed; backup active" : feed.checkedAt ? "Last transaction read" : "Waiting for activity"
+      : feed.error ? "Disconnected" : !feed.checkedAt ? "Connecting" : Date.now() - Date.parse(feed.checkedAt) > 3000 ? "Delayed" : "Connected"
   }));
 }
 async function runCopyWorkerOnce() {
@@ -2552,21 +2640,21 @@ async function runCopyWorkerOnce() {
   // Both lanes share one cycle state, but keep independent feed checkpoints.
   // Only submission is serialized; buy quotation cannot stop sell detection.
   for (const profile of order) {
-    for (const field of ["lastSignature", "lastGmgnSignature"]) {
+    for (const field of ["lastSignature", "lastGmgnSignature", "lastDirectSignature"]) {
       state.profiles[profile][`${field}Sell`] ||= state.profiles[profile][field];
     }
   }
   const pass = async (side, feeds) => {
     for (const profile of order) {
-      for (const source of ["Helius", "GMGN"]) {
+      for (const source of ["Solana live", "Helius", "GMGN"]) {
         const feed = feeds.get(`${profile}:${source}`);
-        if (!feed || feed.error || feed.wallet !== targetWallet(state, profile)) continue;
+        if (!feed || (feed.error && source !== "Solana live") || feed.wallet !== targetWallet(state, profile)) continue;
         const current = await readState();
         if (!supportedProfiles.some((p) => current.profiles?.[p]?.running)) return;
         if (Number(current.strategy.controlRevision || 0) > Number(state.strategy.controlRevision || 0)) state.strategy = current.strategy;
-        const field = source === "GMGN" ? "lastGmgnSignature" : "lastSignature";
+        const field = source === "Solana live" ? "lastDirectSignature" : source === "GMGN" ? "lastGmgnSignature" : "lastSignature";
         await processSignalTransactions(state, profile, feed.transactions, newestSignature(feed.transactions),
-          side === "sell" ? `${field}Sell` : field, source, { side, advanceCheckpoint: true });
+          side === "sell" ? `${field}Sell` : field, source, { side, advanceCheckpoint: true, realtime: source === "Solana live" });
       }
     }
   };
@@ -2617,11 +2705,23 @@ function startCopyWorker() {
       await saveState(state);
     } finally { working = false; }
   };
-  setInterval(() => { pollSignalFeeds().catch(() => {}); },500);
+  setInterval(() => { pollSignalFeeds().catch(() => {}); pumpDirectReads(); },500);
   setInterval(() => { wakeCopyWorker().catch(() => {}); },workerIntervalMs);
 }
 
 async function handleApi(request, response, url) {
+  if (request.method === "POST" && url.pathname === "/api/monitor/observe") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    if (supportedProfiles.some((p) => state.profiles?.[p]?.running)) {
+      send(response, 409, { error: "Stop trading before running the read-only connection check." });
+      return true;
+    }
+    observationUntil = Date.now() + 45000;
+    await syncLiveSubscriptions(state);
+    send(response, 200, { readOnly: true, tradingStarted: false, expiresAt: new Date(observationUntil).toISOString() });
+    return true;
+  }
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,

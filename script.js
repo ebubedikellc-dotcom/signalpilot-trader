@@ -1147,7 +1147,7 @@ function renderState(state) {
   const backend = latestState.backend || {};
   const strategy = latestState.strategy || {};
   const feedRows = backend.feeds || [];
-  setText("feedConnectionStatus", feedRows.length ? feedRows.map((f) => `${profileName(f.profile)} ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`).join(" · ") : "Feeds not checked while trading is stopped. GMGN connection is not yet verified.");
+  setText("feedConnectionStatus", (backend.observationUntil ? "Read-only connection check — trading remains stopped. " : "") + (feedRows.length ? feedRows.map((f) => `${profileName(f.profile)} ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`).join(" · ") : backend.observationUntil ? "Waiting for wallet activity." : "Feeds not checked while trading is stopped. GMGN connection is not yet verified."));
   const liveTradingEnv = backend.liveTradingEnv === true;
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
   const queueRunning = Boolean(profiles.safe?.running || profiles.frog?.running || profiles.truenest?.running);

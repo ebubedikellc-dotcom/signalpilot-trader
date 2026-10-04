@@ -1,3 +1,4 @@
+import { canonicalSignalId } from "../lib/direct-signals.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
@@ -116,7 +117,7 @@ test('notification listeners cover all configured traders across manual switchin
 });
 test('sell-first processing keeps its checkpoint and blocks buying a coin already sold in that batch',async()=>{
  const executed=[];
- const c=vm.createContext({Set,Number,Date,supportedProfiles:['safe'],copyableSignal:()=>true,
+ const c=vm.createContext({canonicalSignalId,Set,Number,Date,supportedProfiles:['safe'],copyableSignal:()=>true,
  primarySwapLeg:t=>t.leg,tradeFromTransaction:(_,t)=>({signature:t.signature}),
  liveTradingAllowed:()=>true,executeCopiedSwap:async(_,t)=>{executed.push(t.signature);return {status:'Executed'}},
  autoSellStuckTokenAfterSellSignal:async()=>null,applyAutoSwitchStrategy:()=>{},line:x=>x,profileLabel:p=>p,shouldLogNoSignal:()=>false});
@@ -164,9 +165,21 @@ test('restart excludes buys from the stopped period without expiring new session
 });
 test('dashboard status reports poll cadence without referencing a removed buy deadline',()=>{
  const c=vm.createContext({process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:500,
- feedHealth:()=>[],liveSubscriptions:new Map(),customerPublic:x=>x});
+ observationUntil:0,feedHealth:()=>[],liveSubscriptions:new Map(),customerPublic:x=>x});
  vm.runInContext(section(server,'function statusPayload(','async function walletBalances('),c);
  const result=c.statusPayload({settings:{},customers:[],profiles:{safe:{running:false}}},{role:'owner',id:'owner'});
  assert.equal(result.backend.pollIntervalMs,500);assert.equal(result.backend.maxSignalAgeMs,null);
  assert.equal(result.profiles.safe.running,false);
+});
+test('first direct notification is processed once even when GMGN later reports the same transaction',async()=>{
+ let executions=0;const signature='A'.repeat(88);
+ const c=vm.createContext({canonicalSignalId,Set,Number,Date,supportedProfiles:['safe'],copyableSignal:()=>true,
+ primarySwapLeg:t=>t.leg,tradeFromTransaction:(_,t)=>({signature:t.signature}),liveTradingAllowed:()=>true,
+ executeCopiedSwap:async()=>{executions++;return {status:'Executed'}},applyAutoSwitchStrategy:()=>{},line:x=>x,profileLabel:p=>p,shouldLogNoSignal:()=>false});
+ vm.runInContext(section(server,'async function processSignalTransactions(','let wakeCopyWorker ='),c);
+ const state={profiles:{safe:{lastGmgnSignature:'old'}},strategy:{activeProfile:'safe'},trades:[]};
+ const tx={signature,timestamp:1,leg:{action:'buy',outputMint:'COIN'}};
+ await c.processSignalTransactions(state,'safe',[tx],signature,'lastDirectSignature','Solana live',{side:'buy',realtime:true,advanceCheckpoint:true});
+ await c.processSignalTransactions(state,'safe',[{...tx,signature:`gmgn:${signature}`}],`gmgn:${signature}`,'lastGmgnSignature','GMGN',{side:'buy',advanceCheckpoint:true});
+ assert.equal(executions,1);assert.equal(state.trades.length,1);
 });
