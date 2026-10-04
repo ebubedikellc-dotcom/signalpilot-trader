@@ -2101,3 +2101,14 @@ async function loadWalletCoins() {
 }
 $("refreshWalletCoins")?.addEventListener("click", loadWalletCoins);
 if ($("walletCoinsList")) { loadWalletCoins(); setInterval(loadWalletCoins, 60000); }
+
+$("checkGmgnConnection")?.addEventListener("click", async () => {
+  const button = $("checkGmgnConnection");
+  button.disabled = true;
+  setText("gmgnCheckResult", "Checking GMGN from this site's server. Automatic trading stays OFF…");
+  try {
+    const result = await api("/api/gmgn/check", {method:"POST"});
+    setText("gmgnCheckResult", `${result.message} Checked ${new Date(result.checkedAt).toLocaleString()}.`);
+  } catch(error) { setText("gmgnCheckResult", error.message); }
+  finally { button.disabled = false; }
+});

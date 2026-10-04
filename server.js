@@ -681,6 +681,7 @@ function statusPayload(state, session) {
     backend: {
       appVersion: "gmgn-primary-repair-hold-v1",
       marketDataProvider: "GMGN",
+      gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
       walletVerificationProvider: "Public Solana RPC",
       paidHeliusEnabled: false,
       providerRepairHold: true,
@@ -2224,6 +2225,9 @@ function normalizeHeliusEnhancedTransaction(transaction = {}) {
 }
 
 const gmgnCache = new Map();
+let gmgnConnectionCheck = null;
+let gmgnCheckRunning = false;
+let gmgnLastCheckAt = 0;
 
 function normalizedGmgnTimestamp(value) {
   const numeric = Number(value || 0);
@@ -2329,32 +2333,40 @@ async function fetchOfficialGmgnTransactionsForAddress(apiKey, address) {
   url.searchParams.set("limit", "25");
   url.searchParams.append("type", "buy");
   url.searchParams.append("type", "sell");
-  const response = await fetch(url, {
-    headers: {
-      "accept": "application/json",
-      "X-APIKEY": apiKey
-    },
-    signal: AbortSignal.timeout(3000)
-  });
-  if (!response.ok) {
-    const detail = response.status === 401 || response.status === 403
-      ? "GMGN official API rejected the key or server IP"
-      : `GMGN official API returned ${response.status}`;
-    throw new Error(detail);
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { "accept": "application/json", "X-APIKEY": apiKey },
+      signal: AbortSignal.timeout(10000)
+    });
+  } catch (error) {
+    throw new Error(error.name === 'TimeoutError' || error.name === 'AbortError'
+      ? 'GMGN request timed out after 10 seconds.' : 'GMGN connection failed before receiving a response.');
   }
-  const payload = await response.json();
+  const body = await response.text();
+  const ray = String(response.headers.get('cf-ray') || '').replace(/[^a-zA-Z0-9-]/g,'').slice(0,80);
+  if (!response.ok) {
+    let detail;
+    if (/browser_signature_banned|error\s*(?:code[: ]*)?1010/i.test(body)) detail = 'GMGN security screening blocked this server (Cloudflare Error 1010). GMGN support must review this access block.';
+    else if (response.status === 401) detail = 'GMGN rejected authentication. Check whether the saved read-only API key is valid.';
+    else if (response.status === 403) detail = 'GMGN denied this request. The response does not establish whether the cause is API permissions or server access.';
+    else if (response.status === 429) detail = 'GMGN request limit reached. No automatic retries were started.';
+    else detail = `GMGN returned HTTP ${response.status}.`;
+    const error = new Error(`${detail}${ray ? ` Request ID: ${ray}.` : ''}`);
+    error.httpStatus = response.status;
+    error.requestId = ray;
+    throw error;
+  }
+  let payload;
+  try { payload = JSON.parse(body); } catch { throw new Error('GMGN returned a non-JSON response; the connection is not verified.'); }
   if (payload.code !== undefined && String(payload.code) !== "0") {
-    throw new Error(`GMGN data API returned code ${payload.code}: ${String(payload.message || payload.error || "Request rejected").slice(0, 180)}`);
+    const code = String(payload.code).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40);
+    throw new Error(`GMGN API rejected the request with code ${code}. Check key permissions and account access.`);
   }
   const data = payload?.data || payload;
-  const activities = Array.isArray(data?.activities)
-    ? data.activities
-    : Array.isArray(payload?.activities)
-      ? payload.activities
-      : [];
-  return activities
-    .map((activity) => gmgnActivityToTransaction(activity, address))
-    .filter(Boolean);
+  const activities = Array.isArray(data?.activities) ? data.activities : Array.isArray(payload?.activities) ? payload.activities : null;
+  if (!activities) throw new Error('GMGN returned an unexpected activity response; the connection is not verified.');
+  return activities.map((activity) => gmgnActivityToTransaction(activity, address)).filter(Boolean);
 }
 
 async function fetchGmgnTransactionsForAddress(settings, address) {
@@ -2781,6 +2793,28 @@ function startCopyWorker() {
 }
 
 async function handleApi(request, response, url) {
+  if (request.method === 'POST' && url.pathname === '/api/gmgn/check') {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    if (supportedProfiles.some(p => state.profiles?.[p]?.running)) { send(response, 409, {error:'Stop trading before checking the connection.'}); return true; }
+    if (gmgnCheckRunning || Date.now()-gmgnLastCheckAt < 30000) { send(response,429,{error:'Wait 30 seconds between connection checks.'}); return true; }
+    gmgnCheckRunning = true;
+    gmgnLastCheckAt = Date.now();
+    const profile = state.strategy.activeProfile;
+    const wallet = targetWallet(state,profile);
+    try {
+      const key = String(state.settings.gmgnApiKey || process.env.GMGN_API_KEY || '').trim();
+      if (!key) throw new Error('GMGN API key is missing.');
+      if (!wallet) throw new Error('Selected trader wallet is missing.');
+      const transactions = await fetchOfficialGmgnTransactionsForAddress(key,wallet);
+      gmgnConnectionCheck = {ok:true,checkedAt:new Date().toISOString(),wallet,readOnly:true,tradingStarted:false,activityCount:transactions.length,message:`GMGN connected: ${transactions.length} recent buy/sell activities received. Automatic trading stays OFF.`};
+    } catch(error) {
+      gmgnConnectionCheck = {ok:false,checkedAt:new Date().toISOString(),wallet,readOnly:true,tradingStarted:false,httpStatus:error.httpStatus || null,requestId:error.requestId || '',message:error.message};
+    } finally { gmgnCheckRunning = false; }
+    send(response,200,gmgnConnectionCheck);
+    return true;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/monitor/observe") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
