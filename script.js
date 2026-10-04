@@ -802,17 +802,20 @@ function queueSurviveMode(settings = {}) {
   return queueBuyMode(settings) === "survive";
 }
 
-function normalizeBuyMode(mode) { return mode === "exact" ? "exact" : mode === "loss" ? "loss" : "limits"; }
+function normalizeBuyMode(mode) { return mode === "trailing" ? "trailing" : mode === "exact" ? "exact" : mode === "loss" ? "loss" : "limits"; }
 function queueBuyMode(settings = {}) { return normalizeBuyMode(settings.frogBuyMode); }
-function buyModeLabel(mode) { return mode === "exact" ? "Exact Copy" : mode === "loss" ? "Loss Protection" : "Profit & Loss Limits"; }
+function buyModeLabel(mode) { return mode === "trailing" ? "Trailing Stops" : mode === "exact" ? "Exact Copy" : mode === "loss" ? "Loss Protection" : "Profit & Loss Limits"; }
 function surviveMax(settings = {}) { const amount = Number(settings.frogSurviveMax || 5); return amount > 0 ? amount : 5; }
-function buyModeNote(mode, max = 5) {
+function buyModeNote(mode, max = 5, trailing = value("trailingStopPercent") || "10") {
+  if (mode === "trailing") return `Buy at most $${max} each time; copy smaller buys. Try to sell after a ${trailing}% fall from the highest value observed since tracking began, or when the trader sells first. The selling point moves up, never down with the price. Losses are still possible; sale prices are not guaranteed.`;
   if (mode === "exact") return "Same purchase amount as the trader. Sell when the trader sells. No independent profit or loss exit.";
   return `Buy at most $${max} each time; copy smaller amounts as they are. Sell at a 30% loss${mode === "limits" ? " or 60% gain" : ""}, or when the trader sells — whichever comes first. Sale prices are not guaranteed.`;
 }
+let modeFormDirty = false;
 function explainSelectedMode() {
   const mode = normalizeBuyMode(value("queueBuyMode"));
   if ($("maximumBuyLabel")) $("maximumBuyLabel").hidden = mode === "exact";
+  if ($("trailingStopLabel")) $("trailingStopLabel").hidden = mode !== "trailing";
   setText("modeExplanation", buyModeNote(mode, value("queueSurviveMax") || "your maximum"));
 }
 
@@ -1163,9 +1166,12 @@ function renderState(state) {
     button.disabled = !ready || heliusBlocked || active;
     button.classList.toggle("active-switch", active);
   });
-  if ($("queueBuyMode") && document.activeElement !== $("queueBuyMode")) $("queueBuyMode").value = buyMode;
-  if ($("queueSurviveMax") && document.activeElement !== $("queueSurviveMax")) $("queueSurviveMax").value = String(maxSurviveBuy);
-  if ($("queueBuyModeSave")) $("queueBuyModeSave").textContent = `Save ${buyModeLabel(buyMode)}`;
+  if (!modeFormDirty) {
+    if ($("queueBuyMode")) $("queueBuyMode").value = buyMode;
+    if ($("queueSurviveMax")) $("queueSurviveMax").value = String(maxSurviveBuy);
+    if ($("trailingStopPercent")) $("trailingStopPercent").value = settings.trailingStopPercent || "10";
+  }
+  if ($("queueBuyModeSave")) $("queueBuyModeSave").textContent = "Save trading mode";
   if ($("automaticSwitch")) $("automaticSwitch").checked = strategy.autoSwitch === true;
   setText("keepCurrentBot", "Keep this trader - Manual");
   setText("queueControlStatus", strategy.paused
@@ -1736,8 +1742,13 @@ async function saveBuyMode(profile = "frog") {
   if (selectedMode !== "exact" && (!Number.isFinite(Number(selectedMax)) || Number(selectedMax) <= 0)) {
     showBusinessMessage("Enter a maximum buy amount greater than zero.", true); return;
   }
+  const trailingPercent = value("trailingStopPercent") || "10";
+  if (!(Number.isFinite(Number(trailingPercent)) && Number(trailingPercent)>0 && Number(trailingPercent)<100)) {
+    showBusinessMessage("Enter a trailing fall percentage between 0 and 100, excluding both.", true); return;
+  }
   const data = {
     ...current,
+    trailingStopPercent: trailingPercent,
     frogBuyMode: selectedMode,
     truenestBuyMode: selectedMode,
     frogSurviveMode: selectedMode === "survive" ? "on" : "off",
@@ -1748,7 +1759,9 @@ async function saveBuyMode(profile = "frog") {
   const max = surviveMax(data);
   const message = `Buy mode saved: ${buyModeLabel(selectedMode)}. ${buyModeNote(selectedMode, max)} Sells still follow.`;
 
-  renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
+  const saved = await api("/api/settings", { method: "POST", body: JSON.stringify(data) });
+  modeFormDirty = false;
+  renderState(saved);
   showBusinessMessage(message);
 }
 
@@ -1989,8 +2002,9 @@ if (page === "owner") setInterval(refresh, 5000);
 
 on("changeTrader", "click", () => { $("traderPicker").hidden = !$("traderPicker").hidden; });
 on("saveSelectedTrader", "click", () => switchQueueProfile(value("selectedTrader")));
-on("queueBuyMode", "change", explainSelectedMode);
-on("queueSurviveMax", "input", explainSelectedMode);
+on("queueBuyMode", "change", () => { modeFormDirty = true; explainSelectedMode(); });
+on("queueSurviveMax", "input", () => { modeFormDirty = true; explainSelectedMode(); });
+on("trailingStopPercent", "input", () => { modeFormDirty = true; explainSelectedMode(); });
 
 function renderExecutionReport() {
  const r=latestState.executionReport, today=r?.today;

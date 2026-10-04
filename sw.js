@@ -1,4 +1,4 @@
-const CACHE_NAME = "signalpilot-owner-v2-manual-modes";
+const CACHE_NAME = "signalpilot-owner-v3-trailing-stops";
 const APP_SHELL = [
   "/control-panel.html",
   "/styles.css",

@@ -1,5 +1,5 @@
 import { createTradingJournal } from "./lib/trading-journal.mjs";
-import { sellFraction, proportionalAmount, exitReason, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
+import { sellFraction, proportionalAmount, exitReason, trailingExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
 import { decodeDirectSwap, canonicalSignalId } from "./lib/direct-signals.mjs";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
@@ -137,6 +137,7 @@ const defaultState = {
     truenestSurviveMode: "off",
     truenestBuyMode: defaultBuyMode,
     truenestSurviveMax: "5",
+    trailingStopPercent: "10",
     queueFailureSwitchLimit: "3",
     walletSync: "Turnkey server wallet",
     riskControl: "on",
@@ -229,6 +230,7 @@ const fields = [
   "truenestSurviveMode",
   "truenestBuyMode",
   "truenestSurviveMax",
+  "trailingStopPercent",
   "queueFailureSwitchLimit",
   "walletSync",
   "riskControl",
@@ -326,6 +328,7 @@ function syncQueueSurviveSettings(settings = {}) {
 }
 
 function normalizeBuyMode(mode) {
+  if (mode === "trailing") return "trailing";
   if (mode === "exact") return "exact";
   if (mode === "loss") return "loss";
   return "limits";
@@ -544,6 +547,7 @@ function publicSettings(settings = {}, includeSecrets = false) {
     safeSurviveMode: settings.safeSurviveMode === "on" ? "on" : "off",
     frogSurviveMode: settings.frogSurviveMode === "on" ? "on" : "off",
     truenestSurviveMode: settings.truenestSurviveMode === "on" ? "on" : "off",
+    trailingStopPercent: settings.trailingStopPercent || "10",
     safeBuyMode: normalizeBuyMode(settings.safeBuyMode),
     frogBuyMode: normalizeBuyMode(settings.frogBuyMode),
     truenestBuyMode: normalizeBuyMode(settings.truenestBuyMode),
@@ -1935,8 +1939,18 @@ async function runPositionWatch() {
      if(BigInt(held||'0')<BigInt(p.raw))throw new Error('Wallet balance changed; holding needs reconciliation');
      const order=await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(current.settings),query:{inputMint:p.mint,outputMint:usdcMint,amount:p.raw,taker:p.wallet,swapMode:'ExactIn'}});
      if(!order.outAmount || order.inAmount!==p.raw || !order.transaction)throw new Error('Sell value unavailable; missing data is not a zero price');
-     const proceeds=Number(order.outAmount)/1e6,reason=exitReason(profileBuyMode(current,p.profile),p.cost,proceeds);
-     d.notices[p.key]=`${reason || 'Watching'}: estimated sale $${proceeds.toFixed(2)}, remaining cost $${p.cost.toFixed(2)}`;
+     const proceeds=Number(order.outAmount)/1e6,mode=profileBuyMode(current,p.profile);
+     let reason;
+     if(mode==='trailing') {
+      d.trailingStops ||= {};
+      const mark=trailingExit(p,proceeds,Number(current.settings.trailingStopPercent || 10),d.trailingStops[p.key]);
+      if(!mark)throw new Error('Trailing stop needs a valid sell quote and verified purchase');
+      d.trailingStops[p.key]=mark;
+      // Save before signing/submission, so restart or failed sale cannot lose the peak/exit.
+      await executionJournal.save();
+      reason=mark.reason;
+     }else reason=exitReason(mode,p.cost,proceeds);
+     d.notices[p.key]=`${reason || 'Watching'}: estimated sale $${proceeds.toFixed(2)}, remaining cost $${p.cost.toFixed(2)}${mode==='trailing' ? `; trailing sell trigger $${d.trailingStops[p.key].trigger.toFixed(2)}` : ''}`;
      if(!reason){await executionJournal.save();return;}
      const signed=await signSolanaTransaction(current,signerId(current),p.wallet,order.transaction);
      const before=await readState();
@@ -2866,8 +2880,11 @@ async function handleApi(request, response, url) {
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     const input = await readBody(request);
     if (input.frogBuyMode !== undefined) {
-      if (!["limits", "exact", "loss"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose one of the three trading modes."}); return true; }
+      if (!["limits", "exact", "loss", "trailing"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
       if (input.frogBuyMode !== "exact" && !(Number(input.frogSurviveMax)>0 && Number.isFinite(Number(input.frogSurviveMax)))) { send(response, 400, {error:"Enter a positive maximum purchase amount."}); return true; }
+    }
+    if (input.trailingStopPercent !== undefined && !(Number.isFinite(Number(input.trailingStopPercent)) && Number(input.trailingStopPercent)>0 && Number(input.trailingStopPercent)<100)) {
+      send(response,400,{error:"Trailing fall percentage must be greater than 0 and less than 100."}); return true;
     }
     state.settings = { ...state.settings, ...clean(input) };
     if (input.frogBuyMode !== undefined) state.settings.modesConfirmed = "yes";
