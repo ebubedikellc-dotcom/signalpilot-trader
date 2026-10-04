@@ -2527,6 +2527,11 @@ function pumpDirectReads() {
     });
   }
 }
+function directReadFailure(error, settings = {}) {
+  let message = String(error?.message || error || "Unknown RPC error");
+  if (settings.heliusKey) message = message.split(settings.heliusKey).join("[redacted]");
+  return message.replace(/(?:https?|wss?):\/\/[^\s"']+/g, "[RPC endpoint]").slice(0, 240);
+}
 async function readDirectTransaction(job) {
   const state = await readState();
   if (!monitoringEnabled(state) || liveSubscriptions.get(job.wallet) !== job.sub) {
@@ -2563,7 +2568,7 @@ async function readDirectTransaction(job) {
       const key = `${profile}:Solana live`;
       const prior = signalFeeds.get(key);
       signalFeeds.set(key, { profile, source: "Solana live", wallet: job.wallet, checkedAt: new Date().toISOString(),
-        transactions: prior?.wallet === job.wallet ? prior.transactions || [] : [], error: "Direct transaction lookup unavailable; history backup retained" });
+        transactions: prior?.wallet === job.wallet ? prior.transactions || [] : [], error: `Direct lookup: ${directReadFailure(error, state.settings)}` });
     }
     if (job.attempts >= 3) directReadJobs.delete(job.key);
     else job.dueAt = Date.now() + 500;
@@ -2628,7 +2633,7 @@ async function pollSignalFeeds() {
 function feedHealth() {
   return Array.from(signalFeeds.values()).map(({ transactions, ...feed }) => ({
     ...feed, status: feed.source === "Solana live"
-      ? feed.error ? "Direct read failed; backup active" : feed.checkedAt ? "Last transaction read" : "Waiting for activity"
+      ? feed.error ? "Direct lookup unavailable" : feed.checkedAt ? "Last transaction read" : "Waiting for activity"
       : feed.error ? "Disconnected" : !feed.checkedAt ? "Connecting" : Date.now() - Date.parse(feed.checkedAt) > 3000 ? "Delayed" : "Connected"
   }));
 }

@@ -58,3 +58,7 @@ test('read-only observation can decode activity while the execution worker remai
  // Missing execution dependencies deliberately fail if the worker passes its stopped guard.
  await h.c.runCopyWorkerOnce();assert.equal(h.state.profiles.safe.running,false);
 });
+test('direct read diagnostics remove RPC credentials and endpoint URLs',()=>{
+ const h=harness();const result=h.c.directReadFailure(new Error('RPC failed https://example.test/?api-key=secret-key secret-key'),{heliusKey:'secret-key'});
+ assert(!result.includes('secret-key'));assert(!result.includes('https://'));assert(result.includes('RPC failed'));
+});
