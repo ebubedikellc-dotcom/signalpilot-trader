@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {exitReason,buildPositions,sellFraction,proportionalAmount,dailyResults} from '../lib/position-accounting.mjs';
+import {exitReason,takeBackExit,buildPositions,sellFraction,proportionalAmount,dailyResults} from '../lib/position-accounting.mjs';
 import {createTradingJournal} from '../lib/trading-journal.mjs';
 const server=readFileSync(new URL('../server.js',import.meta.url),'utf8');
 const section=(a,b)=>server.slice(server.indexOf(a),server.indexOf(b,server.indexOf(a)));
@@ -20,12 +20,28 @@ test('three modes have their agreed independent exits, scaling to smaller purcha
   assert.equal(exitReason('limits',cost,cost*.71),null);
  }
 });
+test('take my money back sells part after a strong gain and protects the rest',()=>{
+ const p={verified:true,raw:'1000000',cost:50,cycle:'buy1'};
+ const mark=takeBackExit(p,80);
+ assert.equal(mark.reason,'Take my money back');
+ assert.equal(mark.partial,true);
+ assert(mark.raw !== p.raw);
+ assert(BigInt(mark.raw)>0n);
+ const watch=takeBackExit({...p,raw:'375000',cost:18.75},35,mark);
+ assert.equal(watch.reason,null);
+ assert.equal(Math.round(watch.trigger*100)/100,24.5);
+ const exit=takeBackExit({...p,raw:'375000',cost:18.75},24.5,watch);
+ assert.equal(exit.reason,'Take My Money Back protection');
+ assert.equal(exit.raw,'375000');
+ assert.equal(takeBackExit(p,35).reason,'30% loss limit');
+});
 test('maximum is a ceiling, not a forced purchase amount; Exact Copy has no ceiling',()=>{
  let mode='limits';
  const c=vm.createContext({Number,Math,profileBuyMode:()=>mode,profileSurviveMaxUsd:()=>50});
  vm.runInContext(section('function buyUsdAmount(', 'function sourceUsdFromSignal('),c);
  assert.equal(c.buyUsdAmount({},'safe',20),20);assert.equal(c.buyUsdAmount({},'safe',200),50);
  mode='loss';assert.equal(c.buyUsdAmount({},'safe',200),50);
+ mode='takeback';assert.equal(c.buyUsdAmount({},'safe',200),50);
  mode='exact';assert.equal(c.buyUsdAmount({},'safe',200),200);
 });
 test('partial sale follows source fraction, including huge integer quantities',()=>{

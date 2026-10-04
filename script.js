@@ -802,11 +802,12 @@ function queueSurviveMode(settings = {}) {
   return queueBuyMode(settings) === "survive";
 }
 
-function normalizeBuyMode(mode) { return mode === "trailing" ? "trailing" : mode === "exact" ? "exact" : mode === "loss" ? "loss" : "limits"; }
+function normalizeBuyMode(mode) { return mode === "takeback" ? "takeback" : mode === "trailing" ? "trailing" : mode === "exact" ? "exact" : mode === "loss" ? "loss" : "limits"; }
 function queueBuyMode(settings = {}) { return normalizeBuyMode(settings.frogBuyMode); }
-function buyModeLabel(mode) { return mode === "trailing" ? "Trailing Stops" : mode === "exact" ? "Exact Copy" : mode === "loss" ? "Loss Protection" : "Profit & Loss Limits"; }
+function buyModeLabel(mode) { return mode === "takeback" ? "Take My Money Back" : mode === "trailing" ? "Trailing Stops" : mode === "exact" ? "Exact Copy" : mode === "loss" ? "Loss Protection" : "Profit & Loss Limits"; }
 function surviveMax(settings = {}) { const amount = Number(settings.frogSurviveMax || 5); return amount > 0 ? amount : 5; }
 function buyModeNote(mode, max = 5, trailing = value("trailingStopPercent") || "10") {
+  if (mode === "takeback") return `Buy at most $${max} each time; copy smaller buys. If the coin reaches about 60% profit, sell only enough to recover the main money. Leave the rest to run, but sell it if it falls about 30% from its highest watched value, or when the trader sells first.`;
   if (mode === "trailing") return `Buy at most $${max} each time; copy smaller buys. Try to sell after a ${trailing}% fall from the highest value observed since tracking began, or when the trader sells first. The selling point moves up, never down with the price. Losses are still possible; sale prices are not guaranteed.`;
   if (mode === "exact") return "Same purchase amount as the trader. Sell when the trader sells. No independent profit or loss exit.";
   return `Buy at most $${max} each time; copy smaller amounts as they are. Sell at a 30% loss${mode === "limits" ? " or 60% gain" : ""}, or when the trader sells — whichever comes first. Sale prices are not guaranteed.`;
