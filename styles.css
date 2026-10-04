@@ -666,3 +666,11 @@ td { color: var(--muted); }
 .wallet-remaining-grid small, #remainingBalanceStatus { color: #bccfce; }
 .wallet-remaining .wallet-address { display: block; overflow-wrap: anywhere; }
 @media(max-width:700px) { .wallet-remaining-grid { grid-template-columns: 1fr; } .wallet-remaining { padding: 16px; } }
+
+.wallet-budget-control { margin-top: 18px; padding: 20px; border: 2px solid #33dcb2; border-radius: 12px; background: #102f2d; }
+.wallet-budget-control h3 { margin: 0 0 10px; font-size: 26px; }
+.wallet-budget-control label { display: block; font-size: 20px; margin: 12px 0 8px; }
+.wallet-budget-control input { width: min(100%, 320px); box-sizing: border-box; font-size: 30px; padding: 12px; }
+.wallet-budget-control button { margin: 10px; padding: 14px 20px; font-weight: 700; }
+#savedTradingBudget { font-size: 30px; }
+@media(max-width:700px) { .wallet-budget-control button { margin: 12px 0; width: 100%; } }

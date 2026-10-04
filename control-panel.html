@@ -36,14 +36,23 @@
         <span id="topStopStatus" role="status" aria-live="polite">Stops automatic buys and sells. Does not sell your holdings.</span>
       </div>
       <section class="wallet-remaining" aria-labelledby="walletRemainingTitle">
-        <h2 id="walletRemainingTitle">Money remaining in my wallet</h2>
+        <h2 id="walletRemainingTitle">My wallet money and trading amount</h2>
         <div class="wallet-remaining-grid">
-          <article><span>Cash remaining (USDC)</span><strong id="remainingUsdc">Checking…</strong><small>Includes any locked profit held in this wallet.</small></article>
-          <article><span>SOL remaining (network fees)</span><strong id="remainingSol">Checking…</strong></article>
+          <article><span>Current money in my wallet (USDC)</span><strong id="remainingUsdc">Checking…</strong><small>Includes any locked profit held in this wallet.</small></article>
           <article><span>Locked profit</span><strong id="remainingLocked">Checking…</strong><small>Reserved by the app. Do not add this to cash again.</small></article>
           <article><span>Cash available for trading</span><strong id="remainingTradeable">Checking…</strong><small>After locked profit and your trading budget limit.</small></article>
+          <article><span>SOL remaining (network fees)</span><strong id="remainingSol">Checking…</strong></article>
           <article><span>Other coins in my wallet</span><strong id="remainingCoins">Checking…</strong><small id="remainingCoinValue">Coin value: unable to check</small></article>
           <article><span>Total wallet value</span><strong id="remainingTotal">Unable to check</strong><small>Needs current USDC, SOL and coin prices.</small></article>
+        </div>
+        <div class="wallet-budget-control">
+          <h3>Amount I allow for trading</h3>
+          <p>Saved trading amount: <strong id="savedTradingBudget">Checking…</strong></p>
+          <label for="manualDecuDeposit">Use up to this amount ($)</label>
+          <input id="manualDecuDeposit" type="number" min="0" step="0.01" inputmode="decimal" aria-describedby="tradingBudgetHelp">
+          <button id="saveDecuDeposit" type="button">Save my trading amount</button>
+          <p id="tradingBudgetHelp">This is your total trading budget, not the maximum for one purchase. The app can only use available cash outside locked profit. Saving does not start trading.</p>
+          <p id="tradingBudgetSaveStatus" role="status">Your saved amount stays unchanged until you save a new one.</p>
         </div>
         <p id="remainingBalanceStatus" role="status">Checking the wallet. Missing data will not be shown as zero.</p>
         <small id="remainingWalletAddress" class="wallet-address"></small>
@@ -270,16 +279,13 @@
               <small id="queueControlNote">Highest buy $50 mode means small buys copy exact, but any bigger buy stops at $50.</small>
             </section>
 
-            <details class="wallet-tools"><summary>My wallet, trading budget and withdrawals</summary>
+            <details class="wallet-tools"><summary>My wallet address and withdrawals</summary>
               <div class="single-wallet-tools">
                 <h3>One wallet for the trader I choose</h3>
                 <strong id="manualDecuWallet">Wallet not verified</strong>
                 <small id="manualDecuGas">SOL gas: checking…</small>
                 <small id="manualDecuUsdc">USDC balance: checking…</small>
                 <button id="copyManualDecuWallet" type="button">Copy my deposit wallet address</button>
-                <label>My trading budget ($)<input id="manualDecuDeposit" type="number" min="0" step="0.01"></label>
-                <button id="saveDecuDeposit" type="button">Save my trading budget</button>
-                <p>Locked profit stays separate from the trading budget.</p>
                 <h4>Withdraw locked profit</h4>
                 <label>Destination Solana wallet<input id="frogProfitWithdrawWallet" autocomplete="off"></label>
                 <label>USDC amount<input id="frogProfitWithdrawAmount" type="number" min="0.01" step="0.01"></label>

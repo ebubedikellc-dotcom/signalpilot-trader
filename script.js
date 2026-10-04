@@ -1695,18 +1695,19 @@ async function saveSettings() {
 }
 
 async function saveManualDeposit() {
-  const mainDeposit = value("manualDecuDeposit") || value("manualTruenestDeposit");
-  const mainUseProfit = value("manualDecuUseProfit") || value("manualTruenestUseProfit");
-  const data = {
-    ...(latestState.settings || {}),
-    frogDeposit: mainDeposit,
-    truenestDeposit: mainDeposit,
-    frogUseProfit: mainUseProfit,
-    truenestUseProfit: mainUseProfit
-  };
-  renderState({ settings: data, profiles: {}, activity: ["Saving manual deposit..."] });
-  renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
-  showBusinessMessage("Manual deposit saved.");
+  const mainDeposit = value("manualDecuDeposit");
+  if (mainDeposit.trim() === "" || !Number.isFinite(Number(mainDeposit)) || Number(mainDeposit) < 0) {
+    setText("tradingBudgetSaveStatus", "Enter a valid amount of zero or more."); return;
+  }
+  const button=$("saveDecuDeposit"); if(button)button.disabled=true;
+  setText("tradingBudgetSaveStatus", "Saving your trading amount…");
+  try {
+    const data={...(latestState.settings || {}),frogDeposit:mainDeposit,truenestDeposit:mainDeposit,frogUseProfit:"off",truenestUseProfit:"off"};
+    renderState(await api("/api/settings", {method:"POST",body:JSON.stringify(data)}));
+    setText("tradingBudgetSaveStatus", `Saved trading amount: ${money(Number(latestState.settings.frogDeposit))}. Saving does not start trading.`);
+  } catch(error) {
+    setText("tradingBudgetSaveStatus", `Not saved: ${error.message || "Connection failed"}. Your previous saved amount remains in place.`);
+  } finally { if(button)button.disabled=false; }
 }
 
 async function saveTradeMode(profile, mode) {
@@ -2019,6 +2020,7 @@ function renderExecutionReport() {
 
 function renderRemainingWallet(settings = {}) {
  const b=walletBalance("frog"), cash=balanceUsdc("frog");
+ setText("savedTradingBudget",settings.frogDeposit !== undefined && settings.frogDeposit !== "" ? money(Number(settings.frogDeposit)) : "Not set");
  const validCash=Number.isFinite(cash);
  const validSol=!b.error && typeof b.sol === "number" && Number.isFinite(b.sol);
  const wallet=b.address || settings.frogTradeWallet || "";
