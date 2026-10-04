@@ -653,7 +653,8 @@ function statusPayload(state, session) {
       liveTradingEnv,
       productionExecution,
       workerIntervalMs,
-      maxSignalAgeMs: buyFreshnessLimitMs,
+      maxSignalAgeMs: null,
+      pollIntervalMs: 500,
       feeds: feedHealth(),
       liveNotifications: Array.from(liveSubscriptions, ([wallet, sub]) => ({ wallet, lastNotificationAt: sub.lastNotificationAt, status: sub.lastNotificationAt ? "Notification received" : "Registered; awaiting notification" }))
     },

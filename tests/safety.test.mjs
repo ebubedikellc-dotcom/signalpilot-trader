@@ -162,3 +162,11 @@ test('restart excludes buys from the stopped period without expiring new session
  assert.equal(c.buySignalError('safe',{timestamp:Math.floor(start/1000),leg:{action:'buy',outputMint:'COIN'}},state),'');
  state.profiles.safe.running=true;c.beginTradingSession(state);assert.equal(state.strategy.buySessionStartedAt,start);
 });
+test('dashboard status reports poll cadence without referencing a removed buy deadline',()=>{
+ const c=vm.createContext({process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:500,
+ feedHealth:()=>[],liveSubscriptions:new Map(),customerPublic:x=>x});
+ vm.runInContext(section(server,'function statusPayload(','async function walletBalances('),c);
+ const result=c.statusPayload({settings:{},customers:[],profiles:{safe:{running:false}}},{role:'owner',id:'owner'});
+ assert.equal(result.backend.pollIntervalMs,500);assert.equal(result.backend.maxSignalAgeMs,null);
+ assert.equal(result.profiles.safe.running,false);
+});
