@@ -2158,17 +2158,20 @@ function gmgnActivityToTransaction(activity = {}, wallet = "") {
 }
 
 async function fetchOfficialGmgnTransactionsForAddress(apiKey, address) {
-  const url = new URL("https://api.gmgn.ai/v1/user/wallet_activity");
+  const url = new URL("https://openapi.gmgn.ai/v1/user/wallet_activity");
   url.searchParams.set("chain", "sol");
-  url.searchParams.set("wallet", address);
+  url.searchParams.set("wallet_address", address);
+  url.searchParams.set("timestamp", String(Math.floor(Date.now() / 1000)));
+  url.searchParams.set("client_id", randomUUID());
   url.searchParams.set("limit", "25");
   url.searchParams.append("type", "buy");
   url.searchParams.append("type", "sell");
   const response = await fetch(url, {
     headers: {
       "accept": "application/json",
-      "authorization": `Bearer ${apiKey}`
-    }
+      "X-APIKEY": apiKey
+    },
+    signal: AbortSignal.timeout(3000)
   });
   if (!response.ok) {
     const detail = response.status === 401 || response.status === 403
@@ -2177,6 +2180,9 @@ async function fetchOfficialGmgnTransactionsForAddress(apiKey, address) {
     throw new Error(detail);
   }
   const payload = await response.json();
+  if (payload.code !== undefined && String(payload.code) !== "0") {
+    throw new Error(`GMGN data API returned code ${payload.code}: ${String(payload.message || payload.error || "Request rejected").slice(0, 180)}`);
+  }
   const data = payload?.data || payload;
   const activities = Array.isArray(data?.activities)
     ? data.activities
