@@ -2540,7 +2540,7 @@ async function readDirectTransaction(job) {
   }
   job.attempts++;
   try {
-    const tx = await job.sub.connection.getParsedTransaction(job.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+    const tx = await job.sub.connection.getParsedTransaction(job.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 1 });
     if (!tx) throw new Error("Confirmed transaction not available yet");
     const current = await readState();
     if (!monitoringEnabled(current) || liveSubscriptions.get(job.wallet) !== job.sub) {

@@ -62,3 +62,12 @@ test('direct read diagnostics remove RPC credentials and endpoint URLs',()=>{
  const h=harness();const result=h.c.directReadFailure(new Error('RPC failed https://example.test/?api-key=secret-key secret-key'),{heliusKey:'secret-key'});
  assert(!result.includes('secret-key'));assert(!result.includes('https://'));assert(result.includes('RPC failed'));
 });
+test('direct lookup accepts version 1 transactions as well as older recorded swaps',async()=>{
+ const h=harness();h.sub.connection.getParsedTransaction=async(_,config)=>{
+  if(config.maxSupportedTransactionVersion<1)throw new Error('Transaction version (1) is not supported');
+  return {...h.row.transaction,version:1};
+ };
+ h.c.queueDirectRead(h.row.wallet,h.row.signature,h.sub);await flush();
+ assert.equal(h.feeds.get('safe:Solana live').transactions[0].signature,h.row.signature);
+ assert.equal(h.feeds.get('safe:Solana live').error,'');
+});
