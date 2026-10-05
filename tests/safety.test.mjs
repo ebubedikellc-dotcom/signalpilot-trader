@@ -195,3 +195,11 @@ test('source verification failure blocks quotation, signing and submission',asyn
  await assert.rejects(h.c.executeCopiedSwap('safe',h.buy,h.state),/Source token mismatch/);
  assert.equal(quotes,0);assert.equal(signatures,0);assert.equal(h.submitted.length,0);
 });
+
+test('a retry cannot sell a replacement purchase that appeared while it waited for the wallet lock',async()=>{
+ const h=executionHarness();let quotes=0;
+ h.c.trackedPosition=async()=>({raw:'123',cycle:'new-purchase'});
+ h.c.jupiterJson=async()=>{quotes++;throw new Error('Must not quote a replacement position');};
+ assert.match((await h.c.executeCopiedSwap('safe',h.sell,h.state,'old-purchase')).status,/original copied holding already closed/);
+ assert.equal(quotes,0);assert.equal(h.submitted.length,0);
+});

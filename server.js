@@ -1829,16 +1829,16 @@ function buySignalError(profile, transaction, state) {
   return "";
 }
 
-async function executeCopiedSwap(profile, transaction, state) {
+async function executeCopiedSwap(profile, transaction, state, expectedPositionCycle) {
   if (primarySwapLeg(transaction, profile, state)?.action === "sell") {
     // Recheck the held balance after any submitted buy finishes.
-    return withWalletOperation(() => executeCopiedSwapLocked(profile, transaction, state, true), 100);
+    return withWalletOperation(() => executeCopiedSwapLocked(profile, transaction, state, true, expectedPositionCycle), 100);
   }
   // Buy quote preparation must not monopolize the wallet while a sell is waiting.
   return executeCopiedSwapLocked(profile, transaction, state);
 }
 
-async function executeCopiedSwapLocked(profile, transaction, state, walletLocked = false) {
+async function executeCopiedSwapLocked(profile, transaction, state, walletLocked = false, expectedPositionCycle) {
   const currentControls = await readState();
   if (emergencyStopRequested || !supportedProfiles.some((key) => currentControls.profiles?.[key]?.running)) {
     return { status: "Skipped - trading stopped by owner" };
@@ -1915,6 +1915,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   if (leg.action === "sell") {
     const tracked = await trackedPosition(state, profile, leg.inputMint);
     if (!tracked || BigInt(tracked.raw) <= 0n) return {status:"Skipped - no verified copied holding for this trader"};
+    if (expectedPositionCycle && tracked.cycle !== expectedPositionCycle) return {status:"Skipped - original copied holding already closed"};
     const fraction = sellFraction(verified.sourceTx, targetWallet(state,profile), leg.inputMint);
     if (!fraction) throw new Error("Cannot verify the trader's sold proportion yet; sell remains queued");
     const heldAmount = await tokenBalanceRaw(connection,wallet,leg.inputMint);
@@ -2062,21 +2063,54 @@ async function trackedPosition(state,profile,mint) {
   return position?.verified ? position : null;
 }
 const sourceSellQueue = new Map();
-async function queueSourceSell(profile,transaction) {
+async function queueSourceSell(profile,transaction,state) {
   const d=await executionJournal.load();d.sourceSells ||= {};
   const key=canonicalSignalId(transaction.signature);
-  d.sourceSells[key] ||= {profile,transaction,queuedAt:Date.now()};
+  const wallet=tradeWallet(state,profile);
+  const mint=primarySwapLeg(transaction,profile,state)?.inputMint;
+  const position=(await executionJournal.snapshot()).positions[`${wallet}:${profile}:${mint}`];
+  const positionCycle=position?.verified && BigInt(position.raw || '0')>0n ? position.cycle : undefined;
+  d.sourceSells[key] ||= {profile,transaction,wallet,positionCycle,queuedAt:Date.now()};
   await executionJournal.save();
+}
+function sourceSellRetryState(state,job,report) {
+  const leg=primarySwapLeg(job.transaction,job.profile,state);
+  if(leg?.action!=='sell' || !leg.inputMint)return 'review';
+  const wallet=tradeWallet(state,job.profile);
+  if(job.wallet && job.wallet!==wallet)return 'finished';
+  const position=report.positions[`${wallet}:${job.profile}:${leg.inputMint}`];
+  // Keep the signal while a submitted buy is awaiting confirmation. An empty
+  // position alone must never discard the sale of that incoming purchase.
+  if(Object.values(report.pending).some(p=>p.wallet===wallet && p.profile===job.profile && p.mint===leg.inputMint && p.side==='buy'))return 'waiting';
+  if(position?.verified===false)return 'review';
+  if(!position || BigInt(position.raw || '0')<=0n)return 'finished';
+  if(job.positionCycle && job.positionCycle!==position.cycle)return 'finished';
+  job.wallet=wallet;
+  job.positionCycle=position.cycle;
+  return 'ready';
 }
 async function retrySourceSells(state) {
   const d=await executionJournal.load();
   for(const [key,job] of Object.entries(d.sourceSells || {})) {
     if(Object.values(d.pending).some(p=>p.source===key))continue;
     if(d.fills.some(f=>f.source===key && f.side==='sell')){delete d.sourceSells[key];await executionJournal.save();continue;}
+    const disposition=sourceSellRetryState(state,job,await executionJournal.snapshot());
+    if(disposition==='finished') {
+      // Completed/never-copied holdings must not consume RPC reads indefinitely
+      // or cause an old sell to act on a future purchase of the same coin.
+      delete d.sourceSells[key];
+      delete d.notices[key];
+      await executionJournal.save();continue;
+    }
+    if(disposition!=='ready') {
+      job.message=disposition==='waiting' ? 'Waiting for copied buy confirmation before selling' : 'Copied holding requires review before retrying this sale';
+      if(disposition==='review')d.notices[key]=job.message;
+      continue;
+    }
     if(job.lastAttempt && Date.now()-job.lastAttempt<1000)continue;
     job.lastAttempt=Date.now();
     try {
-      const result=await executeCopiedSwap(job.profile,job.transaction,state);
+      const result=await executeCopiedSwap(job.profile,job.transaction,state,job.positionCycle);
       job.message=result.status;
       // No position can be temporary while an earlier buy is being confirmed.
       if(result.status.includes('no verified copied holding') && Date.now()-job.queuedAt>60000){
@@ -2787,7 +2821,7 @@ async function processSignalTransactions(state, profile, transactions, newest, c
     newTrades.push(trade);
 
     if (canExecute && leg?.action === "sell" && !trade.sourceRejected && trade.execution?.txid == null) {
-      await queueSourceSell(profile, transaction);
+      await queueSourceSell(profile, transaction, state);
     }
   }
 

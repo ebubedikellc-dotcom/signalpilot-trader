@@ -1073,7 +1073,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = [], strategy = {
     ? `${label} is watching and ready to copy.`
     : heliusBlocked
       ? `${label} is locked until the paid Helius key stops returning 429.`
-      : `${label} is ready. Press Start when you want it to watch Decu.`);
+      : `${label} is selected. Press Start when you want to begin copying ${label}.`);
   setText("watchDeposit", money(deposit));
   setText("watchWallet", wallet ? `Wallet ${wallet} | ${gasText}` : "Wallet not connected yet");
   setText("watchProfit", money(profit));
@@ -1127,7 +1127,11 @@ function renderState(state) {
   const backend = latestState.backend || {};
   const strategy = latestState.strategy || {};
   const feedRows = backend.feeds || [];
-  setText("feedConnectionStatus", (backend.observationUntil ? "Read-only connection check — trading remains stopped. " : "") + (feedRows.length ? feedRows.map((f) => `${profileName(f.profile)} ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`).join(" · ") : backend.observationUntil ? "Waiting for wallet activity." : "Feeds not checked while trading is stopped. GMGN connection is not yet verified."));
+  const checkedConnection = backend.gmgnConnectionCheck;
+  const idleConnection = checkedConnection
+    ? `${checkedConnection.message} Checked ${new Date(checkedConnection.checkedAt).toLocaleString()}.`
+    : "Feeds not checked while trading is stopped. GMGN connection is not yet verified.";
+  setText("feedConnectionStatus", (backend.observationUntil ? "Read-only connection check — trading remains stopped. " : "") + (feedRows.length ? feedRows.map((f) => `${profileName(f.profile)} ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`).join(" · ") : backend.observationUntil ? "Waiting for wallet activity." : idleConnection));
   renderExecutionReport();
   const liveTradingEnv = backend.liveTradingEnv === true;
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
@@ -2143,6 +2147,8 @@ $("checkGmgnConnection")?.addEventListener("click", async () => {
   setText("gmgnCheckResult", "Checking GMGN from this site's server. Automatic trading stays OFF…");
   try {
     const result = await api("/api/gmgn/check", {method:"POST"});
+    latestState.backend = {...latestState.backend, gmgnConnectionCheck:result};
+    renderState(latestState);
     setText("gmgnCheckResult", `${result.message} Checked ${new Date(result.checkedAt).toLocaleString()}.`);
   } catch(error) { setText("gmgnCheckResult", error.message); }
   finally { button.disabled = false; }
