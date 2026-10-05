@@ -1,3 +1,4 @@
+import {rpcProvider} from '../lib/rpc-provider.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
@@ -38,11 +39,11 @@ const source=fs.readFileSync(new URL('../server.js',import.meta.url),'utf8');
 test('configured verification provider is restored and connections are reused',()=>{
  let created=0;
  class Connection {constructor(endpoint,options){this.endpoint=endpoint;this.options=options;created++;}}
- const c=vm.createContext({Map,Proxy,Reflect,String,process:{env:{}},Connection,createRpcReadPool,clusterApiUrl:()=> 'https://public.example',AbortSignal,fetch:()=>{}});
+ const c=vm.createContext({Map,Proxy,Reflect,String,rpcProvider,process:{env:{}},Connection,createRpcReadPool,clusterApiUrl:()=> 'https://api.mainnet-beta.solana.com',AbortSignal,fetch:()=>{}});
  vm.runInContext(source.slice(source.indexOf('const rpcConnections'),source.indexOf('function isRateLimitError')),c);
  const a=c.solanaConnection({heliusKey:'test-key'}),b=c.solanaConnection({heliusKey:'test-key'});
  assert.equal(a.endpoint,'https://mainnet.helius-rpc.com/?api-key=test-key');assert.equal(created,1);assert.equal(a.options.disableRetryOnRateLimit,true);
- assert.equal(c.solanaConnection({}).endpoint,'https://public.example');assert.equal(created,2);
+ assert.equal(c.solanaConnection({}).endpoint,'https://api.mainnet-beta.solana.com');assert.equal(created,2);
 });
 test('failure of optional trader statistics does not abort wallet report or duplicate sponsored pending entries',async()=>{
  const d={pending:{'jupiter:r':{txid:'tx',wallet:'w'}},checked:{},fills:[],sourceFills:[]};let reconciled=0;
@@ -59,10 +60,34 @@ test('only reads fail over when the configured provider is rate-limited; writes 
   async getBalance(){calls.push(this.endpoint);if(this.endpoint.includes('helius'))throw new Error('429 quota limit');return 123;}
   async sendRawTransaction(){calls.push('write');throw new Error('429 quota limit');}
  }
- const c=vm.createContext({Map,Proxy,Reflect,String,process:{env:{HELIUS_API_KEY:'test-env-key'}},Connection,createRpcReadPool,clusterApiUrl:()=> 'https://public.example',AbortSignal,fetch:()=>{}});
+ const c=vm.createContext({Map,Proxy,Reflect,String,rpcProvider,process:{env:{HELIUS_API_KEY:'test-env-key'}},Connection,createRpcReadPool,clusterApiUrl:()=> 'https://api.mainnet-beta.solana.com',AbortSignal,fetch:()=>{}});
  vm.runInContext(source.slice(source.indexOf('const rpcConnections'),source.indexOf('function solanaAddress')),c);
  const client=c.solanaConnection({heliusKey:'test-key'});
  assert.equal(await client.getBalance('w'),123);
- assert.deepEqual(calls,['https://mainnet.helius-rpc.com/?api-key=test-key','https://public.example']);
+ assert.deepEqual(calls,['https://mainnet.helius-rpc.com/?api-key=test-key','https://api.mainnet-beta.solana.com']);
  await assert.rejects(client.sendRawTransaction('bytes'),/429/);assert.equal(calls.at(-1),'write');assert.equal(calls.length,3);
+});
+
+test('urgent sell checks overtake background reads without interrupting an active request',async()=>{
+ let release;const blocked=new Promise(r=>release=r),order=[];
+ const h=harness();
+ const active=h.pool.run('getBalance',['active'],async()=>{await blocked;order.push('active');});
+ const background=h.pool.run('getBalance',['dashboard'],async()=>order.push('dashboard'));
+ const buy=h.pool.run('getParsedTransaction',['buy'],async()=>order.push('buy'),50);
+ const sell=h.pool.run('getParsedTransaction',['sell'],async()=>order.push('sell'),100);
+ release();await Promise.all([active,background,buy,sell]);
+ assert.deepEqual(order,['active','sell','buy','dashboard']);
+});
+test('a shared pending lookup is promoted when a sell needs it',async()=>{
+ let release;const blocked=new Promise(r=>release=r),order=[];const h=harness();
+ const active=h.pool.run('getBalance',['active'],()=>blocked);
+ const dashboard=h.pool.run('getBalance',['dashboard'],async()=>order.push('dashboard'));
+ const low=h.pool.run('getParsedTransaction',['source'],async()=>order.push('source'));
+ const high=h.pool.run('getParsedTransaction',['source'],async()=>{throw new Error('must coalesce')},100);
+ assert.equal(low,high);release();await Promise.all([active,dashboard,low,high]);assert.deepEqual(order,['source','dashboard']);
+});
+test('urgent work respects provider Retry-After and repeated checks do not extend it forever',async()=>{
+ const h=harness();h.pool.observe({status:429,headers:new Headers({'retry-after':'60'})});
+ for(let i=0;i<3;i++){await assert.rejects(h.pool.run('getBalance',['sell'],async()=>1,100),/paused until/);h.advance(20000);}
+ assert.equal(await h.pool.run('getBalance',['sell'],async()=>1,100),1);
 });

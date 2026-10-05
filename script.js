@@ -2,6 +2,7 @@ let walletPriceSnapshot = null;
 const fields = [
   "gmgnApiKey",
   "heliusKey",
+  "alchemyKey",
   "routeApi",
   "turnkeyOrgId",
   "turnkeyApiPublicKey",

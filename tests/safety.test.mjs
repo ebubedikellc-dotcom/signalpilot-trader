@@ -1,3 +1,4 @@
+import {rpcProvider,monitoredProfiles} from '../lib/rpc-provider.mjs';
 import { sellFraction, proportionalAmount } from '../lib/position-accounting.mjs';
 import { canonicalSignalId } from "../lib/direct-signals.mjs";
 import test from 'node:test';
@@ -19,6 +20,7 @@ function executionHarness() {
  const submitted=[];let stopped=false;
  const state={profiles:{safe:{running:true}},strategy:{activeProfile:'safe'},settings:{}};
  const c=vm.createContext({Date,BigInt,Number,emergencyStopRequested:false,canonicalSignalId,sellFraction,proportionalAmount,
+ verifyCopySource:async(_,t)=>({leg:t.leg,sourceTx:{blockTime:1,slot:1,meta:{preTokenBalances:[{owner:"wallet",mint:"COIN",uiTokenAmount:{amount:"123"}}],postTokenBalances:[]}},verifiedAt:new Date().toISOString()}),
  trackedPosition:async()=>({raw:'123'}),hasPendingMint:async()=>false,recordPendingSwap:async()=> 'test',recordExecutionResponse:async()=>{},supportedProfiles:['safe'],signalFeeds:new Map(),targetWallet:()=> 'wallet',
  readState:async()=>({...state,profiles:{safe:{running:!stopped}}}),primarySwapLeg:t=>t.leg,
  tradeWallet:()=> 'wallet',signerId:()=> 'wallet',jupiterApiKey:()=> 'test',solanaConnection:()=>({getParsedTransaction:async()=>({meta:{preTokenBalances:[{owner:'wallet',mint:'COIN',uiTokenAmount:{amount:'123'}}],postTokenBalances:[]}})}),
@@ -83,7 +85,7 @@ test('sold-at-loss is closed; positive wallet quantity is open; absent wallet da
  assert.equal(c.openPositionsFromTrades(trades)[0].held,null);
 });
 test('GMGN is the sole activity feed even with a saved Helius key',async()=>{
- const c=vm.createContext({Date,Map,Set,Promise,syncLiveSubscriptions:async()=>{},wakeCopyWorker:async()=>{},wakeSellWorker:async()=>{},supportedProfiles:['safe'],
+ const c=vm.createContext({Date,Map,Set,Promise,monitoredProfiles,executionReport:null,syncLiveSubscriptions:async()=>{},wakeCopyWorker:async()=>{},wakeSellWorker:async()=>{},supportedProfiles:['safe'],
  readState:async()=>({profiles:{safe:{running:true}},settings:{heliusKey:'test',gmgnApiKey:'test'}}),
  targetWallet:()=> 'wallet',process:{env:{}},fetchTransactionsForAddress:async()=>[{signature:'new',timestamp:1}],
  fetchGmgnTransactionsForAddress:()=>new Promise(()=>{})});
@@ -107,15 +109,15 @@ test('queued sells run before queued buys after the current operation completes'
  const sell=c.withWalletOperation(async()=>order.push('sell'),100);
  unlock();await Promise.all([running,buy,sell]);assert.deepEqual(order,['running','sell','buy']);
 });
-test('paid notification subscriptions stay disabled across trader changes',async()=>{
+test('direct alerts use public Solana without spending Helius credits and retain traders with holdings',async()=>{
  const callbacks=new Map();const removed=[];let id=0;
- const c=vm.createContext({Map,Set,Date,supportedProfiles:['safe','frog','truenest'],PublicKey:class{constructor(x){this.value=x}},
+ const c=vm.createContext({Map,Set,Date,process:{env:{}},rpcProvider,monitoredProfiles,executionReport:{positions:{old:{profile:'safe',raw:'1'}},pending:{}},supportedProfiles:['safe','frog','truenest'],PublicKey:class{constructor(x){this.value=x}},
  targetWallet:(_,p)=>p,solanaConnection:()=>({onLogs:(wallet,cb)=>{callbacks.set(wallet.value,cb);return ++id},removeOnLogsListener:async n=>removed.push(n)})});
  vm.runInContext(section(server,'let wakeCopyWorker =','const signalFeeds ='),c);
  const state={profiles:{safe:{running:true}},settings:{heliusKey:'test'},strategy:{activeProfile:'safe'}};
- await c.syncLiveSubscriptions(state);assert.equal(callbacks.size,0);
- state.strategy.activeProfile='frog';await c.syncLiveSubscriptions(state);assert.equal(id,0);
- state.profiles.safe.running=false;await c.syncLiveSubscriptions(state);assert.equal(removed.length,0);
+ await c.syncLiveSubscriptions(state);assert.equal(callbacks.size,1);
+ state.strategy.activeProfile='frog';await c.syncLiveSubscriptions(state);assert.equal(id,2);assert.equal(removed.length,0);
+ state.profiles.safe.running=false;await c.syncLiveSubscriptions(state);assert.equal(removed.length,2);
 });
 test('sell-first processing keeps its checkpoint and blocks buying a coin already sold in that batch',async()=>{
  const executed=[];
@@ -166,7 +168,7 @@ test('restart excludes buys from the stopped period without expiring new session
  state.profiles.safe.running=true;c.beginTradingSession(state);assert.equal(state.strategy.buySessionStartedAt,start);
 });
 test('dashboard status reports poll cadence without referencing a removed buy deadline',()=>{
- const c=vm.createContext({executionReport:null,process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:500,
+ const c=vm.createContext({executionReport:null,rpcProvider,process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:500,
  gmgnConnectionCheck:null,observationUntil:0,feedHealth:()=>[],liveSubscriptions:new Map(),customerPublic:x=>x});
  vm.runInContext(section(server,'function statusPayload(','async function walletBalances('),c);
  const result=c.statusPayload({settings:{},customers:[],profiles:{safe:{running:false}}},{role:'owner',id:'owner'});
@@ -184,4 +186,12 @@ test('first direct notification is processed once even when GMGN later reports t
  await c.processSignalTransactions(state,'safe',[tx],signature,'lastDirectSignature','Solana live',{side:'buy',realtime:true,advanceCheckpoint:true});
  await c.processSignalTransactions(state,'safe',[{...tx,signature:`gmgn:${signature}`}],`gmgn:${signature}`,'lastGmgnSignature','GMGN',{side:'buy',advanceCheckpoint:true});
  assert.equal(executions,1);assert.equal(state.trades.length,1);
+});
+
+test('source verification failure blocks quotation, signing and submission',async()=>{
+ const h=executionHarness();let quotes=0,signatures=0;
+ h.c.verifyCopySource=async()=>{throw new Error('Source token mismatch');};
+ h.c.jupiterJson=async()=>{quotes++;};h.c.signSolanaTransaction=async()=>{signatures++;};
+ await assert.rejects(h.c.executeCopiedSwap('safe',h.buy,h.state),/Source token mismatch/);
+ assert.equal(quotes,0);assert.equal(signatures,0);assert.equal(h.submitted.length,0);
 });

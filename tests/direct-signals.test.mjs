@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import {decodeDirectSwap,canonicalSignalId} from '../lib/direct-signals.mjs';
+import {decodeDirectSwap,verifySourceSignal,canonicalSignalId} from '../lib/direct-signals.mjs';
 const fixtures=JSON.parse(fs.readFileSync(new URL('./fixtures/source-swaps.json',import.meta.url)));
 const server=fs.readFileSync(new URL('../server.js',import.meta.url),'utf8');
 const section=(a,b)=>server.slice(server.indexOf(a),server.indexOf(b,server.indexOf(a)));
@@ -35,7 +35,7 @@ function harness(running=true) {
  const row=fixtures[0],feeds=new Map();let reads=0;
  const state={profiles:{safe:{running}},settings:{}};
  const sub={connection:{getParsedTransaction:async()=>{reads++;return row.transaction}}};
- const c=vm.createContext({Map,Set,Date,Number,decodeDirectSwap,signalFeeds:feeds,supportedProfiles:['safe'],readState:async()=>state,targetWallet:()=>row.wallet,sub,wallet:row.wallet});
+ const c=vm.createContext({Map,Set,Date,Number,process:{env:{}},decodeDirectSwap,signalFeeds:feeds,supportedProfiles:['safe'],readState:async()=>state,targetWallet:()=>row.wallet,sub,wallet:row.wallet});
  vm.runInContext(section('let wakeCopyWorker =','const signalFeeds ='),c);
  vm.runInContext('liveSubscriptions.set(wallet,sub)',c);
  return {c,sub,state,feeds,row,reads:()=>reads};
@@ -70,4 +70,20 @@ test('direct lookup accepts version 1 transactions as well as older recorded swa
  h.c.queueDirectRead(h.row.wallet,h.row.signature,h.sub);await flush();
  assert.equal(h.feeds.get('safe:Solana live').transactions[0].signature,h.row.signature);
  assert.equal(h.feeds.get('safe:Solana live').error,'');
+});
+
+const multihop=JSON.parse(fs.readFileSync(new URL('./fixtures/multihop-source-swap.json',import.meta.url)));
+test('real routed swap uses the final token received, never its zero-balance intermediate token',()=>{
+ const decoded=decodeDirectSwap(multihop.transaction,multihop.wallet,multihop.signature);
+ assert(decoded);assert.equal(decoded.events.swap.tokenOutputs[0].mint,multihop.expectedMint);
+ assert.throws(()=>verifySourceSignal(multihop.transaction,multihop.wallet,multihop.signature,{action:'buy',outputMint:multihop.intermediateMint}),/Source token mismatch/);
+ const verified=verifySourceSignal(multihop.transaction,multihop.wallet,multihop.signature,{action:'buy',outputMint:multihop.expectedMint});
+ assert.equal(verified.events.swap.tokenOutputs[0].rawTokenAmount.tokenAmount,'65292180737220');
+ assert.throws(()=>verifySourceSignal(multihop.transaction,multihop.wallet,multihop.signature,{action:'sell',inputMint:multihop.expectedMint}),/Source token mismatch/);
+});
+test('missing or failed source confirmation cannot authorize a copy',()=>{
+ const expected={action:'buy',outputMint:multihop.expectedMint};
+ assert.throws(()=>verifySourceSignal(null,multihop.wallet,multihop.signature,expected),/could not be verified/);
+ const failed=structuredClone(multihop.transaction);failed.meta.err={failed:true};
+ assert.throws(()=>verifySourceSignal(failed,multihop.wallet,multihop.signature,expected),/could not be verified/);
 });
