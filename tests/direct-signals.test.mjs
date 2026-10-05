@@ -35,7 +35,7 @@ function harness(running=true) {
  const row=fixtures[0],feeds=new Map();let reads=0;
  const state={profiles:{safe:{running}},settings:{}};
  const sub={connection:{getParsedTransaction:async()=>{reads++;return row.transaction}}};
- const c=vm.createContext({Map,Set,Date,Number,process:{env:{}},decodeDirectSwap,signalFeeds:feeds,supportedProfiles:['safe'],readState:async()=>state,targetWallet:()=>row.wallet,sub,wallet:row.wallet});
+ const c=vm.createContext({Map,Set,Date,Number,process:{env:{}},solanaConnection:()=>sub.connection,decodeDirectSwap,signalFeeds:feeds,supportedProfiles:['safe'],readState:async()=>state,targetWallet:()=>row.wallet,sub,wallet:row.wallet});
  vm.runInContext(section('let wakeCopyWorker =','const signalFeeds ='),c);
  vm.runInContext('liveSubscriptions.set(wallet,sub)',c);
  return {c,sub,state,feeds,row,reads:()=>reads};

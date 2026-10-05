@@ -4,6 +4,20 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs';
 import {createRpcReadPool} from '../lib/rpc-read-pool.mjs';
+test('method-specific transaction limit does not block fresh sell balances and adapts its pace',async()=>{
+ const h=harness();let transactions=0;
+ await assert.rejects(h.pool.run('getParsedTransaction',['first'],async()=>{
+   transactions++;h.pool.observe({status:429,headers:new Headers({'retry-after':'90'})},{method:'getTransaction',message:'Too many requests for a specific RPC call'});throw new Error('429 Too many requests');
+ }),/429/);
+ assert.equal(await h.pool.run('getBalance',['sell'],async()=>123,100),123);
+ await assert.rejects(h.pool.run('getParsedTransaction',['other'],async()=>transactions++),/paused until/);
+ assert.equal(transactions,1);h.advance(90001);
+ const times=[];
+ await h.pool.run('getParsedTransaction',['a'],async()=>{times.push(h.now());return null;});
+ await h.pool.run('getParsedTransaction',['b'],async()=>{times.push(h.now());return null;});
+ assert(times[1]-times[0]>=2000);
+ assert.equal(h.pool.status().rateLimits,1);
+});
 function harness(){let time=1800000000000;const pool=createRpcReadPool({now:()=>time,sleep:async ms=>{time+=ms;},intervalMs:400});return {pool,now:()=>time,advance:ms=>{time+=ms;}};}
 test('reads share one paced queue and identical in-flight work is coalesced',async()=>{
  const h=harness(),times=[];

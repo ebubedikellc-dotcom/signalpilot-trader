@@ -709,6 +709,7 @@ function statusPayload(state, session) {
       marketDataProvider: "Direct Solana alerts + GMGN recovery",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
       walletVerificationProvider: `${rpcProvider(state.settings,process.env).name} RPC with controlled public fallback`,
+      rpcReads: Array.from(rpcConnections.values(), entry => ({provider:entry.provider, ...entry.pool.status()})),
       paidHeliusEnabled: rpcProvider(state.settings,process.env).name === "Helius",
       providerRepairHold: state.settings.providerRepairHold === true,
       liveTrading: productionExecution,
@@ -733,7 +734,7 @@ async function walletBalances(state) {
   const entry = { pending: true, expiresAt: 0 };
   entry.promise = readWalletBalances(state).then(balances => {
     entry.pending = false;
-    entry.expiresAt = Date.now() + (Object.values(balances).some(b => b.error) ? 5000 : 15000);
+    entry.expiresAt = Date.now() + 30000;
     return balances;
   }, error => { walletReadCache.delete(key); throw error; });
   walletReadCache.set(key, entry);
@@ -741,8 +742,8 @@ async function walletBalances(state) {
 }
 
 async function readWalletBalances(state) {
-  const primaryConnection = solanaConnection(state.settings, { fastRead: true });
-  const fallbackConnection = solanaConnection({}, { fastRead: true });
+  const primaryConnection = solanaConnection(state.settings, { priority: -10 });
+  const fallbackConnection = solanaConnection({}, { publicOnly: true, priority: -10 });
   const balances = {};
   const checkedWallets = new Map();
 
@@ -1358,16 +1359,22 @@ function solanaConnection(settings = {}, { fastRead = false, publicOnly = false,
   const provider = rpcProvider(settings, process.env, {publicOnly,direct});
   const endpoint = provider.http;
   if (!rpcConnections.has(endpoint)) {
-    const pool = createRpcReadPool({intervalMs: provider.public ? 400 : 200});
+    const pool = createRpcReadPool({intervalMs: provider.public ? 1100 : 250});
     const connection = new Connection(endpoint, {
       commitment:'confirmed', disableRetryOnRateLimit:true,
       ...(provider.ws ? {wsEndpoint:provider.ws} : {}),
       fetch: async (url, options) => {
-        try { return pool.observe(await fetch(url,{...options,signal:AbortSignal.timeout(provider.public ? 4000 : 8000)})); }
+        try {
+          const response=await fetch(url,{...options,signal:AbortSignal.timeout(provider.public ? 4000 : 8000)});
+          let method='', message='';
+          try { method=JSON.parse(options.body).method; } catch {}
+          if(response.status===429)try { message=(await response.clone().json())?.error?.message || ''; } catch {}
+          return pool.observe(response, {method, message});
+        }
         catch { throw new Error('Wallet verification connection failed or timed out.'); }
       }
     });
-    rpcConnections.set(endpoint,{connection,pool});
+    rpcConnections.set(endpoint,{connection,pool,provider:provider.name});
   }
   const entry = rpcConnections.get(endpoint);
   const shared = entry.pool.wrap(entry.connection,{priority});
@@ -1801,7 +1808,7 @@ function beginTradingSession(state) {
 async function verifyCopySource(profile, transaction, state) {
   const signature = canonicalSignalId(transaction.signature);
   const expected = primarySwapLeg(transaction, profile, state);
-  const connection = solanaConnection(state.settings, {direct:true,priority:expected?.action === 'sell' ? 100 : 50});
+  const connection = solanaConnection(state.settings, {priority:expected?.action === 'sell' ? 100 : 50});
   const sourceTx = await connection.getParsedTransaction(signature, {commitment:'confirmed',maxSupportedTransactionVersion:1});
   const decoded = verifySourceSignal(sourceTx, targetWallet(state,profile), signature, expected, transaction.detectedAt);
   const leg = primarySwapLeg(decoded, profile, state);
@@ -2201,8 +2208,6 @@ async function runPositionWatch() {
      const p=await trackedPosition(current,position.profile,position.mint);
      if(!p || BigInt(p.raw)<=0n || await hasPendingMint(p.wallet,p.mint))return;
      const connection=solanaConnection(current.settings,{fastRead:true});
-     const held=await tokenBalanceRaw(connection,p.wallet,p.mint);
-     if(BigInt(held||'0')<BigInt(p.raw))throw new Error('Wallet balance changed; holding needs reconciliation');
      let order=await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(current.settings),query:{inputMint:p.mint,outputMint:usdcMint,amount:p.raw,taker:p.wallet,swapMode:'ExactIn'}});
      if(!order.outAmount || order.inAmount!==p.raw || !order.transaction)throw new Error('Sell value unavailable; missing data is not a zero price');
      const proceeds=Number(order.outAmount)/1e6,mode=profileBuyMode(current,p.profile);
@@ -2235,6 +2240,9 @@ async function runPositionWatch() {
      const takeBackTrigger=mode==='takeback' && d.takeBackStops?.[p.key]?.trigger ? `; protection sell trigger $${d.takeBackStops[p.key].trigger.toFixed(2)}` : '';
      d.notices[p.key]=`${reason || 'Watching'}: estimated sale $${noticeProceeds.toFixed(2)}, remaining cost $${p.cost.toFixed(2)}${mode==='trailing' && d.trailingStops?.[p.key] ? `; trailing sell trigger $${d.trailingStops[p.key].trigger.toFixed(2)}` : ''}${takeBackTrigger}`;
      if(!reason){await executionJournal.save();return;}
+     // Price monitoring uses the journal; verify fresh holdings only when an exit fires.
+     const held=await tokenBalanceRaw(connection,p.wallet,p.mint);
+     if(BigInt(held||'0')<BigInt(p.raw))throw new Error('Wallet balance changed; holding needs reconciliation');
      const signed=await signSolanaTransaction(current,signerId(current),p.wallet,order.transaction);
      const before=await readState();
      if(emergencyStopRequested || !supportedProfiles.some(x=>before.profiles[x].running) || before.strategy.controlRevision!==current.strategy.controlRevision)return;
@@ -2887,7 +2895,7 @@ async function readDirectTransaction(job) {
   }
   job.attempts++;
   try {
-    const tx = await job.sub.connection.getParsedTransaction(job.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 1 });
+    const tx = await solanaConnection(state.settings, {priority:50}).getParsedTransaction(job.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 1 });
     if (!tx) throw new Error("Confirmed transaction not available yet");
     const current = await readState();
     if (!monitoringEnabled(current) || liveSubscriptions.get(job.wallet) !== job.sub) {
