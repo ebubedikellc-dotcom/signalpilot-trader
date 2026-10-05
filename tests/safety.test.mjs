@@ -248,3 +248,24 @@ test('manual held-coin sale retains its original trader after selection changes'
  vm.runInContext(section(script,'function heldCoinProfile(', 'let walletCoinsLoading'),c);
  assert.equal(c.heldCoinProfile({strategy:{activeProfile:'frog'},executionReport:{positions:{p:{wallet:'w',mint:'coin',raw:'3',profile:'safe'}}}},'w','coin'),'safe');
 });
+
+test('SOL valuation and initial funds verification overlap, with a fresh funds recheck before signing',async()=>{
+ const h=executionHarness(),original=h.c.jupiterJson;
+ let releaseValue,releaseFunds,valueStarted,fundsStarted,reads=0;
+ const valueReady=new Promise(r=>valueStarted=r),fundsReady=new Promise(r=>fundsStarted=r);
+ const valuation=new Promise(r=>releaseValue=r),funds=new Promise(r=>releaseFunds=r);
+ h.buy.leg={...h.buy.leg,inputMint:'SOL',sourceUsd:0};h.c.isQuoteMint=m=>['SOL','USDC'].includes(m);
+ h.c.jupiterJson=async(path,options)=>{if(options.query?.inputMint==='SOL'){valueStarted();await valuation;return {outAmount:'50000000'};}return original(path,options);};
+ h.c.profileTradeableUsdc=async()=>{reads++;if(reads===1){fundsStarted();await funds;}return 100;};
+ const pending=h.c.executeCopiedSwap('safe',h.buy,h.state);
+ await Promise.race([Promise.all([valueReady,fundsReady]),new Promise((_,reject)=>setTimeout(()=>reject(new Error('independent checks did not overlap')),1000))]);
+ assert.equal(h.submitted.length,0);releaseValue();releaseFunds();
+ assert.equal((await pending).status,'Submitted - confirmation pending');assert.equal(reads,2);
+});
+test('failed parallel funds verification never builds or submits a purchase',async()=>{
+ const h=executionHarness();let orders=0;
+ h.c.profileTradeableUsdc=async()=>{throw new Error('unverified funds');};
+ h.c.jupiterJson=async()=>{orders++;};
+ await assert.rejects(h.c.executeCopiedSwap('safe',h.buy,h.state),/unverified funds/);
+ assert.equal(orders,0);assert.equal(h.submitted.length,0);
+});

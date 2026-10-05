@@ -1866,6 +1866,7 @@ async function executeCopiedSwap(profile, transaction, state, expectedPositionCy
 }
 
 async function executeCopiedSwapLocked(profile, transaction, state, walletLocked = false, expectedPositionCycle) {
+  const preparationStartedAt = Date.now();
   const currentControls = await readState();
   if (emergencyStopRequested || !supportedProfiles.some((key) => currentControls.profiles?.[key]?.running)) {
     return { status: "Skipped - trading stopped by owner" };
@@ -1875,6 +1876,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     state.settings = currentControls.settings;
   }
   const verified = await verifyCopySource(profile, transaction, state);
+  const sourceVerifiedAt = Date.now();
   const leg = verified.leg;
   if (!leg?.inputMint || !leg?.outputMint || !leg?.amount) {
     return { status: "Skipped - unsupported swap format" };
@@ -1909,6 +1911,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     if (profileSellOnly(state, profile)) {
       return { status: "Skipped - Sell Only mode is ON, new buys are blocked" };
     }
+    const valueSourceBuy = async () => {
     let sourceUsd = Number(leg.sourceUsd || 0);
     if (!sourceUsd && isQuoteMint(leg.inputMint)) {
       if (leg.inputMint === usdcMint) {
@@ -1922,10 +1925,20 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
         sourceUsd = Number(valuation.outAmount || 0) / 1_000_000;
       }
     }
+    return sourceUsd;
+    };
+    // Independent read-only valuation and fresh funds check overlap. Wait for
+    // both, including failures, so no wallet operation is left running behind us.
+    const inputs = await Promise.allSettled([
+      valueSourceBuy(),
+      withWalletOperation(() => profileTradeableUsdc(connection, state, profile, wallet))
+    ]);
+    for (const result of inputs) if (result.status === 'rejected') throw result.reason;
+    const sourceUsd = inputs[0].value;
+    const tradeableUsdc = inputs[1].value;
     sourceBuyUsd = sourceUsd;
     let buyUsd = buyUsdAmount(state, profile, sourceUsd);
     if (!buyUsd) return { status: "Skipped - trader buy value could not be determined" };
-    const tradeableUsdc = await withWalletOperation(() => profileTradeableUsdc(connection, state, profile, wallet));
     if (tradeableUsdc <= 0) return { status: "Skipped - no tradeable USDC after profit lock" };
     if (profileBuyMode(state, profile) === "exact" && buyUsd > tradeableUsdc) {
       return { status: "Skipped - insufficient tradeable USDC to copy the exact amount" };
@@ -1961,6 +1974,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
 
   }
 
+  const sizingReadyAt = Date.now();
   const order = await jupiterJson("/swap/v2/order", {
     apiKey,
     query: {
@@ -1972,6 +1986,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     }
   });
 
+  const quoteReadyAt = Date.now();
   if (!order.transaction) {
     return { status: `Skipped - Jupiter could not build transaction${order.errorCode ? ` (${order.errorCode})` : ""}` };
   }
@@ -1980,6 +1995,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   }
 
   const submit = async () => {
+    const walletAcquiredAt = Date.now();
     const checkControls = async () => {
       const current = await readState();
       if (emergencyStopRequested || !supportedProfiles.some((key) => current.profiles?.[key]?.running)) return "Skipped - trading stopped by owner";
@@ -2006,7 +2022,9 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
         return { status: "Buy blocked: available trading funds changed; locked profit protected", detectedAt };
       }
     }
+    const fundsCheckedAt = Date.now();
     const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
+    const signedAt = Date.now();
     reason = await checkControls();
     if (reason) return { status: reason, detectedAt };
 
@@ -2016,6 +2034,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     const d=await executionJournal.load();delete d.pending[journalKey];await executionJournal.save();
     return {status:"Skipped - trading stopped by owner"};
   }
+  const executionStartedAt = Date.now();
   const executed = await jupiterJson("/swap/v2/execute", {
     apiKey,
     method: "POST",
@@ -2026,6 +2045,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     }
   });
 
+  const executionReturnedAt = Date.now();
   await recordExecutionResponse(journalKey,executed);
   return {
     status: "Submitted - confirmation pending",
@@ -2035,6 +2055,17 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     sourceBlockTime: verified.sourceTx.blockTime,
     sourceSlot: verified.sourceTx.slot,
     preparationMs: Math.max(0, Date.parse(submittedAt) - Date.parse(detectedAt)),
+    timingsMs: {
+      sourceVerification: sourceVerifiedAt - preparationStartedAt,
+      sizingAndFunds: sizingReadyAt - sourceVerifiedAt,
+      swapQuote: quoteReadyAt - sizingReadyAt,
+      walletQueue: walletAcquiredAt - quoteReadyAt,
+      finalChecks: fundsCheckedAt - walletAcquiredAt,
+      signing: signedAt - fundsCheckedAt,
+      journalAndControls: executionStartedAt - signedAt,
+      executeResponse: executionReturnedAt - executionStartedAt,
+      preparationToResponse: executionReturnedAt - preparationStartedAt
+    },
 
     action: leg.action,
     inputMint,
@@ -2230,13 +2261,22 @@ async function runPositionWatch() {
       (profileBuyMode(state,position.profile)==='exact' && d.growthGoal?.status !== 'closing'))continue;
    if(await hasPendingMint(position.wallet,position.mint))continue;
    try {
+    const quoteState=await readState();
+    if(emergencyStopRequested || !supportedProfiles.some(p=>quoteState.profiles[p].running) || !liveTradingAllowed(quoteState,position.profile))continue;
+    const quoteRevision=quoteState.strategy.controlRevision;
+    const quotedPosition=await trackedPosition(quoteState,position.profile,position.mint);
+    if(!quotedPosition || BigInt(quotedPosition.raw)<=0n)continue;
+    const quotePosition={...quotedPosition};
+    // A read-only price quote must not block a Frog sell or an urgent buy check.
+    // Revalidate its position and controls inside the lock before using it.
+    let order=await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(quoteState.settings),query:{inputMint:quotePosition.mint,outputMint:usdcMint,amount:quotePosition.raw,taker:quotePosition.wallet,swapMode:'ExactIn'}});
     await withWalletOperation(async()=>{
      const current=await readState();
      if(emergencyStopRequested || !supportedProfiles.some(p=>current.profiles[p].running) || !liveTradingAllowed(current,position.profile))return;
      const p=await trackedPosition(current,position.profile,position.mint);
      if(!p || BigInt(p.raw)<=0n || await hasPendingMint(p.wallet,p.mint))return;
+     if(current.strategy.controlRevision!==quoteRevision || p.cycle!==quotePosition.cycle || p.raw!==quotePosition.raw || p.cost!==quotePosition.cost || p.wallet!==quotePosition.wallet)return;
      const connection=solanaConnection(current.settings,{fastRead:true});
-     let order=await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(current.settings),query:{inputMint:p.mint,outputMint:usdcMint,amount:p.raw,taker:p.wallet,swapMode:'ExactIn'}});
      if(!order.outAmount || order.inAmount!==p.raw || !order.transaction)throw new Error('Sell value unavailable; missing data is not a zero price');
      const proceeds=Number(order.outAmount)/1e6,mode=profileBuyMode(current,p.profile);
      let reason, salePosition=p;

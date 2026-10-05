@@ -25,3 +25,27 @@ test('triggered exit still requires fresh holdings before signing and submitting
 test('insufficient fresh holdings block the triggered sale',async()=>{
  const h=harness('profit','0');await h.c.runPositionWatch();assert.deepEqual(h.calls,['/swap/v2/order','balance']);assert.match(h.d.notices.p,/reconciliation/);
 });
+
+test('a waiting routine price quote leaves the wallet available to an urgent copy sell',async()=>{
+ const h=harness(null);let release,started;
+ const waiting=new Promise(r=>release=r),ready=new Promise(r=>started=r);
+ vm.runInContext(source.slice(source.indexOf('const walletJobs ='),source.indexOf('async function readProfitReserves')),h.c);
+ h.c.jupiterJson=async()=>{started();await waiting;return {outAmount:'25000000',inAmount:'10',transaction:'quote'};};
+ const monitor=h.c.runPositionWatch();await ready;
+ await Promise.race([h.c.withWalletOperation(async()=>h.calls.push('urgent sell'),100),new Promise((_,reject)=>setTimeout(()=>reject(new Error('price quote held the wallet lock')),1000))]);
+ assert.deepEqual(h.calls,['urgent sell']);release();await monitor;
+});
+test('position or controls changed while quoting discards the quote before signing',async()=>{
+ for(const change of ['cycle','raw','cost','revision','pending','closed']) {
+  const h=harness('profit');const original=h.c.jupiterJson;
+  h.c.jupiterJson=async(...args)=>{
+   const order=await original(...args);
+   if(change==='revision')(await h.c.readState()).strategy.controlRevision++;
+   else if(change==='pending')h.c.hasPendingMint=async()=>true;
+   else if(change==='closed')h.c.trackedPosition=async()=>null;
+   else {const p=await h.c.trackedPosition();p[change]=change==='raw'?'5':change==='cost'?10:'new-purchase';}
+   return order;
+  };
+  await h.c.runPositionWatch();assert.deepEqual(h.calls,['/swap/v2/order'],change);
+ }
+});
