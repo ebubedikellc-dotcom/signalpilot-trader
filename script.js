@@ -2121,6 +2121,11 @@ function renderRemainingWallet(settings = {}) {
 }
 
 // Whole-wallet holdings are independent of copied-trade history.
+function heldCoinProfile(state, wallet, mint) {
+  const profiles = [...new Set(Object.values(state.executionReport?.positions || {})
+    .filter(p => p.wallet === wallet && p.mint === mint && BigInt(p.raw || "0") > 0n).map(p => p.profile))];
+  return profiles.length === 1 ? profiles[0] : state.strategy?.activeProfile || "frog";
+}
 let walletCoinsLoading = false;
 async function loadWalletCoins() {
   if (!$("walletCoinsList") || walletCoinsLoading) return;
@@ -2143,17 +2148,27 @@ async function loadWalletCoins() {
       button.type = "button";
       button.textContent = `Sell ${coin.symbol} — check quote`;
       button.disabled = !coin.canSell;
-      button.onclick = () => ownerSellToken("frog", {mint:coin.mint});
+      button.onclick = () => ownerSellToken(heldCoinProfile(latestState, data.wallet, coin.mint), {mint:coin.mint});
       card.append(button);
       $("walletCoinsList").append(card);
     }
     setText("walletCoinsStatus", data.coins.length ? `Checked ${new Date(data.checkedAt).toLocaleString()}. Market estimates before fees; check a sale quote for the amount you could receive.` : "No other tokens remain in this wallet.");
+    setText("stuckCoinSaleStatus", data.coins.length ? `${data.coins.length} held coin types. Choose a coin below to review its sale.` : "No stuck or unsold coins found in the latest wallet check.");
   } catch(error) {
     $("walletCoinsList").replaceChildren();
     setText("walletCoinsStatus", `Unable to check coins: ${error.message}`);
+    setText("stuckCoinSaleStatus", "Holdings unavailable. Press Sell stuck coins to check again.");
   } finally { walletCoinsLoading = false; $("refreshWalletCoins").disabled = false; }
 }
 $("refreshWalletCoins")?.addEventListener("click", loadWalletCoins);
+async function openStuckCoinSales() {
+  const panel = $("stuckCoinSales");
+  if (!panel) return;
+  panel.focus({preventScroll:true});
+  panel.scrollIntoView({behavior:"smooth",block:"start"});
+  await loadWalletCoins();
+}
+$("openStuckCoinSales")?.addEventListener("click", openStuckCoinSales);
 if ($("walletCoinsList")) { loadWalletCoins(); setInterval(loadWalletCoins, 60000); }
 
 $("checkGmgnConnection")?.addEventListener("click", async () => {

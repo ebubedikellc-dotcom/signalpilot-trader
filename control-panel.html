@@ -23,6 +23,10 @@
           <button id="changeTrader" class="secondary-action" type="button">CHANGE TRADER</button>
         </div>
         <strong id="selectedTraderLabel">Selected trader: loading…</strong>
+        <div class="stuck-sell-control">
+          <button id="openStuckCoinSales" type="button">Sell stuck coins</button>
+          <small id="stuckCoinSaleStatus" role="status">Check holdings, choose a coin, then review and confirm its sale.</small>
+        </div>
         <div class="purchase-limit-control" role="group" aria-label="Purchase limit">
           <label for="queueSurviveMax">Maximum per purchase ($)</label>
           <div class="purchase-limit-entry">
@@ -91,8 +95,8 @@
           <p id="tradingBudgetHelp">This is your total trading budget, not the maximum for one purchase. The app can only use available cash outside locked profit. Saving does not start trading.</p>
           <p id="tradingBudgetSaveStatus" role="status">Your saved amount stays unchanged until you save a new one.</p>
         </div>
-        <section class="wallet-coins" aria-labelledby="walletCoinsTitle">
-          <h3 id="walletCoinsTitle">Other coins I can sell</h3>
+        <section class="wallet-coins" id="stuckCoinSales" aria-labelledby="walletCoinsTitle" tabindex="-1">
+          <h3 id="walletCoinsTitle">Sell stuck coins / other held coins</h3>
           <p>Manual selling works while automatic trading is stopped. Review a quote and confirm to convert a held coin to USDC. This does not start buying.</p>
           <button type="button" id="refreshWalletCoins">Refresh coin values</button>
           <p id="walletCoinsStatus" role="status">Loading wallet coins…</p>

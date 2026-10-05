@@ -218,3 +218,33 @@ test('a retry cannot sell a replacement purchase that appeared while it waited f
  assert.match((await h.c.executeCopiedSwap('safe',h.sell,h.state,'old-purchase')).status,/original copied holding already closed/);
  assert.equal(quotes,0);assert.equal(h.submitted.length,0);
 });
+
+test('copy sell waits for an existing exit without requesting another sale',async()=>{
+ const h=executionHarness();h.c.hasPendingMint=async()=>true;
+ h.c.tokenBalanceRaw=async()=>{throw new Error('must not read while a sale is pending');};
+ assert.match((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,/awaits confirmation/);
+ assert.equal(h.submitted.length,0);
+});
+test('a sale confirmed during the balance read is reported as closed, not a mismatch',async()=>{
+ const h=executionHarness();let reads=0;
+ h.c.trackedPosition=async()=>++reads===1?{raw:'123',cycle:'original'}:{raw:'0',cycle:'original'};
+ h.c.tokenBalanceRaw=async()=>'';
+ assert.match((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,/already closed/);
+ assert.equal(h.submitted.length,0);
+});
+test('a genuine unexplained holdings shortfall still blocks a copy sell',async()=>{
+ const h=executionHarness();h.c.tokenBalanceRaw=async()=> '12';
+ await assert.rejects(h.c.executeCopiedSwap('safe',h.sell,h.state),/holding differs/);
+ assert.equal(h.submitted.length,0);
+});
+test('stuck coin shortcut only opens holdings and never submits a sale',async()=>{
+ let loads=0,focus=0,scroll=0;
+ const c=vm.createContext({$:()=>({focus:()=>focus++,scrollIntoView:()=>scroll++}),loadWalletCoins:async()=>loads++});
+ vm.runInContext(section(script,'async function openStuckCoinSales()', '$("openStuckCoinSales")'),c);
+ await c.openStuckCoinSales();assert.equal(loads,1);assert.equal(focus,1);assert.equal(scroll,1);
+});
+test('manual held-coin sale retains its original trader after selection changes',()=>{
+ const c=vm.createContext({Set,Object,BigInt});
+ vm.runInContext(section(script,'function heldCoinProfile(', 'let walletCoinsLoading'),c);
+ assert.equal(c.heldCoinProfile({strategy:{activeProfile:'frog'},executionReport:{positions:{p:{wallet:'w',mint:'coin',raw:'3',profile:'safe'}}}},'w','coin'),'safe');
+});

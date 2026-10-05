@@ -683,6 +683,10 @@ td { color: var(--muted); }
 @media(max-width:700px) { .wallet-budget-control button { margin: 12px 0; width: 100%; } }
 
 .wallet-coins { margin-top: 24px; padding-top: 18px; border-top: 1px solid #33505e; }
+.stuck-sell-control { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; }
+.stuck-sell-control button { padding:8px 12px; min-height:40px; font-size:14px; }
+.stuck-sell-control small { flex:1 1 180px; font-size:12px; color:#b7cecc; }
+#stuckCoinSales { scroll-margin-top: min(65vh, 440px); }
 #walletCoinsList { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 14px; }
 .wallet-coin-card, #walletSellReview { padding: 18px; margin-top: 14px; border: 1px solid #33505e; border-radius: 14px; background: #10232d; }
 .wallet-coin-card button { display: block; margin-top: 14px; }

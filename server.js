@@ -1919,12 +1919,19 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   }
 
   if (leg.action === "sell") {
-    const tracked = await trackedPosition(state, profile, leg.inputMint);
+    if (await hasPendingMint(wallet, leg.inputMint)) return {status:"Waiting - previous transaction for this coin awaits confirmation; sell remains queued"};
+    let tracked = await trackedPosition(state, profile, leg.inputMint);
     if (!tracked || BigInt(tracked.raw) <= 0n) return {status:"Skipped - no verified copied holding for this trader"};
     if (expectedPositionCycle && tracked.cycle !== expectedPositionCycle) return {status:"Skipped - original copied holding already closed"};
     const fraction = sellFraction(verified.sourceTx, targetWallet(state,profile), leg.inputMint);
     if (!fraction) throw new Error("Cannot verify the trader's sold proportion yet; sell remains queued");
     const heldAmount = await tokenBalanceRaw(connection,wallet,leg.inputMint);
+    // A trailing/manual exit may confirm while this read is in flight. Refresh
+    // the journal before labelling its already-sold tokens a wallet mismatch.
+    const refreshed = await trackedPosition(state, profile, leg.inputMint);
+    if (!refreshed || BigInt(refreshed.raw) <= 0n) return {status:"Skipped - copied holding already closed"};
+    if (tracked.cycle !== refreshed.cycle) return {status:"Skipped - original copied holding already closed"};
+    tracked = refreshed;
     if (BigInt(heldAmount || '0') < BigInt(tracked.raw)) throw new Error("Wallet holding differs from recorded holding; review required");
     const amount = proportionalAmount(tracked.raw, fraction);
     if (BigInt(amount) === 0n) return {status:"Skipped - proportional amount below one token unit"};
