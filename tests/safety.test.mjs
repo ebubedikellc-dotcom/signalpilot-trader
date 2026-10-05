@@ -158,6 +158,21 @@ test('a prepared buy cannot spend funds that became locked before submission',as
  assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/locked profit protected/);
  assert.equal(h.submitted.length,0);
 });
+test('a purchase-limit change while quoting blocks the old prepared buy',async()=>{
+ const h=executionHarness();h.state.strategy.controlRevision=1;
+ const original=h.c.jupiterJson;let changed=false;
+ h.c.jupiterJson=async(...args)=>{const result=await original(...args);if(args[0].includes('order'))changed=true;return result;};
+ h.c.readState=async()=>({...h.state,strategy:{...h.state.strategy,controlRevision:changed?2:1}});
+ assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/controls changed/);
+ assert.equal(h.submitted.length,0);
+});
+test('a purchase-limit change during signing also cancels the prepared buy',async()=>{
+ const h=executionHarness();h.state.strategy.controlRevision=1;let changed=false;
+ h.c.readState=async()=>({...h.state,strategy:{...h.state.strategy,controlRevision:changed?2:1}});
+ h.c.signSolanaTransaction=async()=>{changed=true;return {signedTransactionBase64:'signed'}};
+ assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/controls changed/);
+ assert.equal(h.submitted.length,0);
+});
 test('restart excludes buys from the stopped period without expiring new session trades',()=>{
  const c=vm.createContext({Date,Number,supportedProfiles:['safe'],signalFeeds:new Map(),primarySwapLeg:t=>t.leg,targetWallet:()=> 'wallet'});
  vm.runInContext(section(server,'function beginTradingSession','async function executeCopiedSwap('),c);

@@ -639,6 +639,13 @@ td { color: var(--muted); }
 .emergency-trading-bar {position:sticky;top:0;z-index:1000;display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:12px;background:#10251f;border:2px solid #dc6262;border-radius:12px;max-height:65vh;overflow:auto;box-shadow:0 4px 20px #0007;}
 .main-trading-buttons {display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
 .main-trading-buttons button {font-size:15px;font-weight:800;min-height:48px;padding:10px 6px;white-space:normal;}
+.purchase-limit-control {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:8px 10px;border:1px solid #2e897b;border-radius:8px;}
+.purchase-limit-control label {font-size:14px;font-weight:700;line-height:1.3;margin:0;}
+.purchase-limit-entry {display:flex;gap:6px;align-items:center;}
+.purchase-limit-entry input {width:90px;min-width:0;min-height:40px;padding:7px;font-size:16px;}
+.emergency-trading-bar .purchase-limit-entry button {min-height:40px;padding:7px 10px;font-size:13px;white-space:nowrap;}
+.purchase-limit-control small {grid-column:1/-1;font-size:12px;line-height:1.35;color:#b7cecc;}
+@media(max-width:360px){.purchase-limit-control{grid-template-columns:1fr}.purchase-limit-entry input{width:110px}}
 #queueStart {background:#167548;color:white;} #topStopTrading {background:#b52936;color:white;} #changeTrader {background:#32475d;color:white;}
 .emergency-trading-bar button:disabled {opacity:.45;cursor:not-allowed;}
 .mode-picker summary,.wallet-tools>summary {cursor:pointer;font-size:17px;font-weight:700;padding:10px;}

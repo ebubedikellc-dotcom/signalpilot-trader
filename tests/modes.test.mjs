@@ -35,14 +35,14 @@ test('take my money back sells part after a strong gain and protects the rest',(
  assert.equal(exit.raw,'375000');
  assert.equal(takeBackExit(p,35).reason,'30% loss limit');
 });
-test('maximum is a ceiling, not a forced purchase amount; Exact Copy has no ceiling',()=>{
+test('maximum is a ceiling for every mode, including Exact Copy, without forcing smaller buys upward',()=>{
  let mode='limits';
  const c=vm.createContext({Number,Math,profileBuyMode:()=>mode,profileSurviveMaxUsd:()=>50});
  vm.runInContext(section('function buyUsdAmount(', 'function sourceUsdFromSignal('),c);
  assert.equal(c.buyUsdAmount({},'safe',20),20);assert.equal(c.buyUsdAmount({},'safe',200),50);
  mode='loss';assert.equal(c.buyUsdAmount({},'safe',200),50);
  mode='takeback';assert.equal(c.buyUsdAmount({},'safe',200),50);
- mode='exact';assert.equal(c.buyUsdAmount({},'safe',200),200);
+ mode='exact';assert.equal(c.buyUsdAmount({},'safe',200),50);
 });
 test('partial sale follows source fraction, including huge integer quantities',()=>{
  const b=(amount)=>({owner:'source',mint:'coin',uiTokenAmount:{amount}});

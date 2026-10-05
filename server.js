@@ -335,9 +335,10 @@ function syncQueueSurviveSettings(settings = {}) {
   settings.safeSurviveMode = queueMode === "survive" ? "on" : "off";
   settings.frogSurviveMode = queueMode === "survive" ? "on" : "off";
   settings.truenestSurviveMode = queueMode === "survive" ? "on" : "off";
-  settings.safeSurviveMax = normalizeUsdSetting(settings.safeSurviveMax || settings.frogSurviveMax, settings.frogSurviveMax || "5");
+  // One owner-facing purchase ceiling, shared by all modes and traders.
   settings.frogSurviveMax = normalizeUsdSetting(settings.frogSurviveMax, "5");
-  settings.truenestSurviveMax = normalizeUsdSetting(settings.truenestSurviveMax || settings.frogSurviveMax, settings.frogSurviveMax || "5");
+  settings.safeSurviveMax = settings.frogSurviveMax;
+  settings.truenestSurviveMax = settings.frogSurviveMax;
   settings.queueFailureSwitchLimit = normalizeWholeNumberSetting(settings.queueFailureSwitchLimit, "3");
 }
 
@@ -936,7 +937,7 @@ function profileBuyMode(state, profile) {
 }
 
 function profileSurviveMaxUsd(state, profile) {
-  const value = Number(profileSetting(state, profile, "surviveMax", "5"));
+  const value = Number(state.settings.frogSurviveMax || "5");
   return Number.isFinite(value) && value > 0 ? value : surviveBuyUsd;
 }
 
@@ -1194,11 +1195,9 @@ function usdcRawFromUsd(value) {
 }
 
 function buyUsdAmount(state, profile, sourceUsd = 0) {
-  const buyMode = profileBuyMode(state, profile);
   const usd = Number(sourceUsd);
   if (!Number.isFinite(usd) || usd <= 0) return 0;
-  if (buyMode !== "exact") return Math.min(usd, profileSurviveMaxUsd(state, profile));
-  return usd;
+  return Math.min(usd, profileSurviveMaxUsd(state, profile));
 }
 
 function sourceUsdFromSignal(transaction = {}, wallet = "") {
@@ -1950,6 +1949,9 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
       const current = await readState();
       if (emergencyStopRequested || !supportedProfiles.some((key) => current.profiles?.[key]?.running)) return "Skipped - trading stopped by owner";
       if (leg.action === "buy") {
+        if (current.strategy?.controlRevision !== state.strategy?.controlRevision) {
+          return "Buy blocked: trading controls changed; prepare a new order with the saved purchase limit";
+        }
         if (current.strategy?.activeProfile !== profile || current.strategy?.paused || profileSellOnly(current, profile)) {
           return "Buy blocked: trading controls changed";
         }
@@ -3283,14 +3285,31 @@ async function handleApi(request, response, url) {
     }, 100);
   }
 
+  if (request.method === "POST" && url.pathname === "/api/purchase-limit") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    const input = await readBody(request);
+    const amount = Number(input.amountUsd);
+    if (!["string", "number"].includes(typeof input.amountUsd) || !Number.isFinite(amount) || amount < 0.01 || amount > 1_000_000_000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.00001) {
+      send(response, 400, {error:"Enter a purchase limit from $0.01 to $1,000,000,000, with at most two decimal places."}); return true;
+    }
+    state.settings.frogSurviveMax = String(amount);
+    syncQueueSurviveSettings(state.settings);
+    state.strategy.controlRevision = Math.max(Date.now(), Number(state.strategy.controlRevision || 0) + 1);
+    state.activity = [line(`Maximum per purchase saved: $${amount.toFixed(2)} for every mode and trader.`), ...(state.activity || [])].slice(0, 20);
+    await saveState(state);
+    send(response, 200, statusPayload(state, {role:"owner",id:"owner"}));
+    return true;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/settings") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     const input = await readBody(request);
     if (input.frogBuyMode !== undefined) {
       if (!["limits", "exact", "loss", "trailing", "takeback"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
-      if (input.frogBuyMode !== "exact" && !(Number(input.frogSurviveMax)>0 && Number.isFinite(Number(input.frogSurviveMax)))) { send(response, 400, {error:"Enter a positive maximum purchase amount."}); return true; }
     }
+    if (input.frogSurviveMax !== undefined && !(Number(input.frogSurviveMax)>0 && Number.isFinite(Number(input.frogSurviveMax)))) { send(response, 400, {error:"Enter a positive maximum purchase amount."}); return true; }
     if (input.trailingStopPercent !== undefined && !(Number.isFinite(Number(input.trailingStopPercent)) && Number(input.trailingStopPercent)>0 && Number(input.trailingStopPercent)<100)) {
       send(response,400,{error:"Trailing fall percentage must be greater than 0 and less than 100."}); return true;
     }
