@@ -1158,10 +1158,13 @@ function renderState(state) {
   if ($("truenestStop")) $("truenestStop").disabled = !profiles.truenest?.running;
   if ($("queueStart")) $("queueStart").disabled = backend.providerRepairHold || !ready || heliusBlocked || queueRunning;
   if ($("queueStop")) $("queueStop").disabled = !queueRunning;
-  if ($("changeTrader")) $("changeTrader").disabled = queueRunning;
+  if ($("changeTrader")) {
+    $("changeTrader").disabled = queueRunning;
+    $("changeTrader").title = queueRunning ? "Stop trading before changing trader" : "Choose the trader to copy";
+  }
   if ($("selectedTrader") && document.activeElement !== $("selectedTrader")) $("selectedTrader").value = strategy.activeProfile || "frog";
   setText("selectedTraderLabel", `Selected trader: ${queueActiveLabel}`);
-  setText("selectedModeLabel", `Mode: ${buyModeLabel(buyMode)}${settings.profitMode === "target" ? " · Grow to target" : ""}`);
+  setText("selectedModeLabel", `Trading options · ${buyModeLabel(buyMode)}${settings.profitMode === "target" ? " · Grow to target" : ""}`);
   [
     ["switchSafeBot", "safe"],
     ["switchDekuBot", "frog"],
@@ -2203,6 +2206,9 @@ function renderGrowthPlan() {
     $('growthTargetAmount').value = settings.growthTarget || '200';
   }
   for (const id of ['profitPlan','growthStartingAmount','growthTargetAmount','saveProfitPlan']) $(id).disabled = running;
+  setText('growthEditHelp', running
+    ? 'Stop trading to unlock these profit-plan controls. This protects the current plan’s accounting.'
+    : 'Profit-plan controls are unlocked. Saving a plan does not start trading.');
   $('saveProfitPlan').textContent = goal ? 'Save a new profit plan' : 'Save profit plan';
   $('growthProgress').hidden = !goal;
   if (goal) {

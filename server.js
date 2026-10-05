@@ -1734,6 +1734,7 @@ async function signSolanaTransaction(state, preferredSigner, wallet, unsignedTra
   throw lastError || new Error("Turnkey did not return a signed Solana transaction");
 }
 
+const jupiterQuoteCooldowns = new Map();
 async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {}) {
   const url = new URL(`https://api.jup.ag${pathname}`);
   Object.entries(query || {}).forEach(([key, value]) => {
@@ -1743,6 +1744,16 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {
   const attempts = method === "GET" && pathname === "/swap/v2/order" ? 3 : 1;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
+      // Respect quote quota without holding a wallet lock through a cooldown.
+      // Signed execution uses its own endpoint and must never be retried here.
+      const quoteKey = apiKey || "keyless";
+      const isQuote = method === "GET" && pathname === "/swap/v2/order";
+      const retryAt = jupiterQuoteCooldowns.get(quoteKey) || 0;
+      if (isQuote && retryAt > Date.now()) {
+        const error = new Error(`Jupiter quotes rate-limited; retry after ${Math.ceil((retryAt - Date.now()) / 1000)}s`);
+        error.rateLimited = true;
+        throw error;
+      }
       const response = await fetch(url, {
         method,
         headers: {
@@ -1755,6 +1766,16 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.error || payload.errorMessage) {
         const error = new Error(payload.errorMessage || payload.error || `Jupiter returned ${response.status}`);
+        if (response.status === 429) {
+          error.rateLimited = true;
+          if (isQuote) {
+            const header = response.headers.get("retry-after");
+            const seconds = header === null ? NaN : Number(header);
+            const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
+            jupiterQuoteCooldowns.set(quoteKey, Math.max(jupiterQuoteCooldowns.get(quoteKey) || 0,
+              Date.now() + (Number.isFinite(delay) && delay > 0 ? delay : 1000)));
+          }
+        }
         error.retryable = response.status === 429 || response.status >= 500 || /failed to get quotes/i.test(error.message);
         throw error;
       }
@@ -1764,7 +1785,7 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {
       return payload;
     } catch (error) {
       const retryable = error.retryable || /fetch failed|timeout|timed out|ECONNRESET/i.test(error.message);
-      if (attempt === attempts || !retryable) throw error;
+      if (error.rateLimited || attempt === attempts || !retryable) throw error;
       await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
     }
   }

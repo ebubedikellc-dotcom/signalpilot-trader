@@ -636,7 +636,10 @@ td { color: var(--muted); }
 }
 
 /* Single owner control strip; keep emergency actions within thumb reach. */
-.emergency-trading-bar {position:sticky;top:0;z-index:1000;display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:12px;background:#10251f;border:2px solid #dc6262;border-radius:12px;max-height:65vh;overflow:auto;box-shadow:0 4px 20px #0007;}
+.emergency-trading-bar {position:sticky;top:0;z-index:1000;display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:8px;padding:12px;background:#10251f;border:2px solid #dc6262;border-radius:12px;max-height:65vh;overflow-y:auto;overflow-x:hidden;box-shadow:0 4px 20px #0007;}
+.emergency-trading-bar > * {flex-shrink:0;min-width:0;max-width:100%;}
+.mode-picker select,.mode-picker input,#traderPicker select {width:100%;min-width:0;box-sizing:border-box;font-size:16px;}
+.mode-picker {overflow-wrap:anywhere;}
 .main-trading-buttons {display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
 .main-trading-buttons button {font-size:15px;font-weight:800;min-height:48px;padding:10px 6px;white-space:normal;}
 .purchase-limit-control {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:8px 10px;border:1px solid #2e897b;border-radius:8px;}
