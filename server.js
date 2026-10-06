@@ -5,7 +5,7 @@ import { inspectSwapSignature } from "./lib/swap-signature.mjs";
 import { createGmgnRequestGate, gmgnRetryAt } from "./lib/gmgn-rate-limit.mjs";
 import { validateGrowthSettings, growthSnapshot, growthTradeable, growthTransition } from "./lib/growth-goal.mjs";
 import { createTradingJournal } from "./lib/trading-journal.mjs";
-import { sellFraction, proportionalAmount, exitReason, trailingExit, takeBackExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
+import { sellFraction, proportionalAmount, exitReason, trailingExit, takeBackExit, profitLadderExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
 import { decodeDirectSwap, verifySourceSignal, canonicalSignalId } from "./lib/direct-signals.mjs";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
@@ -368,6 +368,7 @@ function syncQueueSurviveSettings(settings = {}) {
 }
 
 function normalizeBuyMode(mode) {
+  if (mode === "ladder") return "ladder";
   if (mode === "exactFull") return "exactFull";
   if (mode === "takeback") return "takeback";
   if (mode === "trailing") return "trailing";
@@ -1226,6 +1227,7 @@ function buyUsdAmount(state, profile, sourceUsd = 0) {
   const usd = Number(sourceUsd);
   if (!Number.isFinite(usd) || usd <= 0) return 0;
   if (profileBuyMode(state, profile) === "exactFull") return usd;
+  if (profileBuyMode(state, profile) === "ladder") return profileSurviveMaxUsd(state, profile);
   return Math.min(usd, profileSurviveMaxUsd(state, profile));
 }
 
@@ -2426,10 +2428,23 @@ async function runPositionWatch() {
        order=await prepareTradingOrder(current,{inputMint:p.mint,outputMint:usdcMint,amount:mark.raw,taker:p.wallet,swapMode:'ExactIn'});
        if(!order.outAmount || order.inAmount!==mark.raw || !order.transaction)throw new Error('Partial sale value unavailable; missing data is not a zero price');
       }
+     }else if(mode==='ladder') {
+      d.profitLadders ||= {};
+      const mark=profitLadderExit(p,proceeds,d.profitLadders[p.key],20,10);
+      if(!mark)throw new Error('Profit Ladder needs a valid sell quote and verified purchase');
+      d.profitLadders[p.key]=mark;
+      await executionJournal.save();
+      reason=mark.reason;
+      if(reason && mark.raw && mark.raw!==p.raw) {
+       salePosition={...p,raw:mark.raw};
+       order=await prepareTradingOrder(current,{inputMint:p.mint,outputMint:usdcMint,amount:mark.raw,taker:p.wallet,swapMode:'ExactIn'});
+       if(!order.outAmount || order.inAmount!==mark.raw || !order.transaction)throw new Error('Profit Ladder partial sale value unavailable; missing data is not a zero price');
+      }
      }else reason=exitReason(mode,p.cost,proceeds);
      const noticeProceeds=Number(order.outAmount || 0)/1e6 || proceeds;
      const takeBackTrigger=mode==='takeback' && d.takeBackStops?.[p.key]?.trigger ? `; protection sell trigger $${d.takeBackStops[p.key].trigger.toFixed(2)}` : '';
-     d.notices[p.key]=`${reason || 'Watching'}: estimated sale $${noticeProceeds.toFixed(2)}, remaining cost $${p.cost.toFixed(2)}${mode==='trailing' && d.trailingStops?.[p.key] ? `; trailing sell trigger $${d.trailingStops[p.key].trigger.toFixed(2)}` : ''}${takeBackTrigger}`;
+     const ladderTrigger=mode==='ladder' && d.profitLadders?.[p.key]?.baselineUnit ? `; next 20% ladder near $${(d.profitLadders[p.key].baselineUnit*Number(p.raw)*1.2).toFixed(2)}` : '';
+     d.notices[p.key]=`${reason || 'Watching'}: estimated sale $${noticeProceeds.toFixed(2)}, remaining cost $${p.cost.toFixed(2)}${mode==='trailing' && d.trailingStops?.[p.key] ? `; trailing sell trigger $${d.trailingStops[p.key].trigger.toFixed(2)}` : ''}${takeBackTrigger}${ladderTrigger}`;
      if(!reason){await executionJournal.save();return;}
      // Price monitoring uses the journal; verify fresh holdings only when an exit fires.
      const held=await tokenBalanceRaw(connection,p.wallet,p.mint);
@@ -3680,7 +3695,7 @@ async function handleApi(request, response, url) {
     const input = await readBody(request);
     if (input.executionEngine !== undefined && !["jupiter","fnzero"].includes(input.executionEngine)) {send(response,400,{error:"Choose Jupiter or FnZero."});return true;}
     if (input.frogBuyMode !== undefined) {
-      if (!["limits", "exact", "exactFull", "loss", "trailing", "takeback"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
+      if (!["limits", "exact", "exactFull", "loss", "trailing", "takeback", "ladder"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
     }
     if (input.frogSurviveMax !== undefined && !(Number(input.frogSurviveMax)>0 && Number.isFinite(Number(input.frogSurviveMax)))) { send(response, 400, {error:"Enter a positive maximum purchase amount."}); return true; }
     if (input.trailingStopPercent !== undefined && !(Number.isFinite(Number(input.trailingStopPercent)) && Number(input.trailingStopPercent)>0 && Number(input.trailingStopPercent)<100)) {
