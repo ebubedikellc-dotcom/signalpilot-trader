@@ -92,6 +92,9 @@ async function protectProfit(state, wallet, cash) {
   return locked;
 }
 const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 500);
+const budgetWarmIntervalMs = Number(process.env.BUDGET_WARM_INTERVAL_MS || 1000);
+const budgetWarmMaxAgeMs = Number(process.env.BUDGET_WARM_MAX_AGE_MS || 1500);
+const directReadRetryMs = Number(process.env.DIRECT_READ_RETRY_MS || 150);
 const maxSignalAgeMs = Number(process.env.MAX_SIGNAL_AGE_MS || 5000);
 const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
 const sessionMaxAge = 60 * 60 * 24 * 30;
@@ -1678,6 +1681,11 @@ function tradeableUsdcCacheKey(state, profile, wallet) {
   return `${wallet}:${profile}:${state.settings?.profitMode || ""}:${profileDepositUsd(state, profile)}:${state.settings?.growthPrincipal || ""}:${state.settings?.growthTarget || ""}`;
 }
 
+function tradeableUsdcCacheAge(state, profile, wallet) {
+  const cached = tradeableUsdcCache.get(tradeableUsdcCacheKey(state, profile, wallet));
+  return cached ? Date.now() - cached.at : Infinity;
+}
+
 async function profileTradeableUsdc(connection, state, profile, wallet) {
   const principal = profileDepositUsd(state, profile);
   const currentUsdc = await tokenUiBalance(connection, wallet, usdcMint);
@@ -1703,6 +1711,26 @@ async function cachedProfileTradeableUsdc(connection, state, profile, wallet, ma
 function cachedProfileTradeableUsdcValue(state, profile, wallet, maxAgeMs = 2500) {
   const cached = tradeableUsdcCache.get(tradeableUsdcCacheKey(state, profile, wallet));
   return cached && Date.now() - cached.at <= maxAgeMs ? cached.value : null;
+}
+
+let budgetWarmRunning = false;
+async function warmTradeableUsdcCache() {
+  if (budgetWarmRunning || walletBusy) return;
+  budgetWarmRunning = true;
+  try {
+    const state = await readState();
+    if (!supportedProfiles.some((p) => state.profiles?.[p]?.running)) return;
+    const profile = supportedProfiles.includes(state.strategy?.activeProfile) ? state.strategy.activeProfile : "frog";
+    if (!state.profiles?.[profile]?.running || state.strategy?.paused) return;
+    const wallet = tradeWallet(state, profile);
+    if (!wallet || tradeableUsdcCacheAge(state, profile, wallet) < budgetWarmMaxAgeMs) return;
+    const connection = solanaConnection(state.settings, { priority: 10 });
+    await withWalletOperation(() => profileTradeableUsdc(connection, state, profile, wallet), -50);
+  } catch {
+    // Warming is only a latency hint. Real buys still perform their guarded check.
+  } finally {
+    budgetWarmRunning = false;
+  }
 }
 
 function profileTraderBankrollUsd(state, profile) {
@@ -3002,14 +3030,14 @@ function queueDirectRead(wallet, signature, sub) {
 }
 function pumpDirectReads() {
   for (const job of directReadJobs.values()) {
-    if (directReadsActive >= 2) break;
+    if (directReadsActive >= 3) break;
     if (job.active || job.dueAt > Date.now()) continue;
     job.active = true;
     directReadsActive++;
     readDirectTransaction(job).catch(() => {
       job.attempts++;
       if (job.attempts >= 3) directReadJobs.delete(job.key);
-      else job.dueAt = Date.now() + 1000;
+      else job.dueAt = Date.now() + directReadRetryMs;
     }).finally(() => {
       job.active = false;
       directReadsActive--;
@@ -3060,8 +3088,8 @@ async function readDirectTransaction(job) {
       signalFeeds.set(key, { profile, source: "Solana live", wallet: job.wallet, checkedAt: new Date().toISOString(),
         transactions: prior?.wallet === job.wallet ? prior.transactions || [] : [], error: `Direct lookup: ${directReadFailure(error, state.settings)}` });
     }
-    if (job.attempts >= 3) directReadJobs.delete(job.key);
-    else job.dueAt = Date.now() + 500;
+    if (job.attempts >= 5) directReadJobs.delete(job.key);
+    else job.dueAt = Date.now() + directReadRetryMs;
   }
 }
 
@@ -3090,7 +3118,7 @@ async function syncLiveSubscriptionsOnce(state) {
       if (event.err) return;
       sub.lastNotificationAt = new Date().toISOString();
       queueDirectRead(wallet,event.signature,sub);
-    }, 'confirmed');
+    }, process.env.DIRECT_SUBSCRIPTION_COMMITMENT || "processed");
     liveSubscriptions.set(wallet,sub);
   }
 }
@@ -3208,6 +3236,7 @@ function startCopyWorker() {
   };
   setInterval(() => { runPositionWatch().catch(() => {}); }, 2000);
   runPositionWatch().catch(() => {});
+  setInterval(() => { warmTradeableUsdcCache().catch(() => {}); }, budgetWarmIntervalMs);
   setInterval(() => { pollSignalFeeds().catch(() => {}); pumpDirectReads(); },500);
   setInterval(() => { wakeCopyWorker().catch(() => {}); },workerIntervalMs);
 }
