@@ -1732,13 +1732,15 @@ async function runSimpleSpeedTest() {
     const browserMs = Math.round(performance.now() - started);
     const seconds = (browserMs / 1000).toFixed(2);
     const real = test.real || {};
+    const backendBuyReadyMs = real.ok ? Number(real.feedMs || 0) + Number(real.buyRouteMs || 0) : 0;
+    const backendSeconds = backendBuyReadyMs ? (backendBuyReadyMs / 1000).toFixed(2) : "0.00";
     const realLine = real.ok
-      ? `REAL check: GMGN feed ${real.feedMs}ms; wallet check ${real.walletCheckMs}ms; buy route ${real.buyRouteMs}ms for ${real.token || "coin"} ($${real.plannedUsd || 0}) using ${real.executionEngine || test.engine}. ${real.sellMessage || ""}`
+      ? `REAL backend buy-ready ${backendBuyReadyMs}ms (${backendSeconds}s): GMGN feed ${real.feedMs}ms; wallet check ${real.walletCheckMs}ms; buy route ${real.buyRouteMs}ms for ${real.token || "coin"} ($${real.plannedUsd || 0}) using ${real.executionEngine || test.engine}. ${real.sellMessage || ""}`
       : `REAL check did not pass: ${real.message || "not checked"}`;
     result.textContent =
       `${realLine} Fake reaction: trader BUY -> machine BUY ${test.buyReactionMs}ms; ` +
       `trader SELL -> machine SELL ${test.sellReactionMs}ms. ` +
-      `Full click-to-result time: ${browserMs}ms (${seconds}s). No real money moved.`;
+      `Phone/browser click-to-result display time: ${browserMs}ms (${seconds}s). No real money moved.`;
   } catch (error) {
     result.textContent = `Speed test failed: ${error.message}. No real trade was sent.`;
   } finally {
