@@ -95,6 +95,8 @@ const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 500);
 const budgetWarmIntervalMs = Number(process.env.BUDGET_WARM_INTERVAL_MS || 1000);
 const budgetWarmMaxAgeMs = Number(process.env.BUDGET_WARM_MAX_AGE_MS || 1500);
 const directReadRetryMs = Number(process.env.DIRECT_READ_RETRY_MS || 150);
+const fnzeroLearnBudgetMs = Number(process.env.FNZERO_LEARN_BUDGET_MS || 180);
+const maxBuyReactionMs = Number(process.env.MAX_BUY_REACTION_MS || 950);
 const maxSignalAgeMs = Number(process.env.MAX_SIGNAL_AGE_MS || 5000);
 const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
 const sessionMaxAge = 60 * 60 * 24 * 30;
@@ -1934,13 +1936,21 @@ async function prepareTradingOrder(state, query) {
     catch(error) { fallbackReason = error.message; }
   }
   const order = await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(state.settings),query});
-  if (state.settings.executionEngine === 'fnzero') {
+  if (state.settings.executionEngine === 'fnzero' && typeof fnzeroRouter.learn === "function") {
     try {
-      return await fnzeroRouter.learn({
+      const learnPromise = fnzeroRouter.learn({
         connection:solanaConnection(state.settings,{priority:query.inputMint===usdcMint ? 50 : 100}),
         order,
         query
-      });
+      }).catch((error) => ({ speedPilotError: error }));
+      const learned = await Promise.race([
+        learnPromise,
+        new Promise((resolve) => setTimeout(() => resolve(null), fnzeroLearnBudgetMs))
+      ]);
+      if (learned && !learned.speedPilotError) return learned;
+      if (learned?.speedPilotError) throw learned.speedPilotError;
+      learnPromise.catch(() => {});
+      fallbackReason = [fallbackReason, `FnZero learning continued in background after ${fnzeroLearnBudgetMs}ms`].filter(Boolean).join("; ");
     } catch(error) {
       fallbackReason = [fallbackReason, error.message].filter(Boolean).join("; ");
     }
@@ -2139,6 +2149,10 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     const signedAt = Date.now();
     reason = await checkControls();
     if (reason) return { status: reason, detectedAt };
+    const buySpeedLimitMs = typeof maxBuyReactionMs === "number" ? maxBuyReactionMs : 950;
+    if (leg.action === "buy" && signedAt - preparationStartedAt > buySpeedLimitMs) {
+      return { status: `Buy blocked: speed guard ${signedAt - preparationStartedAt}ms exceeded ${buySpeedLimitMs}ms; no late buy sent`, detectedAt };
+    }
 
   const submittedAt = new Date().toISOString();
   const journalKey = await recordPendingSwap({wallet,profile,mint:leg.action === "buy" ? outputMint : inputMint,side:leg.action,source:canonicalSignalId(transaction.signature)},signed,order);
