@@ -2150,9 +2150,9 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     reason = await checkControls();
     if (reason) return { status: reason, detectedAt };
     const buySpeedLimitMs = typeof maxBuyReactionMs === "number" ? maxBuyReactionMs : 950;
-    if (leg.action === "buy" && signedAt - preparationStartedAt > buySpeedLimitMs) {
-      return { status: `Buy blocked: speed guard ${signedAt - preparationStartedAt}ms exceeded ${buySpeedLimitMs}ms; no late buy sent`, detectedAt };
-    }
+    const speedWarning = leg.action === "buy" && signedAt - preparationStartedAt > buySpeedLimitMs
+      ? `Buy submitted after ${signedAt - preparationStartedAt}ms; target is ${buySpeedLimitMs}ms or faster`
+      : "";
 
   const submittedAt = new Date().toISOString();
   const journalKey = await recordPendingSwap({wallet,profile,mint:leg.action === "buy" ? outputMint : inputMint,side:leg.action,source:canonicalSignalId(transaction.signature)},signed,order);
@@ -2174,6 +2174,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     sourceSlot: verified.sourceTx.slot,
     executionEngine: order.executionEngine || "jupiter",
     fnzeroFallbackReason: order.fnzeroFallbackReason,
+    speedWarning,
     preparationMs: Math.max(0, Date.parse(submittedAt) - Date.parse(detectedAt)),
     timingsMs: {
       sourceVerification: sourceVerifiedAt - preparationStartedAt,
