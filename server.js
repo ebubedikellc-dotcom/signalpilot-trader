@@ -1934,6 +1934,17 @@ async function prepareTradingOrder(state, query) {
     catch(error) { fallbackReason = error.message; }
   }
   const order = await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(state.settings),query});
+  if (state.settings.executionEngine === 'fnzero') {
+    try {
+      return await fnzeroRouter.learn({
+        connection:solanaConnection(state.settings,{priority:query.inputMint===usdcMint ? 50 : 100}),
+        order,
+        query
+      });
+    } catch(error) {
+      fallbackReason = [fallbackReason, error.message].filter(Boolean).join("; ");
+    }
+  }
   return {...order, executionEngine:'jupiter', ...(fallbackReason ? {fnzeroFallbackReason:fallbackReason} : {})};
 }
 async function executeTradingOrder(state, signed, order) {
