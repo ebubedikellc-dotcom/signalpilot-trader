@@ -91,7 +91,7 @@
                   <legend>Test FnZero without trading</legend>
                   <label>Coin mint address <input id="fnzeroMint" autocomplete="off" placeholder="Paste the Solana coin mint address"></label>
                   <label>Direction <select id="fnzeroSide"><option value="buy">Test buy</option><option value="sell">Test sell of held coin</option></select></label>
-                  <label>Buy test amount in dollars <input id="fnzeroAmount" inputmode="decimal" value="1.00"></label>
+                  <label>Buy test amount in dollars <input id="fnzeroAmount" inputmode="decimal" value="5.00"></label>
                   <p class="hint">Stop trading before testing. This uses real quotes and RPC simulation, but does not sign or send a trade. FnZero uses 1% slippage, up to 0.00001 SOL priority fee, plus network fees and any token-account rent.</p>
                   <button id="testFnzero" type="button" class="secondary-action">Test FnZero without trading</button>
                   <p id="fnzeroTestResult" role="status" aria-live="polite">No test run yet. Half-second trading has not been verified.</p>
@@ -615,6 +615,6 @@
         <p id="businessMessage" class="message-line"></p>
       </section>
     </main>
-    <script src="./script.js"></script>
+    <script src="./script.js?v=fnzero-trial-v1"></script>
   </body>
 </html>
