@@ -11,10 +11,13 @@ const section=(s,a,b)=>s.slice(s.indexOf(a),s.indexOf(b,s.indexOf(a)));
 test('simple speed test is fake only and cannot sign or submit trades',()=>{
  const endpoint=section(server,'  if (request.method === "POST" && url.pathname === "/api/simple-speed-test")','  if (request.method === "POST" && url.pathname === "/api/fnzero/coins")');
  assert.match(endpoint,/requireOwner/);
- assert.match(endpoint,/Fake buy and fake sell/);
+ assert.match(endpoint,/Fake trader buy and fake trader sell/);
+ assert.match(endpoint,/buyReactionMs/);
+ assert.match(endpoint,/sellReactionMs/);
  assert.doesNotMatch(endpoint,/signSolanaTransaction|executeTradingOrder|sendRawTransaction|jupiterJson|fnzeroRouter/);
  assert.doesNotMatch(script,/fnzeroMint|fnzeroCoin|fnzeroSide|testFnzero/);
  assert.match(script,/runSimpleSpeedTest/);
+ assert.match(script,/Fake trader BUY -> machine BUY/);
 });
 test('poll cadence does not expire buys; a known subsequent source sell cancels them',()=>{
  const feeds=new Map();const c=vm.createContext({Number,signalFeeds:feeds,primarySwapLeg:t=>t.leg,targetWallet:()=> 'wallet'});

@@ -3411,18 +3411,29 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/simple-speed-test") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
-    const started = Date.now();
+    const started = performance.now();
+    const activeProfile = state.strategy?.activeProfile || "frog";
+    const engine = state.settings?.executionEngine === "fnzero" ? "FnZero where supported, Jupiter fallback" : "Jupiter";
+    const steps = [];
+    const mark = (name) => steps.push({ name, ms: Math.round(performance.now() - started) });
+    mark("Fake trader BUY received");
     await Promise.resolve();
-    const buyCheckedAt = Date.now();
+    mark("Machine BUY decision ready");
     await Promise.resolve();
-    const sellCheckedAt = Date.now();
+    mark("Fake trader SELL received");
+    await Promise.resolve();
+    mark("Machine SELL decision ready");
+    const totalMs = Math.max(1, Math.round(performance.now() - started));
     send(response, 200, {
       readOnly: true,
       fakeCoin: "DEMO",
-      fakeBuyMs: Math.max(1, buyCheckedAt - started),
-      fakeSellMs: Math.max(1, sellCheckedAt - buyCheckedAt),
-      totalMs: Math.max(1, sellCheckedAt - started),
-      message: "Fake buy and fake sell checked. No wallet, quote, signature or transaction was used."
+      profile: activeProfile,
+      engine,
+      buyReactionMs: Math.max(1, steps[1].ms - steps[0].ms),
+      sellReactionMs: Math.max(1, steps[3].ms - steps[2].ms),
+      totalMs,
+      steps,
+      message: "Fake trader buy and fake trader sell completed. No wallet, quote, signature or transaction was used."
     });
     return true;
   }
