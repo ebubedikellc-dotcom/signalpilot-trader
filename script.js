@@ -1719,95 +1719,22 @@ async function saveSettings() {
   renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
 }
 
-const fnzeroTraderResults = new Map();
 let latestWalletCoins = [];
-let fnzeroCooldownTimer = null;
-
-function chooseHeldCoinForFnzeroSell() {
-  if ($('fnzeroSide')?.value !== 'sell') return false;
-  const held = latestWalletCoins.find((coin) => coin.canSell);
-  if (!held) return false;
-  $('fnzeroMint').value = held.mint;
-  const select = $('fnzeroCoin');
-  if (select && ![...select.options].some((option) => option.value === held.mint)) {
-    select.add(new Option(`${held.symbol || 'Held coin'} · ${held.mint.slice(0,6)}…${held.mint.slice(-4)}`, held.mint));
-  }
-  if (select) select.value = held.mint;
-  $('fnzeroCoinsStatus').textContent = `Sell test selected a coin currently in your wallet: ${held.symbol || held.mint}.`;
-  return true;
-}
-
-function showFnzeroCooldown(profile, retryAfterMs) {
-  clearInterval(fnzeroCooldownTimer);
-  const end = Date.now() + Math.max(1000, Number(retryAfterMs || 60000));
-  const tick = () => {
-    const seconds = Math.max(0, Math.ceil((end - Date.now()) / 1000));
-    const message = `${profileName(profile)} test is cooling down. Wait ${seconds} second${seconds === 1 ? '' : 's'}, then press Test once. No trade was sent.`;
-    $('fnzeroTestResult').textContent = message;
-    fnzeroTraderResults.set(profile, message);
-    if (seconds <= 0) {
-      clearInterval(fnzeroCooldownTimer);
-      $('fnzeroTestResult').textContent = `${profileName(profile)} is ready. Press Test FnZero without trading once.`;
-    }
-  };
-  tick();
-  fnzeroCooldownTimer = setInterval(tick, 1000);
-}
-
-function changeFnzeroTrader() {
-  $('fnzeroMint').value='';
-  $('fnzeroCoin').replaceChildren(new Option('Paste a mint below, or load recent coins',''));
-  $('fnzeroCoinsStatus').textContent='Load recent coins or paste a coin mint address below.';
-  $('fnzeroTestResult').textContent=fnzeroTraderResults.get($('fnzeroTrader').value) || 'No test run for this trader yet. Half-second trading has not been verified.';
-}
-
-async function loadFnzeroCoins() {
-  const profile=$('fnzeroTrader').value, button=$('loadFnzeroCoins');
-  button.disabled=true;
-  $('fnzeroCoinsStatus').textContent=`Loading ${profileName(profile)}’s recent coins…`;
+async function runSimpleSpeedTest() {
+  const button = $("runSpeedTest");
+  const result = $("speedTestResult");
+  if (!button || !result) return;
+  button.disabled = true;
+  const started = performance.now();
+  result.textContent = "Testing fake buy and fake sell. No real trade will be sent…";
   try {
-    const data=await api('/api/fnzero/coins',{method:'POST',body:JSON.stringify({profile})});
-    if($('fnzeroTrader').value!==profile)return;
-    const select=$('fnzeroCoin');
-    select.replaceChildren(new Option('Choose a recent coin, or paste a mint below',''));
-    for(const coin of data.coins)select.add(new Option(`${coin.symbol} · ${coin.mint.slice(0,6)}…${coin.mint.slice(-4)}`,coin.mint));
-    if(data.coins.length) {
-      select.selectedIndex=1;
-      $('fnzeroMint').value=data.coins[0].mint;
-    } else {
-      $('fnzeroMint').value='';
-    }
-    $('fnzeroCoinsStatus').textContent=`${profileName(profile)}: ${data.coins.length} recent coins. ${data.cached?'Cached':'Checked'} ${new Date(data.checkedAt).toLocaleString()}. ${data.coins.length?'First coin selected for testing.':'You can paste a mint address instead.'}`;
-  } catch(error) {if($('fnzeroTrader').value===profile)$('fnzeroCoinsStatus').textContent=`Could not load coins: ${error.message}`;}
-  finally {button.disabled=false;}
-}
-
-async function testFnzero() {
-  const button=$('testFnzero'), result=$('fnzeroTestResult');
-  if(!button || !result)return;
-  const profile=$('fnzeroTrader').value, side=$('fnzeroSide').value;
-  if (side === 'sell' && !$('fnzeroMint').value.trim() && !chooseHeldCoinForFnzeroSell()) {
-    result.textContent = 'Checking your wallet for a coin to sell-test. No trade will be sent…';
-    await loadWalletCoins();
-    chooseHeldCoinForFnzeroSell();
-  }
-  const mint=$('fnzeroMint').value.trim();
-  let handledCooldown = false;
-  button.disabled=true;
-  $('fnzeroTrader').disabled=true;
-  result.textContent='Checking the route and simulating FnZero. No trade will be sent…';
-  try {
-    const test=await api('/api/fnzero/test',{method:'POST',body:JSON.stringify({profile,mint,side,amount:$('fnzeroAmount').value.trim()})});
-    result.textContent=test.ok ? `Simulation passed. Route discovery: ${(test.discoveryMs/1000).toFixed(3)}s; FnZero preparation: ${(test.preparationMs/1000).toFixed(3)}s; simulation: ${(test.simulationMs/1000).toFixed(3)}s. No buy or sell was sent. This is not a measurement of completed copy-trading speed.` : `FnZero test did not pass: ${test.message}. No trade was sent. Jupiter remains available.`;
-  } catch(error) {
-    if (error.payload?.retryAfterMs) { handledCooldown = true; showFnzeroCooldown(profile, error.payload.retryAfterMs); }
-    else result.textContent=`Test unavailable: ${error.message}. No trade was sent.`;
-  }
-  finally {
-    if (!handledCooldown) result.textContent=`${profileName(profile)} · ${side} · ${mint || 'no coin selected'}: ${result.textContent}`;
-    fnzeroTraderResults.set(profile,result.textContent);
-    $('fnzeroTraderResults').replaceChildren(...Array.from(fnzeroTraderResults.values(),message=>{const p=document.createElement('p');p.textContent=message;return p;}));
-    button.disabled=false;$('fnzeroTrader').disabled=false;
+    const test = await api("/api/simple-speed-test", { method: "POST" });
+    const browserMs = Math.round(performance.now() - started);
+    result.textContent = `Fake BUY checked in ${test.fakeBuyMs}ms. Fake SELL checked in ${test.fakeSellMs}ms. Full button-to-server test: ${browserMs}ms. No real money moved.`;
+  } catch (error) {
+    result.textContent = `Speed test failed: ${error.message}. No real trade was sent.`;
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -2057,22 +1984,12 @@ function on(id, event, handler) {
 }
 
 on("saveSettings", "click", saveSettings);
-on("testFnzero", "click", testFnzero);
-on("fnzeroTrader", "change", changeFnzeroTrader);
-on("loadFnzeroCoins", "click", loadFnzeroCoins);
-on("fnzeroSide", "change", () => {
-  if ($('fnzeroSide').value === 'sell') {
-    if (!chooseHeldCoinForFnzeroSell()) $('fnzeroCoinsStatus').textContent = 'Sell test needs a coin that is already in your wallet. Refresh coin values if none appears.';
-  } else {
-    $('fnzeroCoinsStatus').textContent = 'Buy test uses the selected trader recent coin, or a pasted coin mint address.';
-  }
-});
-on("fnzeroCoin", "change", () => {$('fnzeroMint').value=$('fnzeroCoin').value || '';});
+on("runSpeedTest", "click", runSimpleSpeedTest);
 on("saveExecutionEngine", "click", async () => {
   try {
     renderState(await api('/api/settings',{method:'POST',body:JSON.stringify({executionEngine:$('executionEngine').value})}));
-    $('fnzeroTestResult').textContent='Execution option saved. This does not start trading. FnZero only handles routes that pass the read-only test.';
-  } catch(error) { $('fnzeroTestResult').textContent=error.message; }
+    $('speedTestResult').textContent='Execution option saved. This does not start trading.';
+  } catch(error) { $('speedTestResult').textContent=error.message; }
 });
 on("saveSettingsInline", "click", saveSettings);
 on("saveProfitShare", "click", saveSettings);

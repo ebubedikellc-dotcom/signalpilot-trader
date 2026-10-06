@@ -82,31 +82,18 @@
         <button id="checkGmgnConnection" type="button">Check GMGN connection</button>
         <p id="gmgnCheckResult" role="status">Press Check for a fresh connection result.</p>
       </section>
-      <section class="wallet-remaining" aria-labelledby="fnzeroTitle">
-        <h2 id="fnzeroTitle">FnZero trading trial</h2>
-                <label>Trade execution
-                  <select id="executionEngine">
-                    <option value="jupiter">Jupiter (current route)</option>
-                    <option value="fnzero">FnZero for tested routes; Jupiter otherwise</option>
-                  </select>
-                </label>
-                <button id="saveExecutionEngine" type="button" class="secondary-action">Save execution option</button>
-                <p class="hint">FnZero is experimental. Test each coin and direction first. A successful test is valid for one hour, until server restart. Direct USDC pools only; unsupported routes use Jupiter. Your selected sizing mode, total trading budget and sell rules still apply.</p>
-                <fieldset>
-                  <legend>Test FnZero without trading</legend>
-                  <label>Trader to test <select id="fnzeroTrader"><option value="safe">Frog</option><option value="frog">Deku</option><option value="truenest">Trunoest</option></select></label>
-                  <p class="hint">Test any trader without changing who you copy. A result applies only to the tested coin and direction, not all of that trader’s trades.</p>
-                  <button id="loadFnzeroCoins" type="button" class="secondary-action">Load this trader’s recent coins</button>
-                  <p id="fnzeroCoinsStatus" role="status" aria-live="polite">Load recent coins or paste a coin mint address below.</p>
-                  <label>Recent coin <select id="fnzeroCoin"><option value="">Paste a mint below, or load recent coins</option></select></label>
-                  <label>Coin mint address <input id="fnzeroMint" autocomplete="off" placeholder="Paste the Solana coin mint address"></label>
-                  <label>Direction <select id="fnzeroSide"><option value="buy">Test buy</option><option value="sell">Test sell of held coin</option></select></label>
-                  <label>Buy test amount in dollars <input id="fnzeroAmount" inputmode="decimal" value="5.00"></label>
-                  <p class="hint">Stop trading before testing. This uses real quotes and RPC simulation, but does not sign or send a trade. FnZero uses 1% slippage, up to 0.00001 SOL priority fee, plus network fees and any token-account rent.</p>
-                  <button id="testFnzero" type="button" class="secondary-action">Test FnZero without trading</button>
-                  <p id="fnzeroTestResult" role="status" aria-live="polite">No test run yet. Half-second trading has not been verified.</p>
-                  <div id="fnzeroTraderResults" aria-live="polite"></div>
-                </fieldset>
+      <section class="wallet-remaining" aria-labelledby="speedTestTitle">
+        <h2 id="speedTestTitle">Simple speed test</h2>
+        <p>This uses fake buy and fake sell signals only. It does not touch your wallet, sign anything, or send a real trade.</p>
+        <label>Trade execution
+          <select id="executionEngine">
+            <option value="jupiter">Jupiter (current route)</option>
+            <option value="fnzero">FnZero for tested routes; Jupiter otherwise</option>
+          </select>
+        </label>
+        <button id="saveExecutionEngine" type="button" class="secondary-action">Save execution option</button>
+        <button id="runSpeedTest" type="button" class="secondary-action">Run fake buy and sell test</button>
+        <p id="speedTestResult" role="status" aria-live="polite">No speed test run yet.</p>
       </section>
       <section class="wallet-remaining" aria-labelledby="walletRemainingTitle">
         <h2 id="walletRemainingTitle">My wallet money and trading amount</h2>

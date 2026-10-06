@@ -3408,6 +3408,25 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/simple-speed-test") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    const started = Date.now();
+    await Promise.resolve();
+    const buyCheckedAt = Date.now();
+    await Promise.resolve();
+    const sellCheckedAt = Date.now();
+    send(response, 200, {
+      readOnly: true,
+      fakeCoin: "DEMO",
+      fakeBuyMs: Math.max(1, buyCheckedAt - started),
+      fakeSellMs: Math.max(1, sellCheckedAt - buyCheckedAt),
+      totalMs: Math.max(1, sellCheckedAt - started),
+      message: "Fake buy and fake sell checked. No wallet, quote, signature or transaction was used."
+    });
+    return true;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/fnzero/coins") {
     const state=await readState();
     if(requireOwner(response,sessionFromRequest(request,state)))return true;
