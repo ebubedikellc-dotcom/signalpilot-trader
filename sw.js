@@ -1,4 +1,4 @@
-const CACHE_NAME = "signalpilot-owner-v5-growth-target";
+const CACHE_NAME = "signalpilot-owner-v6-fnzero-trial";
 const APP_SHELL = [
   "/control-panel.html",
   "/styles.css",

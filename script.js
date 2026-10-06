@@ -1,5 +1,6 @@
 let walletPriceSnapshot = null;
 const fields = [
+  "executionEngine",
   "gmgnApiKey",
   "heliusKey",
   "alchemyKey",
@@ -1717,6 +1718,18 @@ async function saveSettings() {
   renderState(await api("/api/settings", { method: "POST", body: JSON.stringify(data) }));
 }
 
+async function testFnzero() {
+  const button=$('testFnzero'), result=$('fnzeroTestResult');
+  if(!button || !result)return;
+  button.disabled=true;
+  result.textContent='Checking the route and simulating FnZero. No trade will be sent…';
+  try {
+    const test=await api('/api/fnzero/test',{method:'POST',body:JSON.stringify({mint:$('fnzeroMint').value.trim(),side:$('fnzeroSide').value,amount:$('fnzeroAmount').value.trim()})});
+    result.textContent=test.ok ? `Simulation passed. Route discovery: ${(test.discoveryMs/1000).toFixed(3)}s; FnZero preparation: ${(test.preparationMs/1000).toFixed(3)}s; simulation: ${(test.simulationMs/1000).toFixed(3)}s. No buy or sell was sent. This is not a measurement of completed copy-trading speed.` : `FnZero test did not pass: ${test.message}. No trade was sent. Jupiter remains available.`;
+  } catch(error) {result.textContent=`Test unavailable: ${error.message}. No trade was sent.`;}
+  finally {button.disabled=false;}
+}
+
 async function saveManualDeposit() {
   const mainDeposit = value("manualDecuDeposit");
   if (mainDeposit.trim() === "" || !Number.isFinite(Number(mainDeposit)) || Number(mainDeposit) < 0) {
@@ -1952,6 +1965,13 @@ function on(id, event, handler) {
 }
 
 on("saveSettings", "click", saveSettings);
+on("testFnzero", "click", testFnzero);
+on("saveExecutionEngine", "click", async () => {
+  try {
+    renderState(await api('/api/settings',{method:'POST',body:JSON.stringify({executionEngine:$('executionEngine').value})}));
+    $('fnzeroTestResult').textContent='Execution option saved. This does not start trading. FnZero only handles routes that pass the read-only test.';
+  } catch(error) { $('fnzeroTestResult').textContent=error.message; }
+});
 on("saveSettingsInline", "click", saveSettings);
 on("saveProfitShare", "click", saveSettings);
 on("saveManualDeposit", "click", saveManualDeposit);

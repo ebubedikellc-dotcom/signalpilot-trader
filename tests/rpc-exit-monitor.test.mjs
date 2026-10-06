@@ -13,6 +13,7 @@ function harness(reason,held='10') {
  tokenBalanceRaw:async()=>{calls.push('balance');return held;},jupiterApiKey:()=>'',usdcMint:'USDC',growthSnapshot:()=>null,exitReason:()=>reason,
  jupiterJson:async path=>{calls.push(path);return {outAmount:'25000000',inAmount:'10',transaction:'quote'};},
  signSolanaTransaction:async()=>{calls.push('sign');return {};},signerId:()=>'',recordPendingSwap:async()=> 'pending',recordExecutionResponse:async()=>{calls.push('record');}});
+ vm.runInContext(source.slice(source.indexOf('async function prepareTradingOrder('),source.indexOf('async function executeCopiedSwap(')),c);
  vm.runInContext(source.slice(source.indexOf('let riskWorking='),source.indexOf('// Read-only market metadata.')),c);
  return {c,calls,d};
 }

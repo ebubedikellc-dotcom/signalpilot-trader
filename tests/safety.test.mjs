@@ -183,7 +183,7 @@ test('restart excludes buys from the stopped period without expiring new session
  state.profiles.safe.running=true;c.beginTradingSession(state);assert.equal(state.strategy.buySessionStartedAt,start);
 });
 test('dashboard status reports poll cadence without referencing a removed buy deadline',()=>{
- const c=vm.createContext({executionReport:null,rpcProvider,process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:500,
+ const c=vm.createContext({fnzeroRouter:{status:()=>({})},executionReport:null,rpcProvider,process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:500,
  rpcConnections:new Map(),gmgnConnectionCheck:null,observationUntil:0,feedHealth:()=>[],liveSubscriptions:new Map(),customerPublic:x=>x});
  vm.runInContext(section(server,'function statusPayload(','async function walletBalances('),c);
  const result=c.statusPayload({settings:{},customers:[],profiles:{safe:{running:false}}},{role:'owner',id:'owner'});
@@ -268,4 +268,23 @@ test('failed parallel funds verification never builds or submits a purchase',asy
  h.c.jupiterJson=async()=>{orders++;};
  await assert.rejects(h.c.executeCopiedSwap('safe',h.buy,h.state),/unverified funds/);
  assert.equal(orders,0);assert.equal(h.submitted.length,0);
+});
+
+
+test('FnZero copied buys and sells retain spending checks and Stop during signing',async()=>{
+ const h=executionHarness();h.state.settings.executionEngine='fnzero';let sends=0;
+ h.c.fnzeroRouter={prepare:async({query})=>({transaction:'fnzero',inAmount:query.amount,outAmount:'123',executionEngine:'fnzero'})};
+ h.c.submitFnzeroOrder=async()=>{sends++;return {signature:'test',status:'Success'};};
+ assert.equal((await h.c.executeCopiedSwap('safe',h.buy,h.state)).executionEngine,'fnzero');
+ assert.equal((await h.c.executeCopiedSwap('safe',h.sell,h.state)).executionEngine,'fnzero');
+ assert.equal(sends,2);assert.equal(h.submitted.length,0);
+ h.c.signSolanaTransaction=async()=>{h.stop();return {signedTransactionBase64:'signed'};};
+ assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/stopped/);assert.equal(sends,2);
+});
+test('FnZero cannot use locked profit when the spendable balance changes',async()=>{
+ const h=executionHarness();h.state.settings.executionEngine='fnzero';let checks=0,sends=0;
+ h.c.fnzeroRouter={prepare:async({query})=>({transaction:'fnzero',inAmount:query.amount,outAmount:'123',executionEngine:'fnzero'})};
+ h.c.profileTradeableUsdc=async()=>++checks===1?100:0;
+ h.c.submitFnzeroOrder=async()=>{sends++;};
+ assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/locked profit protected/);assert.equal(sends,0);
 });

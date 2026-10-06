@@ -1,3 +1,4 @@
+import { createFnzeroRouter, submitFnzeroOrder } from "./lib/fnzero-route.mjs";
 import { rpcProvider, monitoredProfiles } from "./lib/rpc-provider.mjs";
 import { createRpcReadPool } from "./lib/rpc-read-pool.mjs";
 import { inspectSwapSignature } from "./lib/swap-signature.mjs";
@@ -111,8 +112,13 @@ const executionJournal = createTradingJournal(path.join(dataDir, "execution-jour
 let executionReport = null;
 let emergencyStopRequested = false;
 
+const fnzeroRouter = createFnzeroRouter();
+let fnzeroTestBusy = false;
+let fnzeroTestAt = 0;
+
 const defaultState = {
   settings: {
+    executionEngine: "jupiter",
     gmgnApiKey: "",
     safeWallet: legacyFrogWallet,
     safeMax: "50",
@@ -197,6 +203,7 @@ const defaultState = {
 };
 
 const fields = [
+  "executionEngine",
   "gmgnApiKey",
   "heliusKey",
   "alchemyKey",
@@ -705,7 +712,8 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "verified-direct-copy-v2",
+      appVersion: "fnzero-route-trial-v1",
+      fnzero: isOwner ? fnzeroRouter.status() : undefined,
       marketDataProvider: "Direct Solana alerts + GMGN recovery",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
       walletVerificationProvider: `${rpcProvider(state.settings,process.env).name} RPC with controlled public fallback`,
@@ -1386,7 +1394,7 @@ function solanaConnection(settings = {}, { fastRead = false, publicOnly = false,
       if(!result?.catch)return result;
       return result.catch(error=>{
         if(provider.secret)error.message=String(error.message).split(provider.secret).join('[redacted]');
-        const safeRead=['getBalance','getParsedTokenAccountsByOwner','getParsedTransaction','getBlockHeight','getSignatureStatuses','getAccountInfo','getLatestBlockhash'].includes(property);
+        const safeRead=['getBalance','getParsedTokenAccountsByOwner','getParsedTransaction','getBlockHeight','getSignatureStatuses','getAccountInfo','getLatestBlockhash','getMultipleAccountsInfoAndContext','simulateTransaction'].includes(property);
         if(!provider.public && safeRead && (isRateLimitError(error) || /timed out|connection failed/i.test(error.message))) {
           return solanaConnection({}, {publicOnly:true,priority})[property](...args);
         }
@@ -1856,6 +1864,23 @@ function buySignalError(profile, transaction, state) {
   return "";
 }
 
+async function prepareTradingOrder(state, query) {
+  let fallbackReason = '';
+  if (state.settings.executionEngine === 'fnzero') {
+    try { return await fnzeroRouter.prepare({connection:solanaConnection(state.settings,{priority:query.inputMint===usdcMint ? 50 : 100}),query}); }
+    catch(error) { fallbackReason = error.message; }
+  }
+  const order = await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(state.settings),query});
+  return {...order, executionEngine:'jupiter', ...(fallbackReason ? {fnzeroFallbackReason:fallbackReason} : {})};
+}
+async function executeTradingOrder(state, signed, order) {
+  if (order.executionEngine === 'fnzero') {
+    return submitFnzeroOrder(solanaConnection(state.settings,{priority:100}), signed.signedTransactionBase64, order);
+  }
+  return jupiterJson('/swap/v2/execute',{apiKey:jupiterApiKey(state.settings),method:'POST',body:{
+    signedTransaction:signed.signedTransactionBase64,requestId:order.requestId,lastValidBlockHeight:order.lastValidBlockHeight}});
+}
+
 async function executeCopiedSwap(profile, transaction, state, expectedPositionCycle) {
   if (primarySwapLeg(transaction, profile, state)?.action === "sell") {
     // Recheck the held balance after any submitted buy finishes.
@@ -1975,15 +2000,8 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   }
 
   const sizingReadyAt = Date.now();
-  const order = await jupiterJson("/swap/v2/order", {
-    apiKey,
-    query: {
-      inputMint,
-      outputMint,
-      amount: copyAmount.amount,
-      taker: wallet,
-      swapMode: "ExactIn"
-    }
+  const order = await prepareTradingOrder(state, {
+    inputMint, outputMint, amount:copyAmount.amount, taker:wallet, swapMode:"ExactIn"
   });
 
   const quoteReadyAt = Date.now();
@@ -2035,15 +2053,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     return {status:"Skipped - trading stopped by owner"};
   }
   const executionStartedAt = Date.now();
-  const executed = await jupiterJson("/swap/v2/execute", {
-    apiKey,
-    method: "POST",
-    body: {
-      signedTransaction: signed.signedTransactionBase64,
-      requestId: order.requestId,
-      lastValidBlockHeight: order.lastValidBlockHeight
-    }
-  });
+  const executed = await executeTradingOrder(state, signed, order);
 
   const executionReturnedAt = Date.now();
   await recordExecutionResponse(journalKey,executed);
@@ -2054,6 +2064,8 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     verifiedAt: verified.verifiedAt,
     sourceBlockTime: verified.sourceTx.blockTime,
     sourceSlot: verified.sourceTx.slot,
+    executionEngine: order.executionEngine || "jupiter",
+    fnzeroFallbackReason: order.fnzeroFallbackReason,
     preparationMs: Math.max(0, Date.parse(submittedAt) - Date.parse(detectedAt)),
     timingsMs: {
       sourceVerification: sourceVerifiedAt - preparationStartedAt,
@@ -2269,7 +2281,7 @@ async function runPositionWatch() {
     const quotePosition={...quotedPosition};
     // A read-only price quote must not block a Frog sell or an urgent buy check.
     // Revalidate its position and controls inside the lock before using it.
-    let order=await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(quoteState.settings),query:{inputMint:quotePosition.mint,outputMint:usdcMint,amount:quotePosition.raw,taker:quotePosition.wallet,swapMode:'ExactIn'}});
+    let order=await prepareTradingOrder(quoteState,{inputMint:quotePosition.mint,outputMint:usdcMint,amount:quotePosition.raw,taker:quotePosition.wallet,swapMode:'ExactIn'});
     await withWalletOperation(async()=>{
      const current=await readState();
      if(emergencyStopRequested || !supportedProfiles.some(p=>current.profiles[p].running) || !liveTradingAllowed(current,position.profile))return;
@@ -2300,7 +2312,7 @@ async function runPositionWatch() {
       reason=mark.reason;
       if(reason && mark.raw && mark.raw!==p.raw) {
        salePosition={...p,raw:mark.raw};
-       order=await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(current.settings),query:{inputMint:p.mint,outputMint:usdcMint,amount:mark.raw,taker:p.wallet,swapMode:'ExactIn'}});
+       order=await prepareTradingOrder(current,{inputMint:p.mint,outputMint:usdcMint,amount:mark.raw,taker:p.wallet,swapMode:'ExactIn'});
        if(!order.outAmount || order.inAmount!==mark.raw || !order.transaction)throw new Error('Partial sale value unavailable; missing data is not a zero price');
       }
      }else reason=exitReason(mode,p.cost,proceeds);
@@ -2316,7 +2328,7 @@ async function runPositionWatch() {
      if(emergencyStopRequested || !supportedProfiles.some(x=>before.profiles[x].running) || before.strategy.controlRevision!==current.strategy.controlRevision)return;
      const key=await recordPendingSwap({...salePosition,side:'sell',reason},signed,order);
      if(emergencyStopRequested){delete d.pending[key];await executionJournal.save();return;}
-     const result=await jupiterJson('/swap/v2/execute',{apiKey:jupiterApiKey(current.settings),method:'POST',body:{signedTransaction:signed.signedTransactionBase64,requestId:order.requestId,lastValidBlockHeight:order.lastValidBlockHeight}});
+     const result=await executeTradingOrder(current,signed,order);
      await recordExecutionResponse(key,result);
      d.notices[p.key]=`${reason}: sale submitted; awaiting chain confirmation`;
      await executionJournal.save();
@@ -3378,10 +3390,47 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/fnzero/test") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request,state))) return true;
+    if(fnzeroTestBusy || Date.now()-fnzeroTestAt<60000) {send(response,429,{error:'Wait one minute between FnZero tests.'});return true;}
+    // Tests must not compete with live exits for the wallet/RPC budget.
+    if(supportedProfiles.some(p=>state.profiles?.[p]?.running)) {send(response,409,{error:'Stop trading before running the read-only FnZero test.'});return true;}
+    const input=await readBody(request), wallet=tradeWallet(state);
+    let mint;
+    try {mint=new PublicKey(String(input.mint||'')).toBase58();} catch {send(response,400,{error:'Enter the coin mint address.'});return true;}
+    if(!wallet || isQuoteMint(mint)) {send(response,400,{error:'Choose a trading coin and configure your wallet first.'});return true;}
+    if(!['buy','sell'].includes(input.side)) {send(response,400,{error:'Choose buy or sell for the test.'});return true;}
+    const connection=solanaConnection(state.settings), profile=state.strategy.activeProfile || 'safe';
+    fnzeroTestBusy=true;fnzeroTestAt=Date.now();
+    try {
+      let amount;
+      if(input.side==='buy') {
+        const usd=Number(input.amount);
+        if(!/^\d+(?:\.\d{1,2})?$/.test(String(input.amount)) || !(usd>0) || usd>Number(state.settings.frogSurviveMax || 5)) throw Error('Test amount must be positive and within your purchase limit.');
+        const available=await withWalletOperation(()=>profileTradeableUsdc(connection,state,profile,wallet));
+        if(usd>available)throw Error('Test amount exceeds the available trading budget.');
+        amount=usdcRawFromUsd(usd);
+      } else {
+        amount=await tokenBalanceRaw(connection,wallet,mint);
+        if(!amount || BigInt(amount)<=0n)throw Error('Choose a coin currently held in your wallet to test a sell.');
+      }
+      const query={inputMint:input.side==='buy'?usdcMint:mint,outputMint:input.side==='buy'?mint:usdcMint,amount,taker:wallet,swapMode:'ExactIn'};
+      const quoteStart=Date.now();
+      const order=await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(state.settings),query});
+      const discoveryMs=Date.now()-quoteStart;
+      const result=await fnzeroRouter.test({connection,order,query});
+      send(response,200,{...result,discoveryMs});
+    } catch(error) {send(response,400,{error:error.message});}
+    finally {fnzeroTestBusy=false;}
+    return true;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/settings") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     const input = await readBody(request);
+    if (input.executionEngine !== undefined && !["jupiter","fnzero"].includes(input.executionEngine)) {send(response,400,{error:"Choose Jupiter or FnZero."});return true;}
     if (input.frogBuyMode !== undefined) {
       if (!["limits", "exact", "loss", "trailing", "takeback"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
     }
