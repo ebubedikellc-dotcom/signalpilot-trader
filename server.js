@@ -725,7 +725,7 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "fnzero-all-traders-v2",
+      appVersion: "paced-parallel-reads-v1",
       fnzero: isOwner ? fnzeroRouter.status() : undefined,
       marketDataProvider: "Direct Solana alerts + GMGN recovery",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
@@ -1380,7 +1380,7 @@ function solanaConnection(settings = {}, { fastRead = false, publicOnly = false,
   const provider = rpcProvider(settings, process.env, {publicOnly,direct});
   const endpoint = provider.http;
   if (!rpcConnections.has(endpoint)) {
-    const pool = createRpcReadPool({intervalMs: provider.public ? 1100 : 250});
+    const pool = createRpcReadPool({intervalMs: provider.public ? 1100 : 250, maxConcurrent: provider.public ? 1 : 2});
     const connection = new Connection(endpoint, {
       commitment:'confirmed', disableRetryOnRateLimit:true,
       ...(provider.ws ? {wsEndpoint:provider.ws} : {}),

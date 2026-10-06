@@ -105,3 +105,53 @@ test('urgent work respects provider Retry-After and repeated checks do not exten
  for(let i=0;i<3;i++){await assert.rejects(h.pool.run('getBalance',['sell'],async()=>1,100),/paused until/);h.advance(20000);}
  assert.equal(await h.pool.run('getBalance',['sell'],async()=>1,100),1);
 });
+
+const flush=()=>new Promise(resolve=>setImmediate(resolve));
+function parallelHarness(){
+ let time=0;
+ const pool=createRpcReadPool({maxConcurrent:2,intervalMs:250,now:()=>time,sleep:async ms=>{time+=ms;}});
+ return {pool,now:()=>time};
+}
+test('a sell read starts before a slow background read finishes, with unchanged request spacing',async()=>{
+ const h=parallelHarness(),starts=[];let release;
+ const background=h.pool.run('getBalance',['dashboard'],()=>{starts.push(h.now());return new Promise(r=>release=r);});
+ const sell=h.pool.run('getParsedTokenAccountsByOwner',['sell'],()=>{starts.push(h.now());return 42;},100);
+ assert.equal(await sell,42);
+ assert.deepEqual(starts,[0,250]);
+ assert.equal(h.pool.status().active,1); // Slow background response is still outstanding.
+ release(1);await background;assert.equal(h.pool.status().active,0);
+});
+test('two-read limit, reserved trade lane, coalescing and priority survive slow responses',async()=>{
+ const h=parallelHarness(),order=[];let releaseBackground,releaseBuy;
+ const background=h.pool.run('getBalance',['dashboard1'],()=>new Promise(r=>releaseBackground=r));
+ const background2=h.pool.run('getBalance',['dashboard2'],async()=>order.push('background2'));
+ await flush();assert.equal(h.pool.status().active,1);
+ const buy=h.pool.run('getParsedTransaction',['buy'],()=>new Promise(r=>releaseBuy=r),50);
+ assert.equal(buy,h.pool.run('getParsedTransaction',['buy'],()=>{throw new Error('duplicate');},50));
+ await flush();assert.equal(h.pool.status().active,2);
+ const sell=h.pool.run('getBalance',['sell'],async()=>order.push('sell'),100);
+ await flush();assert.deepEqual(order,[]);
+ releaseBuy(null);await buy;await sell;assert.deepEqual(order,['sell']);
+ releaseBackground(1);await Promise.all([background,background2]);
+ assert.deepEqual(order,['sell','background2']);assert.equal(h.pool.status().active,0);
+});
+test('promoting a queued background lookup wakes the reserved trade lane immediately',async()=>{
+ const h=parallelHarness();let release;
+ const background=h.pool.run('getBalance',['slow'],()=>new Promise(r=>release=r));
+ const lookup=h.pool.run('getParsedTransaction',['shared'],async()=>({meta:{err:null}}));
+ await flush();assert.equal(h.pool.status().requests,1);
+ const urgent=h.pool.run('getParsedTransaction',['shared'],()=>{throw new Error('duplicate');},100);
+ assert.equal(lookup,urgent);await urgent;assert.equal(h.pool.status().requests,2);
+ release(1);await background;
+});
+test('parallel reads honor provider cooldown before dispatching any more queued work',async()=>{
+ const h=parallelHarness();let releaseFirst,releaseSecond,calls=0;
+ const first=h.pool.run('getBalance',['one'],()=>{calls++;return new Promise(r=>releaseFirst=r);},50);
+ const second=h.pool.run('getBalance',['two'],()=>{calls++;return new Promise(r=>releaseSecond=r);},50);
+ await flush();assert.equal(calls,2);
+ const third=h.pool.run('getBalance',['three'],async()=>{calls++;},100);
+ const rejected=assert.rejects(third,/paused until/);
+ h.pool.observe({status:429,headers:new Headers({'retry-after':'120'})});
+ releaseFirst(1);await first;await rejected;assert.equal(calls,2);
+ releaseSecond(2);await second;assert.equal(h.pool.status().active,0);
+});
