@@ -26,7 +26,7 @@ test('old divergent limits normalize to the owner-facing saved limit and survive
  const reloaded=JSON.parse(JSON.stringify(h.state));h.c.syncQueueSurviveSettings(reloaded.settings);
  assert.equal(reloaded.settings.safeSurviveMax,'20');
 });
-test('all five modes and all three traders obey the shared ceiling and still copy smaller buys',()=>{
+test('capped modes and all three traders obey the shared ceiling and still copy smaller buys',()=>{
  const h=harness();
  for(const mode of ['limits','exact','loss','trailing','takeback']) {
   h.state.settings.frogBuyMode=mode;h.c.syncQueueSurviveSettings(h.state.settings);
@@ -36,6 +36,19 @@ test('all five modes and all three traders obey the shared ceiling and still cop
    assert.equal(h.c.buyUsdAmount(h.state,profile,NaN),0);
   }
  }
+});
+test('profit ladder uses the shared limit as the chosen higher buy amount',async()=>{
+ const h=harness();
+ await h.c.handleApi({method:'POST',body:{frogBuyMode:'ladder'}},{},{pathname:'/api/settings'});
+ assert.equal(h.c.output.code,200);
+ for(const profile of ['safe','frog','truenest']) {
+  assert.equal(h.state.settings[profile+'BuyMode'],'ladder');
+  assert.equal(h.c.buyUsdAmount(h.state,profile,50),20);
+  assert.equal(h.c.buyUsdAmount(h.state,profile,3),20);
+  assert.equal(h.c.buyUsdAmount(h.state,profile,NaN),0);
+ }
+ const settings=JSON.parse(JSON.stringify(h.state.settings));h.c.syncQueueSurviveSettings(settings);
+ assert.equal(settings.frogBuyMode,'ladder');assert.equal(settings.frogSurviveMax,'20');
 });
 test('full-amount mode bypasses only the purchase ceiling and survives settings reload for all traders',async()=>{
  const h=harness();
