@@ -1673,16 +1673,36 @@ async function updateGrowthProgress() {
   if (executionReport) executionReport.growth = snapshot;
 }
 
+const tradeableUsdcCache = new Map();
+function tradeableUsdcCacheKey(state, profile, wallet) {
+  return `${wallet}:${profile}:${state.settings?.profitMode || ""}:${profileDepositUsd(state, profile)}:${state.settings?.growthPrincipal || ""}:${state.settings?.growthTarget || ""}`;
+}
+
 async function profileTradeableUsdc(connection, state, profile, wallet) {
   const principal = profileDepositUsd(state, profile);
   const currentUsdc = await tokenUiBalance(connection, wallet, usdcMint);
   const locked = await protectProfit(state, wallet, currentUsdc);
+  let tradeable;
   if (state.settings.profitMode === "target") {
     const snapshot = growthSnapshot(await executionJournal.load());
-    if (snapshot?.wallet !== wallet) return 0;
-    return growthTradeable(snapshot, currentUsdc, locked);
+    tradeable = snapshot?.wallet !== wallet ? 0 : growthTradeable(snapshot, currentUsdc, locked);
+  } else {
+    tradeable = Math.max(0, Math.min(currentUsdc - locked, principal));
   }
-  return Math.max(0, Math.min(currentUsdc - locked, principal));
+  tradeableUsdcCache.set(tradeableUsdcCacheKey(state, profile, wallet), { value: tradeable, at: Date.now() });
+  return tradeable;
+}
+
+async function cachedProfileTradeableUsdc(connection, state, profile, wallet, maxAgeMs = 2500) {
+  const key = tradeableUsdcCacheKey(state, profile, wallet);
+  const cached = tradeableUsdcCache.get(key);
+  if (cached && Date.now() - cached.at <= maxAgeMs) return cached.value;
+  return profileTradeableUsdc(connection, state, profile, wallet);
+}
+
+function cachedProfileTradeableUsdcValue(state, profile, wallet, maxAgeMs = 2500) {
+  const cached = tradeableUsdcCache.get(tradeableUsdcCacheKey(state, profile, wallet));
+  return cached && Date.now() - cached.at <= maxAgeMs ? cached.value : null;
 }
 
 function profileTraderBankrollUsd(state, profile) {
@@ -1937,6 +1957,8 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   let outputMint = leg.outputMint;
   let copyAmount = scaledCopyAmount(leg.amount, state, profile);
   let sourceBuyUsd = 0;
+  let warmedOrderPromise = null;
+  let warmedOrderAmount = "";
 
   if (leg.action === "buy" && isQuoteMint(leg.outputMint)) {
     return { status: "Skipped - buy signal did not show a token bought" };
@@ -1967,29 +1989,42 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     }
     return sourceUsd;
     };
-    // Independent read-only valuation and fresh funds check overlap. Wait for
-    // both, including failures, so no wallet operation is left running behind us.
-    const inputs = await Promise.allSettled([
-      valueSourceBuy(),
-      withWalletOperation(() => profileTradeableUsdc(connection, state, profile, wallet))
-    ]);
-    for (const result of inputs) if (result.status === 'rejected') throw result.reason;
-    const sourceUsd = inputs[0].value;
-    const tradeableUsdc = inputs[1].value;
+    // Start the funds check first. Once we know the intended buy size, warm the
+    // quote route while the wallet/RPC read is still finishing.
+    const tradeableUsdcPromise = withWalletOperation(() => (
+      typeof cachedProfileTradeableUsdc === "function"
+        ? cachedProfileTradeableUsdc(connection, state, profile, wallet)
+        : profileTradeableUsdc(connection, state, profile, wallet)
+    ));
+    const sourceUsd = await valueSourceBuy();
     sourceBuyUsd = sourceUsd;
     let buyUsd = buyUsdAmount(state, profile, sourceUsd);
     if (!buyUsd) return { status: "Skipped - trader buy value could not be determined" };
+    inputMint = usdcMint;
+    outputMint = leg.outputMint;
+    warmedOrderAmount = usdcRawFromUsd(buyUsd);
+    const cachedTradeableUsdc = typeof cachedProfileTradeableUsdcValue === "function"
+      ? cachedProfileTradeableUsdcValue(state, profile, wallet)
+      : null;
+    if (cachedTradeableUsdc !== null && cachedTradeableUsdc > 0 && (
+      !["exact", "exactFull"].includes(profileBuyMode(state, profile)) || buyUsd <= cachedTradeableUsdc
+    )) {
+      warmedOrderPromise = prepareTradingOrder(state, {
+        inputMint, outputMint, amount:warmedOrderAmount, taker:wallet, swapMode:"ExactIn"
+      }).catch((error) => ({ speedPilotError: error }));
+    }
+    const tradeableUsdc = await tradeableUsdcPromise;
     if (tradeableUsdc <= 0) return { status: "Skipped - no tradeable USDC after profit lock" };
     if (["exact", "exactFull"].includes(profileBuyMode(state, profile)) && buyUsd > tradeableUsdc) {
+      if (warmedOrderPromise) warmedOrderPromise.catch(() => {});
       return { status: "Skipped - insufficient tradeable USDC to copy the exact amount" };
     }
     buyUsd = Math.min(buyUsd, tradeableUsdc);
-    inputMint = usdcMint;
-    outputMint = leg.outputMint;
     copyAmount = {
       amount: usdcRawFromUsd(buyUsd),
       note: `USDC buy ${buyUsd.toFixed(2)} from source trade value ${sourceUsd.toFixed(2)}; profit lock kept extra USDC out`
     };
+    if (copyAmount.amount !== warmedOrderAmount) warmedOrderPromise = null;
   }
 
   if (leg.action === "sell") {
@@ -2015,7 +2050,9 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   }
 
   const sizingReadyAt = Date.now();
-  const order = await prepareTradingOrder(state, {
+  const warmedOrder = warmedOrderPromise ? await warmedOrderPromise : null;
+  if (warmedOrder?.speedPilotError) throw warmedOrder.speedPilotError;
+  const order = warmedOrder || await prepareTradingOrder(state, {
     inputMint, outputMint, amount:copyAmount.amount, taker:wallet, swapMode:"ExactIn"
   });
 
@@ -3439,15 +3476,21 @@ async function handleApi(request, response, url) {
       if (!buySignal) throw new Error(`GMGN connected in ${feedMs}ms, but no recent buy signal was found for ${profileLabel(activeProfile)}.`);
       const leg = primarySwapLeg(buySignal, activeProfile, state);
       const connection = solanaConnection(state.settings, { priority: 50 });
-      const budgetStart = performance.now();
-      const available = await withWalletOperation(() => profileTradeableUsdc(connection, state, activeProfile, wallet));
-      const walletCheckMs = Math.max(1, Math.round(performance.now() - budgetStart));
       const sourceUsd = sourceUsdFromSignal(buySignal, traderWallet);
-      const plannedUsd = Math.min(available, buyUsdAmount(state, activeProfile, sourceUsd) || profileSurviveMaxUsd(state, activeProfile));
-      if (!(plannedUsd > 0)) throw new Error(`GMGN connected in ${feedMs}ms, but available trading cash is $${available.toFixed(2)}.`);
-      const buyQuery = { inputMint: usdcMint, outputMint: leg.outputMint, amount: usdcRawFromUsd(plannedUsd), taker: wallet, swapMode: "ExactIn" };
+      const targetUsd = buyUsdAmount(state, activeProfile, sourceUsd) || profileSurviveMaxUsd(state, activeProfile);
+      if (!(targetUsd > 0)) throw new Error(`GMGN connected in ${feedMs}ms, but the latest buy size could not be measured.`);
+      const warmBuyQuery = { inputMint: usdcMint, outputMint: leg.outputMint, amount: usdcRawFromUsd(targetUsd), taker: wallet, swapMode: "ExactIn" };
       const buyRouteStart = performance.now();
-      const buyOrder = await prepareTradingOrder(state, buyQuery);
+      const warmedBuyOrderPromise = prepareTradingOrder(state, warmBuyQuery).catch((error) => ({ speedPilotError: error }));
+      const budgetStart = performance.now();
+      const available = await withWalletOperation(() => cachedProfileTradeableUsdc(connection, state, activeProfile, wallet));
+      const walletCheckMs = Math.max(1, Math.round(performance.now() - budgetStart));
+      const plannedUsd = Math.min(available, targetUsd);
+      if (!(plannedUsd > 0)) throw new Error(`GMGN connected in ${feedMs}ms, but available trading cash is $${available.toFixed(2)}.`);
+      const buyOrder = plannedUsd === targetUsd
+        ? await warmedBuyOrderPromise
+        : await prepareTradingOrder(state, { inputMint: usdcMint, outputMint: leg.outputMint, amount: usdcRawFromUsd(plannedUsd), taker: wallet, swapMode: "ExactIn" });
+      if (buyOrder?.speedPilotError) throw buyOrder.speedPilotError;
       const buyRouteMs = Math.max(1, Math.round(performance.now() - buyRouteStart));
       const held = await latestHeldCopiedToken(connection, state, activeProfile, wallet);
       let sellRouteMs = 0;
