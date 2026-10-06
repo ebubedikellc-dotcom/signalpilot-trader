@@ -1732,7 +1732,9 @@ async function runSimpleSpeedTest() {
     const browserMs = Math.round(performance.now() - started);
     const seconds = (browserMs / 1000).toFixed(2);
     const real = test.real || {};
-    const backendBuyReadyMs = real.ok ? Number(real.feedMs || 0) + Number(real.buyRouteMs || 0) : 0;
+    const backendBuyReadyMs = real.ok
+      ? Number(real.backendBuyReadyMs || (Number(real.feedMs || 0) + Math.max(Number(real.walletCheckMs || 0), Number(real.buyRouteMs || 0))))
+      : 0;
     const backendSeconds = backendBuyReadyMs ? (backendBuyReadyMs / 1000).toFixed(2) : "0.00";
     const realLine = real.ok
       ? `REAL backend buy-ready ${backendBuyReadyMs}ms (${backendSeconds}s): GMGN feed ${real.feedMs}ms; wallet check ${real.walletCheckMs}ms; buy route ${real.buyRouteMs}ms for ${real.token || "coin"} ($${real.plannedUsd || 0}) using ${real.executionEngine || test.engine}. ${real.sellMessage || ""}`
