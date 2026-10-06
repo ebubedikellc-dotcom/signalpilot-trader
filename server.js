@@ -2138,7 +2138,10 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     if (reason) return { status: reason, detectedAt };
     if (leg.action === "buy") {
       const current = await readState();
-      const available = Math.min(await profileTradeableUsdc(connection, current, profile, wallet),
+      const tradeable = typeof cachedProfileTradeableUsdc === "function"
+        ? await cachedProfileTradeableUsdc(connection, current, profile, wallet, budgetWarmMaxAgeMs)
+        : await profileTradeableUsdc(connection, current, profile, wallet);
+      const available = Math.min(tradeable,
         buyUsdAmount(current, profile, sourceBuyUsd));
       if (BigInt(copyAmount.amount) > BigInt(usdcRawFromUsd(available))) {
         return { status: "Buy blocked: available trading funds changed; locked profit protected", detectedAt };
@@ -3535,17 +3538,33 @@ async function handleApi(request, response, url) {
       if (!(targetUsd > 0)) throw new Error(`GMGN connected in ${feedMs}ms, but the latest buy size could not be measured.`);
       const warmBuyQuery = { inputMint: usdcMint, outputMint: leg.outputMint, amount: usdcRawFromUsd(targetUsd), taker: wallet, swapMode: "ExactIn" };
       const buyRouteStart = performance.now();
-      const warmedBuyOrderPromise = prepareTradingOrder(state, warmBuyQuery).catch((error) => ({ speedPilotError: error }));
+      let warmedBuyRouteMs = 0;
+      const warmedBuyOrderPromise = prepareTradingOrder(state, warmBuyQuery)
+        .then((order) => {
+          warmedBuyRouteMs = Math.max(1, Math.round(performance.now() - buyRouteStart));
+          return order;
+        })
+        .catch((error) => {
+          warmedBuyRouteMs = Math.max(1, Math.round(performance.now() - buyRouteStart));
+          return { speedPilotError: error };
+        });
       const budgetStart = performance.now();
       const available = await withWalletOperation(() => cachedProfileTradeableUsdc(connection, state, activeProfile, wallet));
       const walletCheckMs = Math.max(1, Math.round(performance.now() - budgetStart));
       const plannedUsd = Math.min(available, targetUsd);
       if (!(plannedUsd > 0)) throw new Error(`GMGN connected in ${feedMs}ms, but available trading cash is $${available.toFixed(2)}.`);
-      const buyOrder = plannedUsd === targetUsd
-        ? await warmedBuyOrderPromise
-        : await prepareTradingOrder(state, { inputMint: usdcMint, outputMint: leg.outputMint, amount: usdcRawFromUsd(plannedUsd), taker: wallet, swapMode: "ExactIn" });
+      let buyOrder;
+      let buyRouteMs;
+      if (plannedUsd === targetUsd) {
+        buyOrder = await warmedBuyOrderPromise;
+        buyRouteMs = warmedBuyRouteMs || Math.max(1, Math.round(performance.now() - buyRouteStart));
+      } else {
+        const resizedRouteStart = performance.now();
+        buyOrder = await prepareTradingOrder(state, { inputMint: usdcMint, outputMint: leg.outputMint, amount: usdcRawFromUsd(plannedUsd), taker: wallet, swapMode: "ExactIn" });
+        buyRouteMs = Math.max(1, Math.round(performance.now() - resizedRouteStart));
+      }
       if (buyOrder?.speedPilotError) throw buyOrder.speedPilotError;
-      const buyRouteMs = Math.max(1, Math.round(performance.now() - buyRouteStart));
+      const backendBuyReadyMs = feedMs + Math.max(walletCheckMs, buyRouteMs);
       const held = await latestHeldCopiedToken(connection, state, activeProfile, wallet);
       let sellRouteMs = 0;
       let sellMessage = "No copied token is held now, so a real sell route was not checked.";
@@ -3562,6 +3581,7 @@ async function handleApi(request, response, url) {
       real.feedMs = feedMs;
       real.walletCheckMs = walletCheckMs;
       real.buyRouteMs = buyRouteMs;
+      real.backendBuyReadyMs = backendBuyReadyMs;
       real.sellRouteMs = sellRouteMs;
       real.sellMessage = sellMessage;
       real.token = leg.outputSymbol || leg.outputMint;
@@ -4083,6 +4103,25 @@ async function handleApi(request, response, url) {
       state.profiles[profile].running = true;
     });
     state.profiles.frog.lastAction = new Date().toISOString();
+    const activeWallet = tradeWallet(state, state.strategy.activeProfile);
+    if (activeWallet) {
+      try {
+        const warmConnection = solanaConnection(state.settings, { priority: 75 });
+        await withWalletOperation(() => profileTradeableUsdc(warmConnection, state, state.strategy.activeProfile, activeWallet), 75);
+      } catch (error) {
+        supportedProfiles.forEach((profile) => {
+          state.profiles[profile].running = false;
+        });
+        emergencyStopRequested = true;
+        state.activity = [
+          line(`Trading start blocked: wallet budget could not be verified fast enough (${error.message}).`),
+          ...(state.activity || [])
+        ].slice(0, 20);
+        await saveState(state);
+        send(response, 409, { error: `Wallet budget could not be verified: ${error.message}`, status: statusPayload(state, { role: "owner", id: "owner" }) });
+        return true;
+      }
+    }
     const switchLimit = queueFailureSwitchLimit(state);
     state.activity = [
       line(`Trading queue started: ${profileLabel(state.strategy.activeProfile)} in ${state.strategy.autoSwitch ? "Automatic" : "Manual"} mode. Sell monitoring stays active.`),
