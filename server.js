@@ -355,7 +355,7 @@ function syncQueueSurviveSettings(settings = {}) {
   settings.safeSurviveMode = queueMode === "survive" ? "on" : "off";
   settings.frogSurviveMode = queueMode === "survive" ? "on" : "off";
   settings.truenestSurviveMode = queueMode === "survive" ? "on" : "off";
-  // One owner-facing purchase ceiling, shared by all modes and traders.
+  // Shared purchase ceiling; the explicitly selected exactFull mode opts out.
   settings.frogSurviveMax = normalizeUsdSetting(settings.frogSurviveMax, "5");
   settings.safeSurviveMax = settings.frogSurviveMax;
   settings.truenestSurviveMax = settings.frogSurviveMax;
@@ -363,6 +363,7 @@ function syncQueueSurviveSettings(settings = {}) {
 }
 
 function normalizeBuyMode(mode) {
+  if (mode === "exactFull") return "exactFull";
   if (mode === "takeback") return "takeback";
   if (mode === "trailing") return "trailing";
   if (mode === "exact") return "exact";
@@ -725,7 +726,7 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "paced-parallel-reads-v1",
+      appVersion: "exact-copy-options-v1",
       fnzero: isOwner ? fnzeroRouter.status() : undefined,
       marketDataProvider: "Direct Solana alerts + GMGN recovery",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
@@ -1219,6 +1220,7 @@ function usdcRawFromUsd(value) {
 function buyUsdAmount(state, profile, sourceUsd = 0) {
   const usd = Number(sourceUsd);
   if (!Number.isFinite(usd) || usd <= 0) return 0;
+  if (profileBuyMode(state, profile) === "exactFull") return usd;
   return Math.min(usd, profileSurviveMaxUsd(state, profile));
 }
 
@@ -1978,7 +1980,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     let buyUsd = buyUsdAmount(state, profile, sourceUsd);
     if (!buyUsd) return { status: "Skipped - trader buy value could not be determined" };
     if (tradeableUsdc <= 0) return { status: "Skipped - no tradeable USDC after profit lock" };
-    if (profileBuyMode(state, profile) === "exact" && buyUsd > tradeableUsdc) {
+    if (["exact", "exactFull"].includes(profileBuyMode(state, profile)) && buyUsd > tradeableUsdc) {
       return { status: "Skipped - insufficient tradeable USDC to copy the exact amount" };
     }
     buyUsd = Math.min(buyUsd, tradeableUsdc);
@@ -2023,6 +2025,9 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   }
   if (leg.action === "buy" && (!order.inAmount || BigInt(order.inAmount) > BigInt(copyAmount.amount))) {
     throw new Error("Swap request exceeds the authorized buy amount; locked profit was not released");
+  }
+  if (leg.action === "buy" && profileBuyMode(state, profile) === "exactFull" && BigInt(order.inAmount) !== BigInt(copyAmount.amount)) {
+    throw new Error("Full-amount copy requires the complete authorized purchase amount; no order sent");
   }
 
   const submit = async () => {
@@ -2283,7 +2288,7 @@ async function runPositionWatch() {
   const d=await executionJournal.load();
   for(const position of Object.values(executionReport.positions)) {
    if(!position.verified || BigInt(position.raw)<=0n || !(position.cost>0) ||
-      (profileBuyMode(state,position.profile)==='exact' && d.growthGoal?.status !== 'closing'))continue;
+      (['exact','exactFull'].includes(profileBuyMode(state,position.profile)) && d.growthGoal?.status !== 'closing'))continue;
    if(await hasPendingMint(position.wallet,position.mint))continue;
    try {
     const quoteState=await readState();
@@ -3397,7 +3402,7 @@ async function handleApi(request, response, url) {
     state.settings.frogSurviveMax = String(amount);
     syncQueueSurviveSettings(state.settings);
     state.strategy.controlRevision = Math.max(Date.now(), Number(state.strategy.controlRevision || 0) + 1);
-    state.activity = [line(`Maximum per purchase saved: $${amount.toFixed(2)} for every mode and trader.`), ...(state.activity || [])].slice(0, 20);
+    state.activity = [line(`Maximum per purchase saved: $${amount.toFixed(2)} for all traders. Trader’s Full Amount bypasses this purchase ceiling only.`), ...(state.activity || [])].slice(0, 20);
     await saveState(state);
     send(response, 200, statusPayload(state, {role:"owner",id:"owner"}));
     return true;
@@ -3469,7 +3474,7 @@ async function handleApi(request, response, url) {
     const input = await readBody(request);
     if (input.executionEngine !== undefined && !["jupiter","fnzero"].includes(input.executionEngine)) {send(response,400,{error:"Choose Jupiter or FnZero."});return true;}
     if (input.frogBuyMode !== undefined) {
-      if (!["limits", "exact", "loss", "trailing", "takeback"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
+      if (!["limits", "exact", "exactFull", "loss", "trailing", "takeback"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
     }
     if (input.frogSurviveMax !== undefined && !(Number(input.frogSurviveMax)>0 && Number.isFinite(Number(input.frogSurviveMax)))) { send(response, 400, {error:"Enter a positive maximum purchase amount."}); return true; }
     if (input.trailingStopPercent !== undefined && !(Number.isFinite(Number(input.trailingStopPercent)) && Number(input.trailingStopPercent)>0 && Number(input.trailingStopPercent)<100)) {

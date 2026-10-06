@@ -20,6 +20,15 @@ function harness(reason,held='10') {
 test('price watching does not consume a wallet read when no exit is triggered',async()=>{
  const h=harness(null);await h.c.runPositionWatch();assert.deepEqual(h.calls,['/swap/v2/order']);
 });
+test('both exact-copy modes wait for the source sale unless the growth plan is closing',async()=>{
+ for(const mode of ['exact','exactFull']) {
+  const h=harness('profit');h.c.profileBuyMode=()=>mode;
+  await h.c.runPositionWatch();assert.deepEqual(h.calls,[],mode);
+  h.d.growthGoal={status:'closing',wallet:'w'};
+  h.c.growthSnapshot=()=>h.d.growthGoal;
+  await h.c.runPositionWatch();assert(h.calls.includes('sign'),mode);
+ }
+});
 test('triggered exit still requires fresh holdings before signing and submitting',async()=>{
  const h=harness('profit');await h.c.runPositionWatch();assert.deepEqual(h.calls,['/swap/v2/order','balance','sign','/swap/v2/execute','record']);
 });

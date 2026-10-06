@@ -1,4 +1,4 @@
-const CACHE_NAME = "signalpilot-owner-v7-compact-trading-options";
+const CACHE_NAME = "signalpilot-owner-v8-exact-copy-options";
 const APP_SHELL = [
   "/control-panel.html",
   "/styles.css",

@@ -35,6 +35,30 @@ function executionHarness() {
  const sell={timestamp:1,leg:{action:'sell',inputMint:'COIN',outputMint:'USDC',amount:'123'}};
  return {c,state,buy,sell,submitted,stop:()=>{stopped=true}};
 }
+test('full-amount copies skip insufficient budget and never reduce the purchase',async()=>{
+ const h=executionHarness();h.c.profileBuyMode=()=> 'exactFull';
+ h.c.profileTradeableUsdc=async()=>20;
+ h.c.signSolanaTransaction=async()=>{throw new Error('must not sign');};
+ const result=await h.c.executeCopiedSwap('safe',h.buy,h.state);
+ assert.match(result.status,/insufficient tradeable USDC/);assert.equal(h.submitted.length,0);
+});
+test('full-amount copies recheck locked funds before signing and reject undersized orders',async()=>{
+ const h=executionHarness();h.c.profileBuyMode=()=> 'exactFull';let checks=0;
+ h.c.profileTradeableUsdc=async()=>++checks===1?100:20;
+ h.c.signSolanaTransaction=async()=>{throw new Error('must not sign');};
+ assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/locked profit protected/);
+ h.c.profileTradeableUsdc=async()=>100;
+ h.c.jupiterJson=async()=>({transaction:'test',inAmount:'20000000'});
+ await assert.rejects(h.c.executeCopiedSwap('safe',h.buy,h.state),/complete authorized purchase amount/);
+ assert.equal(h.submitted.length,0);
+});
+test('full-amount copy retains proportional source selling',async()=>{
+ const h=executionHarness();h.c.profileBuyMode=()=> 'exactFull';
+ h.c.verifyCopySource=async()=>({leg:h.sell.leg,sourceTx:{blockTime:1,slot:1,meta:{preTokenBalances:[{owner:'wallet',mint:'COIN',uiTokenAmount:{amount:'100'}}],postTokenBalances:[{owner:'wallet',mint:'COIN',uiTokenAmount:{amount:'50'}}]}}});
+ h.c.trackedPosition=async()=>({raw:'120'});h.c.tokenBalanceRaw=async()=> '120';
+ const result=await h.c.executeCopiedSwap('safe',h.sell,h.state);
+ assert.equal(result.copiedTradeAmount,'60');assert.equal(h.submitted.length,1);
+});
 test('one-second-old buys and late sells are eligible; Stop during signing cancels submission',async()=>{
  const h=executionHarness();
  assert.equal((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,'Submitted - confirmation pending');

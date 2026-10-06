@@ -805,13 +805,14 @@ function queueSurviveMode(settings = {}) {
   return queueBuyMode(settings) === "survive";
 }
 
-function normalizeBuyMode(mode) { return mode === "takeback" ? "takeback" : mode === "trailing" ? "trailing" : mode === "exact" ? "exact" : mode === "loss" ? "loss" : "limits"; }
+function normalizeBuyMode(mode) { return mode === "exactFull" ? "exactFull" : mode === "takeback" ? "takeback" : mode === "trailing" ? "trailing" : mode === "exact" ? "exact" : mode === "loss" ? "loss" : "limits"; }
 function queueBuyMode(settings = {}) { return normalizeBuyMode(settings.frogBuyMode); }
-function buyModeLabel(mode) { return mode === "takeback" ? "Take My Money Back" : mode === "trailing" ? "Trailing Stops" : mode === "exact" ? "Exact Copy" : mode === "loss" ? "Loss Protection" : "Profit & Loss Limits"; }
+function buyModeLabel(mode) { return mode === "exactFull" ? "Exact Copy — Trader’s Full Amount" : mode === "takeback" ? "Take My Money Back" : mode === "trailing" ? "Trailing Stops" : mode === "exact" ? "Exact Copy — My Purchase Limit" : mode === "loss" ? "Loss Protection" : "Profit & Loss Limits"; }
 function surviveMax(settings = {}) { const amount = Number(settings.frogSurviveMax || 5); return amount > 0 ? amount : 5; }
 function buyModeNote(mode, max = 5, trailing = value("trailingStopPercent") || "10") {
   if (mode === "takeback") return `Buy at most $${max} each time; copy smaller buys. If the coin reaches about 60% profit, sell only enough to recover the main money. Leave the rest to run, but sell it if it falls about 30% from its highest watched value, or when the trader sells first.`;
   if (mode === "trailing") return `Buy at most $${max} each time; copy smaller buys. Try to sell after a ${trailing}% fall from the highest value observed since tracking began, or when the trader sells first. The selling point moves up, never down with the price. Losses are still possible; sale prices are not guaranteed.`;
+  if (mode === "exactFull") return "Copy the trader’s full purchase amount in USDC equivalent, without your per-purchase limit. Skip if your available trading budget cannot cover it. Locked profit stays protected. Copy the proportion the trader sells; no independent profit or loss exit. Execution prices may differ.";
   if (mode === "exact") return `Copy the trader's purchase amount up to your $${max} limit. Sell when the trader sells. No independent profit or loss exit.`;
   return `Buy at most $${max} each time; copy smaller amounts as they are. Sell at a 30% loss${mode === "limits" ? " or 60% gain" : ""}, or when the trader sells — whichever comes first. Sale prices are not guaranteed.`;
 }
@@ -1183,7 +1184,7 @@ function renderState(state) {
   }
   if (!purchaseLimitDirty) {
     if ($("queueSurviveMax")) $("queueSurviveMax").value = String(maxSurviveBuy);
-    setText("purchaseLimitStatus", `Saved: ${money(maxSurviveBuy)} per purchase · All modes and traders · Separate from total budget.`);
+    setText("purchaseLimitStatus", `Saved: ${money(maxSurviveBuy)} per purchase · ${buyMode === "exactFull" ? "Not applied in Trader’s Full Amount mode; total budget and locked profit still protected" : "Applies to this mode and all traders · Separate from total budget"}.`);
   }
   if ($("queueBuyModeSave")) $("queueBuyModeSave").textContent = "Save trading mode";
   if ($("automaticSwitch")) $("automaticSwitch").checked = strategy.autoSwitch === true;
@@ -2113,7 +2114,7 @@ on("saveSelectedTrader", "click", () => switchQueueProfile(value("selectedTrader
 on("queueBuyMode", "change", () => { modeFormDirty = true; explainSelectedMode(); });
 on("queueSurviveMax", "input", () => {
   purchaseLimitDirty = true;
-  setText("purchaseLimitStatus", `Not saved yet. Current limit: ${money(surviveMax(latestState.settings))}. Press Save limit to apply to every mode and trader.`);
+  setText("purchaseLimitStatus", `Not saved yet. Current limit: ${money(surviveMax(latestState.settings))}. Press Save limit to apply. Trader’s Full Amount bypasses this purchase limit.`);
 });
 on("savePurchaseLimit", "click", savePurchaseLimit);
 on("trailingStopPercent", "input", () => { modeFormDirty = true; explainSelectedMode(); });
@@ -2261,7 +2262,7 @@ function explainGrowthPlan() {
   const target = value("profitPlan") === "target";
   if ($("growthInputs")) $("growthInputs").hidden = !target;
   setText("growthPlanExplanation", target
-    ? `Start with ${money(Number(value("growthStartingAmount") || 100))}. Reinvest only the new profits earned by this amount until the plan's total reaches ${money(Number(value("growthTargetAmount") || 200))}, then sell its remaining coins and stop after confirmed cash reaches the target. Previously locked profit and other wallet funds stay outside this plan. Your selected trader and per-purchase limits still apply. Losses can reduce the balance; reaching the target is not guaranteed.`
+    ? `Start with ${money(Number(value("growthStartingAmount") || 100))}. Reinvest only the new profits earned by this amount until the plan's total reaches ${money(Number(value("growthTargetAmount") || 200))}, then sell its remaining coins and stop after confirmed cash reaches the target. Previously locked profit and other wallet funds stay outside this plan. Your selected trader and total budget still apply. Trader’s Full Amount bypasses only the per-purchase limit. Losses can reduce the balance; reaching the target is not guaranteed.`
     : "Save profits separately keeps them out of later purchases.");
 }
 function renderGrowthPlan() {

@@ -10,6 +10,7 @@ function harness() {
  const state={settings:{frogBuyMode:'trailing',frogSurviveMax:'20',safeSurviveMax:'5',truenestSurviveMax:'5',frogDeposit:'50',profitMode:'save',trailingStopPercent:'10'},strategy:{activeProfile:'safe',controlRevision:1},profiles:{safe:{running:true},frog:{running:true},truenest:{running:true}},activity:[]};
  let saves=0;
  const c=vm.createContext({Date,Number,Math,Object,String,defaultBuyMode:'limits',surviveBuyUsd:5,
+   profileBuyMode:s=>s.settings.frogBuyMode,clean:x=>x,executionJournal:{load:async()=>({})},
    readState:async()=>state,requireOwner:()=>false,sessionFromRequest:()=>({role:'owner'}),readBody:async r=>r.body,
    saveState:async()=>{saves++;},statusPayload:s=>s,line:x=>x,send:(_,code,body)=>{c.output={code,body}}});
  vm.runInContext(section(server,'function syncQueueSurviveSettings(', 'function isLegacyUnsupportedSwapSkip('),c);
@@ -35,6 +36,23 @@ test('all five modes and all three traders obey the shared ceiling and still cop
    assert.equal(h.c.buyUsdAmount(h.state,profile,NaN),0);
   }
  }
+});
+test('full-amount mode bypasses only the purchase ceiling and survives settings reload for all traders',async()=>{
+ const h=harness();
+ await h.c.handleApi({method:'POST',body:{frogBuyMode:'exactFull'}},{},{pathname:'/api/settings'});
+ assert.equal(h.c.output.code,200);
+ for(const profile of ['safe','frog','truenest']) {
+  assert.equal(h.state.settings[profile+'BuyMode'],'exactFull');
+  assert.equal(h.c.buyUsdAmount(h.state,profile,50),50);
+  assert.equal(h.c.buyUsdAmount(h.state,profile,3),3);
+  assert.equal(h.c.buyUsdAmount(h.state,profile,NaN),0);
+ }
+ const settings=JSON.parse(JSON.stringify(h.state.settings));h.c.syncQueueSurviveSettings(settings);
+ assert.equal(settings.frogBuyMode,'exactFull');assert.equal(settings.frogSurviveMax,'20');
+ assert.equal(settings.frogDeposit,'50');assert.equal(settings.profitMode,'save');
+ assert.equal(h.state.strategy.activeProfile,'safe');
+ await h.c.handleApi({method:'POST',body:{frogBuyMode:'exact'}},{},{pathname:'/api/settings'});
+ assert.equal(h.c.buyUsdAmount(h.state,'safe',50),20);
 });
 test('saving a limit changes only the cap and revision, not running state, trader, mode, budget or exits',async()=>{
  const h=harness();const result=await h.save('12.50');assert.equal(result.code,200);
