@@ -1791,6 +1791,12 @@ async function saveTradeMode(profile, mode) {
   showBusinessMessage(message);
 }
 
+function closeTradingOptions(focusSummary = false) {
+  const options = $("tradingOptions");
+  if (options) options.open = false;
+  if (focusSummary) $("selectedModeLabel")?.focus();
+}
+
 async function saveBuyMode(profile = "frog") {
   const current = currentPayload();
   const prefix = profile === "truenest" ? "truenest" : "frog";
@@ -1812,10 +1818,15 @@ async function saveBuyMode(profile = "frog") {
   const max = surviveMax(latestState.settings);
   const message = `Buy mode saved: ${buyModeLabel(selectedMode)}. ${buyModeNote(selectedMode, max)} Sells still follow.`;
 
-  const saved = await api("/api/settings", { method: "POST", body: JSON.stringify(data) });
-  modeFormDirty = false;
-  renderState(saved);
-  showBusinessMessage(message);
+  try {
+    const saved = await api("/api/settings", { method: "POST", body: JSON.stringify(data) });
+    modeFormDirty = false;
+    renderState(saved);
+    if (profile === "queue") closeTradingOptions(true);
+    showBusinessMessage(message);
+  } catch (error) {
+    showBusinessMessage(`Trading mode not saved: ${error.message}`, true);
+  }
 }
 
 async function savePurchaseLimit() {
@@ -2039,6 +2050,9 @@ on("queueStart", "click", startQueue);
 on("queueStop", "click", stopQueue);
 on("topStopTrading", "click", stopQueue);
 on("queueBuyModeSave", "click", () => saveBuyMode("queue"));
+on("closeTradingOptions", "click", () => closeTradingOptions(true));
+// Also close browser-restored details when returning to or refreshing this page.
+window.addEventListener("pageshow", () => closeTradingOptions());
 on("saveQueueSwitch", "click", saveQueueSwitch);
 on("switchSafeBot", "click", () => switchQueueProfile("safe"));
 on("switchDekuBot", "click", () => switchQueueProfile("frog"));

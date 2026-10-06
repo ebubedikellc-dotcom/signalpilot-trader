@@ -12,7 +12,7 @@
     <link rel="manifest" href="./manifest.webmanifest">
     <link rel="apple-touch-icon" href="./signalpilot-icon.svg">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2309161f'/%3E%3Cpath d='M14 41h36' stroke='%232ee6a6' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M18 37l9-12 9 8 10-15' fill='none' stroke='%23f6c95c' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='48' cy='18' r='5' fill='%232ee6a6'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="./styles.css?v=compact-trading-options-v1">
   </head>
   <body data-page="owner">
     <main class="app-shell control-shell">
@@ -40,10 +40,15 @@
           <button id="saveSelectedTrader" type="button">Use this trader</button>
           <small>Choose while stopped. Your selection stays until you change it.</small>
         </div>
-        <details class="mode-picker" open><summary id="selectedModeLabel">Trading mode</summary>
+        <details id="tradingOptions" class="mode-picker"><summary id="selectedModeLabel">Trading options</summary>
           <label>Trading mode <select id="queueBuyMode"><option value="limits">Profit &amp; Loss Limits</option><option value="exact">Exact Copy</option><option value="loss">Loss Protection</option><option value="trailing">Trailing Stops</option><option value="takeback">Take My Money Back</option></select></label>
           <label id="trailingStopLabel" hidden>Sell after a fall from the highest value (%) <input id="trailingStopPercent" type="number" min="0.1" max="99.9" step="0.1" value="10"></label>
-          <p id="modeExplanation"></p><button id="queueBuyModeSave" type="button">Save trading mode</button>
+          <p id="modeExplanation"></p>
+          <div class="mode-picker-actions">
+            <button id="queueBuyModeSave" type="button">Save trading mode</button>
+            <button id="closeTradingOptions" type="button" class="secondary-action">Done — close options</button>
+          </div>
+          <small>Done only closes this section. Use Save trading mode to apply changes.</small>
         </details>
         <span id="topStopStatus" role="status" aria-live="polite">Stops automatic buys and sells. Does not sell your holdings.</span>
       </div>
@@ -621,6 +626,6 @@
         <p id="businessMessage" class="message-line"></p>
       </section>
     </main>
-    <script src="./script.js?v=fnzero-all-traders-v2"></script>
+    <script src="./script.js?v=compact-trading-options-v1"></script>
   </body>
 </html>
