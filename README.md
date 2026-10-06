@@ -41,9 +41,10 @@ allowances. Test metrics separate route discovery, preparation and simulation;
 none is source-trade-to-copy landing latency.
 
 Initial scope: single direct USDC pool, standard SPL tokens, Raydium CPMM,
-Raydium AMM v4 or PumpSwap. Multihop, split routes, native SOL settlement and
-Token-2022 remain on Jupiter. This avoids spending fee-reserve SOL or introducing
-unaccounted intermediate tokens. No new gRPC provider is configured.
+Raydium AMM v4, PumpSwap or PumpFun bonding curves. Multihop, split routes,
+native SOL settlement and Token-2022 remain on Jupiter. This avoids spending
+fee-reserve SOL or introducing unaccounted intermediate tokens. No new gRPC
+provider is configured.
 
 When FnZero is selected, only successfully simulated wallet/mint/direction routes
 are eligible for one hour, in memory (retest after a restart). Each live order
