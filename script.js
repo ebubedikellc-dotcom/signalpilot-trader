@@ -1738,7 +1738,13 @@ async function loadFnzeroCoins() {
     const select=$('fnzeroCoin');
     select.replaceChildren(new Option('Choose a recent coin, or paste a mint below',''));
     for(const coin of data.coins)select.add(new Option(`${coin.symbol} · ${coin.mint.slice(0,6)}…${coin.mint.slice(-4)}`,coin.mint));
-    $('fnzeroCoinsStatus').textContent=`${profileName(profile)}: ${data.coins.length} recent coins. ${data.cached?'Cached':'Checked'} ${new Date(data.checkedAt).toLocaleString()}. ${data.coins.length?'Choose a coin to test.':'You can paste a mint address instead.'}`;
+    if(data.coins.length) {
+      select.selectedIndex=1;
+      $('fnzeroMint').value=data.coins[0].mint;
+    } else {
+      $('fnzeroMint').value='';
+    }
+    $('fnzeroCoinsStatus').textContent=`${profileName(profile)}: ${data.coins.length} recent coins. ${data.cached?'Cached':'Checked'} ${new Date(data.checkedAt).toLocaleString()}. ${data.coins.length?'First coin selected for testing.':'You can paste a mint address instead.'}`;
   } catch(error) {if($('fnzeroTrader').value===profile)$('fnzeroCoinsStatus').textContent=`Could not load coins: ${error.message}`;}
   finally {button.disabled=false;}
 }
@@ -2011,7 +2017,7 @@ on("saveSettings", "click", saveSettings);
 on("testFnzero", "click", testFnzero);
 on("fnzeroTrader", "change", changeFnzeroTrader);
 on("loadFnzeroCoins", "click", loadFnzeroCoins);
-on("fnzeroCoin", "change", () => {if($('fnzeroCoin').value)$('fnzeroMint').value=$('fnzeroCoin').value;});
+on("fnzeroCoin", "change", () => {$('fnzeroMint').value=$('fnzeroCoin').value || '';});
 on("saveExecutionEngine", "click", async () => {
   try {
     renderState(await api('/api/settings',{method:'POST',body:JSON.stringify({executionEngine:$('executionEngine').value})}));

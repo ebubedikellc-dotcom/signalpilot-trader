@@ -110,6 +110,20 @@ test('test endpoints reject unauthorized, running and invalid-profile requests b
  }
 });
 
+test('FnZero test reports wallet and coin selection problems separately',async()=>{
+ const noWallet=traderTestHarness();
+ noWallet.c.tradeWallet=()=>'';
+ let r=await noWallet.request('/api/fnzero/test',{profile:'safe',mint:fixture.output_mint,side:'buy',amount:'10'});
+ assert.equal(r.status,400);
+ assert.match(r.body.error,/Configure your trading wallet/);
+
+ const quoteMint=traderTestHarness();
+ r=await quoteMint.request('/api/fnzero/test',{profile:'safe',mint:USDC,side:'buy',amount:'10'});
+ assert.equal(r.status,400);
+ assert.match(r.body.error,/not SOL or USDC/);
+ assert.equal(quoteMint.budgets.length,0);
+});
+
 test('recent coin lookup uses the requested trader wallet, caches results, and excludes quote/invalid/duplicate mints',async()=>{
  const h=traderTestHarness();h.state.settings.gmgnApiKey='test-key';
  for(const profile of ['safe','frog','truenest']) {

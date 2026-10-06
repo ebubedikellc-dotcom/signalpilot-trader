@@ -3441,7 +3441,8 @@ async function handleApi(request, response, url) {
     if(fnzeroTestBusy || Date.now()-(fnzeroTestAt.get(profile)||0)<60000) {send(response,429,{error:'Wait for the current test to finish; allow one minute between tests of the same trader.'});return true;}
     let mint;
     try {mint=new PublicKey(String(input.mint||'')).toBase58();} catch {send(response,400,{error:'Enter the coin mint address.'});return true;}
-    if(!wallet || isQuoteMint(mint)) {send(response,400,{error:'Choose a trading coin and configure your wallet first.'});return true;}
+    if(!wallet) {send(response,400,{error:'Configure your trading wallet before running the FnZero test.'});return true;}
+    if(isQuoteMint(mint)) {send(response,400,{error:'Choose one of the trader’s recent coins, not SOL or USDC.'});return true;}
     if(!['buy','sell'].includes(input.side)) {send(response,400,{error:'Choose buy or sell for the test.'});return true;}
     const connection=solanaConnection(state.settings);
     fnzeroTestBusy=true;fnzeroTestAt.set(profile,Date.now());
