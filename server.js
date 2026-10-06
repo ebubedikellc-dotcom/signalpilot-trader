@@ -3414,6 +3414,8 @@ async function handleApi(request, response, url) {
     const started = performance.now();
     const activeProfile = state.strategy?.activeProfile || "frog";
     const engine = state.settings?.executionEngine === "fnzero" ? "FnZero where supported, Jupiter fallback" : "Jupiter";
+    const traderWallet = targetWallet(state, activeProfile);
+    const wallet = tradeWallet(state);
     const steps = [];
     const mark = (name) => steps.push({ name, ms: Math.round(performance.now() - started) });
     mark("Fake trader BUY received");
@@ -3423,6 +3425,57 @@ async function handleApi(request, response, url) {
     mark("Fake trader SELL received");
     await Promise.resolve();
     mark("Machine SELL decision ready");
+    const real = { ok: false, message: "Real route was not checked.", submitted: false };
+    try {
+      if (!traderWallet) throw new Error("No selected trader wallet is configured.");
+      if (!wallet) throw new Error("No trading wallet is configured.");
+      const feedStart = performance.now();
+      const transactions = await fetchGmgnTransactionsForAddress(state.settings, traderWallet);
+      const feedMs = Math.max(1, Math.round(performance.now() - feedStart));
+      const buySignal = transactions.find((transaction) => {
+        const leg = primarySwapLeg(transaction, activeProfile, state);
+        return leg?.action === "buy" && leg.outputMint && !isQuoteMint(leg.outputMint);
+      });
+      if (!buySignal) throw new Error(`GMGN connected in ${feedMs}ms, but no recent buy signal was found for ${profileLabel(activeProfile)}.`);
+      const leg = primarySwapLeg(buySignal, activeProfile, state);
+      const connection = solanaConnection(state.settings, { priority: 50 });
+      const budgetStart = performance.now();
+      const available = await withWalletOperation(() => profileTradeableUsdc(connection, state, activeProfile, wallet));
+      const walletCheckMs = Math.max(1, Math.round(performance.now() - budgetStart));
+      const sourceUsd = sourceUsdFromSignal(buySignal, traderWallet);
+      const plannedUsd = Math.min(available, buyUsdAmount(state, activeProfile, sourceUsd) || profileSurviveMaxUsd(state, activeProfile));
+      if (!(plannedUsd > 0)) throw new Error(`GMGN connected in ${feedMs}ms, but available trading cash is $${available.toFixed(2)}.`);
+      const buyQuery = { inputMint: usdcMint, outputMint: leg.outputMint, amount: usdcRawFromUsd(plannedUsd), taker: wallet, swapMode: "ExactIn" };
+      const buyRouteStart = performance.now();
+      const buyOrder = await prepareTradingOrder(state, buyQuery);
+      const buyRouteMs = Math.max(1, Math.round(performance.now() - buyRouteStart));
+      const held = await latestHeldCopiedToken(connection, state, activeProfile, wallet);
+      let sellRouteMs = 0;
+      let sellMessage = "No copied token is held now, so a real sell route was not checked.";
+      if (held?.mint && held?.amount) {
+        const sellRouteStart = performance.now();
+        await prepareTradingOrder(state, { inputMint: held.mint, outputMint: usdcMint, amount: held.amount, taker: wallet, swapMode: "ExactIn" });
+        sellRouteMs = Math.max(1, Math.round(performance.now() - sellRouteStart));
+        sellMessage = `Real sell route prepared for held coin in ${sellRouteMs}ms.`;
+      }
+      real.ok = true;
+      real.message = "Real GMGN feed and real buy route preparation checked. No signature or trade was sent.";
+      real.profile = activeProfile;
+      real.traderWallet = traderWallet;
+      real.feedMs = feedMs;
+      real.walletCheckMs = walletCheckMs;
+      real.buyRouteMs = buyRouteMs;
+      real.sellRouteMs = sellRouteMs;
+      real.sellMessage = sellMessage;
+      real.token = leg.outputSymbol || leg.outputMint;
+      real.mint = leg.outputMint;
+      real.plannedUsd = Number(plannedUsd.toFixed(2));
+      real.executionEngine = buyOrder.executionEngine || "jupiter";
+      real.fnzeroFallbackReason = buyOrder.fnzeroFallbackReason || "";
+      real.submitted = false;
+    } catch (error) {
+      real.message = error.message || "Real route check failed.";
+    }
     const totalMs = Math.max(1, Math.round(performance.now() - started));
     send(response, 200, {
       readOnly: true,
@@ -3433,7 +3486,8 @@ async function handleApi(request, response, url) {
       sellReactionMs: Math.max(1, steps[3].ms - steps[2].ms),
       totalMs,
       steps,
-      message: "Fake trader buy and fake trader sell completed. No wallet, quote, signature or transaction was used."
+      real,
+      message: "Speed test completed. No wallet signature or transaction submission was used."
     });
     return true;
   }

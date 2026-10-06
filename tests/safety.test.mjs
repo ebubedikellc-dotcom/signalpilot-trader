@@ -8,16 +8,18 @@ import fs from 'node:fs';
 const server=fs.readFileSync(new URL('../server.js',import.meta.url),'utf8');
 const script=fs.readFileSync(new URL('../script.js',import.meta.url),'utf8');
 const section=(s,a,b)=>s.slice(s.indexOf(a),s.indexOf(b,s.indexOf(a)));
-test('simple speed test is fake only and cannot sign or submit trades',()=>{
+test('speed test checks real read-only routing but cannot sign or submit trades',()=>{
  const endpoint=section(server,'  if (request.method === "POST" && url.pathname === "/api/simple-speed-test")','  if (request.method === "POST" && url.pathname === "/api/fnzero/coins")');
  assert.match(endpoint,/requireOwner/);
- assert.match(endpoint,/Fake trader buy and fake trader sell/);
+ assert.match(endpoint,/fetchGmgnTransactionsForAddress/);
+ assert.match(endpoint,/prepareTradingOrder/);
  assert.match(endpoint,/buyReactionMs/);
  assert.match(endpoint,/sellReactionMs/);
- assert.doesNotMatch(endpoint,/signSolanaTransaction|executeTradingOrder|sendRawTransaction|jupiterJson|fnzeroRouter/);
+ assert.doesNotMatch(endpoint,/signSolanaTransaction|executeTradingOrder|sendRawTransaction|submitFnzeroOrder/);
  assert.doesNotMatch(script,/fnzeroMint|fnzeroCoin|fnzeroSide|testFnzero/);
  assert.match(script,/runSimpleSpeedTest/);
- assert.match(script,/Fake trader BUY -> machine BUY/);
+ assert.match(script,/REAL check/);
+ assert.match(script,/trader BUY -> machine BUY/);
 });
 test('poll cadence does not expire buys; a known subsequent source sell cancels them',()=>{
  const feeds=new Map();const c=vm.createContext({Number,signalFeeds:feeds,primarySwapLeg:t=>t.leg,targetWallet:()=> 'wallet'});

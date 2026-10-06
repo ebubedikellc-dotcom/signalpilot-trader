@@ -1726,16 +1726,19 @@ async function runSimpleSpeedTest() {
   if (!button || !result) return;
   button.disabled = true;
   const started = performance.now();
-  result.textContent = "Testing speed: fake trader buy, machine buy, fake trader sell, machine sell. No real trade will be sent...";
+  result.textContent = "Testing real feed and route speed, then fake buy/sell reaction. No real trade will be sent...";
   try {
     const test = await api("/api/simple-speed-test", { method: "POST" });
     const browserMs = Math.round(performance.now() - started);
     const seconds = (browserMs / 1000).toFixed(2);
+    const real = test.real || {};
+    const realLine = real.ok
+      ? `REAL check: GMGN feed ${real.feedMs}ms; wallet check ${real.walletCheckMs}ms; buy route ${real.buyRouteMs}ms for ${real.token || "coin"} ($${real.plannedUsd || 0}) using ${real.executionEngine || test.engine}. ${real.sellMessage || ""}`
+      : `REAL check did not pass: ${real.message || "not checked"}`;
     result.textContent =
-      `Speed test finished. Fake trader BUY -> machine BUY: ${test.buyReactionMs}ms. ` +
-      `Fake trader SELL -> machine SELL: ${test.sellReactionMs}ms. ` +
-      `Full click-to-result time: ${browserMs}ms (${seconds}s). ` +
-      `Route selected: ${test.engine}. No real money moved.`;
+      `${realLine} Fake reaction: trader BUY -> machine BUY ${test.buyReactionMs}ms; ` +
+      `trader SELL -> machine SELL ${test.sellReactionMs}ms. ` +
+      `Full click-to-result time: ${browserMs}ms (${seconds}s). No real money moved.`;
   } catch (error) {
     result.textContent = `Speed test failed: ${error.message}. No real trade was sent.`;
   } finally {
