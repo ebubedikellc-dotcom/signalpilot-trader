@@ -1737,8 +1737,9 @@ async function runSimpleSpeedTest() {
       ? Number(real.backendBuyReadyMs || (Number(real.feedMs || 0) + Math.max(Number(real.walletCheckMs || 0), Number(real.buyRouteMs || 0))))
       : 0;
     const backendSeconds = backendBuyReadyMs ? (backendBuyReadyMs / 1000).toFixed(2) : "0.00";
+    const walletNote = real.walletCheckInCriticalPath ? "wallet refresh was slow and needs warming" : "wallet balance was already warm";
     const realLine = real.ok
-      ? `REAL backend buy-ready ${backendBuyReadyMs}ms (${backendSeconds}s): GMGN feed ${real.feedMs}ms; wallet check ${real.walletCheckMs}ms; buy route ${real.buyRouteMs}ms for ${real.token || "coin"} ($${real.plannedUsd || 0}) using ${real.executionEngine || test.engine}. ${real.sellMessage || ""}`
+      ? `REAL route-ready ${backendBuyReadyMs}ms (${backendSeconds}s): GMGN feed ${real.feedMs}ms; buy route ${real.buyRouteMs}ms for ${real.token || "coin"} ($${real.plannedUsd || 0}) using ${real.executionEngine || test.engine}. Wallet check ${real.walletCheckMs}ms separately (${walletNote}). ${real.sellMessage || ""}`
       : `REAL check did not pass: ${real.message || "not checked"}`;
     result.textContent =
       `${realLine} Fake reaction: trader BUY -> machine BUY ${test.buyReactionMs}ms; ` +
