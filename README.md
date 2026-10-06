@@ -56,4 +56,10 @@ Existing copy sells and risk exits use the selector; manually reviewed emergency
 sales retain their original Jupiter quote. Start/Stop, limits, profit reserves,
 position ownership and confirmation-based accounting remain in force.
 
+FnZero can also auto-learn a supported direct route from the real Jupiter route
+when the owner has selected FnZero. The first unseen coin may still pay the
+Jupiter discovery cost, but the learned wallet/mint/direction stays warm in
+memory for subsequent copies and exits. Unsupported routes still fall back to
+Jupiter before signing.
+
 The SDK builders are vendored and pinned; see `vendor/fnzero/README.md`.
