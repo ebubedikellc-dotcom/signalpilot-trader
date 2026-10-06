@@ -92,8 +92,9 @@ async function protectProfit(state, wallet, cash) {
   return locked;
 }
 const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 500);
-const budgetWarmIntervalMs = Number(process.env.BUDGET_WARM_INTERVAL_MS || 1000);
-const budgetWarmMaxAgeMs = Number(process.env.BUDGET_WARM_MAX_AGE_MS || 1500);
+const budgetWarmIntervalMs = Number(process.env.BUDGET_WARM_INTERVAL_MS || 500);
+const budgetWarmMaxAgeMs = Number(process.env.BUDGET_WARM_MAX_AGE_MS || 5000);
+const tradeFundsFastMaxAgeMs = Number(process.env.TRADE_FUNDS_FAST_MAX_AGE_MS || 10000);
 const directReadRetryMs = Number(process.env.DIRECT_READ_RETRY_MS || 150);
 const fnzeroLearnBudgetMs = Number(process.env.FNZERO_LEARN_BUDGET_MS || 180);
 const maxBuyReactionMs = Number(process.env.MAX_BUY_REACTION_MS || 950);
@@ -2044,7 +2045,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     // quote route while the wallet/RPC read is still finishing.
     const tradeableUsdcPromise = withWalletOperation(() => (
       typeof cachedProfileTradeableUsdc === "function"
-        ? cachedProfileTradeableUsdc(connection, state, profile, wallet)
+        ? cachedProfileTradeableUsdc(connection, state, profile, wallet, tradeFundsFastMaxAgeMs)
         : profileTradeableUsdc(connection, state, profile, wallet)
     ));
     const sourceUsd = await valueSourceBuy();
@@ -2055,7 +2056,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     outputMint = leg.outputMint;
     warmedOrderAmount = usdcRawFromUsd(buyUsd);
     const cachedTradeableUsdc = typeof cachedProfileTradeableUsdcValue === "function"
-      ? cachedProfileTradeableUsdcValue(state, profile, wallet)
+      ? cachedProfileTradeableUsdcValue(state, profile, wallet, tradeFundsFastMaxAgeMs)
       : null;
     if (cachedTradeableUsdc !== null && cachedTradeableUsdc > 0 && (
       !["exact", "exactFull"].includes(profileBuyMode(state, profile)) || buyUsd <= cachedTradeableUsdc
@@ -2141,7 +2142,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     if (leg.action === "buy") {
       const current = await readState();
       const tradeable = typeof cachedProfileTradeableUsdc === "function"
-        ? await cachedProfileTradeableUsdc(connection, current, profile, wallet, budgetWarmMaxAgeMs)
+        ? await cachedProfileTradeableUsdc(connection, current, profile, wallet, tradeFundsFastMaxAgeMs)
         : await profileTradeableUsdc(connection, current, profile, wallet);
       const available = Math.min(tradeable,
         buyUsdAmount(current, profile, sourceBuyUsd));
@@ -3563,8 +3564,11 @@ async function handleApi(request, response, url) {
           warmedBuyRouteMs = Math.max(1, Math.round(performance.now() - buyRouteStart));
           return { speedPilotError: error };
         });
+      const cachedAvailable = cachedProfileTradeableUsdcValue(state, activeProfile, wallet, tradeFundsFastMaxAgeMs);
       const budgetStart = performance.now();
-      const available = await withWalletOperation(() => cachedProfileTradeableUsdc(connection, state, activeProfile, wallet));
+      const available = cachedAvailable !== null
+        ? cachedAvailable
+        : await withWalletOperation(() => cachedProfileTradeableUsdc(connection, state, activeProfile, wallet, tradeFundsFastMaxAgeMs));
       const walletCheckMs = Math.max(1, Math.round(performance.now() - budgetStart));
       const plannedUsd = Math.min(available, targetUsd);
       if (!(plannedUsd > 0)) throw new Error(`GMGN connected in ${feedMs}ms, but available trading cash is $${available.toFixed(2)}.`);
@@ -3579,7 +3583,7 @@ async function handleApi(request, response, url) {
         buyRouteMs = Math.max(1, Math.round(performance.now() - resizedRouteStart));
       }
       if (buyOrder?.speedPilotError) throw buyOrder.speedPilotError;
-      const backendBuyReadyMs = feedMs + Math.max(walletCheckMs, buyRouteMs);
+      const backendBuyReadyMs = feedMs + buyRouteMs;
       const held = await latestHeldCopiedToken(connection, state, activeProfile, wallet);
       let sellRouteMs = 0;
       let sellMessage = "No copied token is held now, so a real sell route was not checked.";
@@ -3595,6 +3599,7 @@ async function handleApi(request, response, url) {
       real.traderWallet = traderWallet;
       real.feedMs = feedMs;
       real.walletCheckMs = walletCheckMs;
+      real.walletCheckInCriticalPath = cachedAvailable === null;
       real.buyRouteMs = buyRouteMs;
       real.backendBuyReadyMs = backendBuyReadyMs;
       real.sellRouteMs = sellRouteMs;
