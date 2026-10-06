@@ -99,6 +99,7 @@ test('all three traders test independently using their own budget without switch
  assert.deepEqual(h.budgets,['safe','frog','truenest']);assert.equal(h.state.strategy.activeProfile,'safe');
  const repeat=await h.request('/api/fnzero/test',{profile:'safe',mint:fixture.output_mint,side:'buy',amount:'10'});
  assert.equal(repeat.status,429);
+ assert.equal(typeof repeat.body.retryAfterMs,'number');
 });
 
 test('test endpoints reject unauthorized, running and invalid-profile requests before loading or simulating',async()=>{

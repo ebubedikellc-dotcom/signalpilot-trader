@@ -1720,6 +1720,39 @@ async function saveSettings() {
 }
 
 const fnzeroTraderResults = new Map();
+let latestWalletCoins = [];
+let fnzeroCooldownTimer = null;
+
+function chooseHeldCoinForFnzeroSell() {
+  if ($('fnzeroSide')?.value !== 'sell') return false;
+  const held = latestWalletCoins.find((coin) => coin.canSell);
+  if (!held) return false;
+  $('fnzeroMint').value = held.mint;
+  const select = $('fnzeroCoin');
+  if (select && ![...select.options].some((option) => option.value === held.mint)) {
+    select.add(new Option(`${held.symbol || 'Held coin'} · ${held.mint.slice(0,6)}…${held.mint.slice(-4)}`, held.mint));
+  }
+  if (select) select.value = held.mint;
+  $('fnzeroCoinsStatus').textContent = `Sell test selected a coin currently in your wallet: ${held.symbol || held.mint}.`;
+  return true;
+}
+
+function showFnzeroCooldown(profile, retryAfterMs) {
+  clearInterval(fnzeroCooldownTimer);
+  const end = Date.now() + Math.max(1000, Number(retryAfterMs || 60000));
+  const tick = () => {
+    const seconds = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+    const message = `${profileName(profile)} test is cooling down. Wait ${seconds} second${seconds === 1 ? '' : 's'}, then press Test once. No trade was sent.`;
+    $('fnzeroTestResult').textContent = message;
+    fnzeroTraderResults.set(profile, message);
+    if (seconds <= 0) {
+      clearInterval(fnzeroCooldownTimer);
+      $('fnzeroTestResult').textContent = `${profileName(profile)} is ready. Press Test FnZero without trading once.`;
+    }
+  };
+  tick();
+  fnzeroCooldownTimer = setInterval(tick, 1000);
+}
 
 function changeFnzeroTrader() {
   $('fnzeroMint').value='';
@@ -1752,16 +1785,26 @@ async function loadFnzeroCoins() {
 async function testFnzero() {
   const button=$('testFnzero'), result=$('fnzeroTestResult');
   if(!button || !result)return;
-  const profile=$('fnzeroTrader').value, mint=$('fnzeroMint').value.trim(), side=$('fnzeroSide').value;
+  const profile=$('fnzeroTrader').value, side=$('fnzeroSide').value;
+  if (side === 'sell' && !$('fnzeroMint').value.trim() && !chooseHeldCoinForFnzeroSell()) {
+    result.textContent = 'Checking your wallet for a coin to sell-test. No trade will be sent…';
+    await loadWalletCoins();
+    chooseHeldCoinForFnzeroSell();
+  }
+  const mint=$('fnzeroMint').value.trim();
+  let handledCooldown = false;
   button.disabled=true;
   $('fnzeroTrader').disabled=true;
   result.textContent='Checking the route and simulating FnZero. No trade will be sent…';
   try {
     const test=await api('/api/fnzero/test',{method:'POST',body:JSON.stringify({profile,mint,side,amount:$('fnzeroAmount').value.trim()})});
     result.textContent=test.ok ? `Simulation passed. Route discovery: ${(test.discoveryMs/1000).toFixed(3)}s; FnZero preparation: ${(test.preparationMs/1000).toFixed(3)}s; simulation: ${(test.simulationMs/1000).toFixed(3)}s. No buy or sell was sent. This is not a measurement of completed copy-trading speed.` : `FnZero test did not pass: ${test.message}. No trade was sent. Jupiter remains available.`;
-  } catch(error) {result.textContent=`Test unavailable: ${error.message}. No trade was sent.`;}
+  } catch(error) {
+    if (error.payload?.retryAfterMs) { handledCooldown = true; showFnzeroCooldown(profile, error.payload.retryAfterMs); }
+    else result.textContent=`Test unavailable: ${error.message}. No trade was sent.`;
+  }
   finally {
-    result.textContent=`${profileName(profile)} · ${side} · ${mint || 'no coin selected'}: ${result.textContent}`;
+    if (!handledCooldown) result.textContent=`${profileName(profile)} · ${side} · ${mint || 'no coin selected'}: ${result.textContent}`;
     fnzeroTraderResults.set(profile,result.textContent);
     $('fnzeroTraderResults').replaceChildren(...Array.from(fnzeroTraderResults.values(),message=>{const p=document.createElement('p');p.textContent=message;return p;}));
     button.disabled=false;$('fnzeroTrader').disabled=false;
@@ -2017,6 +2060,13 @@ on("saveSettings", "click", saveSettings);
 on("testFnzero", "click", testFnzero);
 on("fnzeroTrader", "change", changeFnzeroTrader);
 on("loadFnzeroCoins", "click", loadFnzeroCoins);
+on("fnzeroSide", "change", () => {
+  if ($('fnzeroSide').value === 'sell') {
+    if (!chooseHeldCoinForFnzeroSell()) $('fnzeroCoinsStatus').textContent = 'Sell test needs a coin that is already in your wallet. Refresh coin values if none appears.';
+  } else {
+    $('fnzeroCoinsStatus').textContent = 'Buy test uses the selected trader recent coin, or a pasted coin mint address.';
+  }
+});
 on("fnzeroCoin", "change", () => {$('fnzeroMint').value=$('fnzeroCoin').value || '';});
 on("saveExecutionEngine", "click", async () => {
   try {
@@ -2212,10 +2262,11 @@ async function loadWalletCoins() {
   setText("walletCoinsStatus", "Checking wallet coins and market prices…");
   try {
     const data = await api("/api/owner/wallet-coins");
+    latestWalletCoins = data.coins || [];
     walletPriceSnapshot = { ...data, receivedAt: Date.now() };
     renderRemainingWallet(latestState.settings);
     $("walletCoinsList").replaceChildren();
-    for (const coin of data.coins) {
+    for (const coin of latestWalletCoins) {
       const card = document.createElement("article");
       card.className = "wallet-coin-card";
       card.innerHTML = `<strong>${escapeHtml(coin.name)} (${escapeHtml(coin.symbol)})</strong>
@@ -2224,15 +2275,16 @@ async function loadWalletCoins() {
         <small class="coin-mint">${escapeHtml(coin.mint)}</small>`;
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = `Sell ${coin.symbol} — check quote`;
+      button.textContent = `Review quote to sell ${coin.symbol}`;
       button.disabled = !coin.canSell;
       button.onclick = () => ownerSellToken(heldCoinProfile(latestState, data.wallet, coin.mint), {mint:coin.mint});
       card.append(button);
       $("walletCoinsList").append(card);
     }
-    setText("walletCoinsStatus", data.coins.length ? `Checked ${new Date(data.checkedAt).toLocaleString()}. Market estimates before fees; check a sale quote for the amount you could receive.` : "No other tokens remain in this wallet.");
-    setText("stuckCoinSaleStatus", data.coins.length ? `${data.coins.length} held coin types. Choose a coin below to review its sale.` : "No stuck or unsold coins found in the latest wallet check.");
+    setText("walletCoinsStatus", latestWalletCoins.length ? `Checked ${new Date(data.checkedAt).toLocaleString()}. Market estimates before fees; check a sale quote for the amount you could receive.` : "No other tokens remain in this wallet.");
+    setText("stuckCoinSaleStatus", latestWalletCoins.length ? `${latestWalletCoins.length} held coin types. Choose a coin below to review its sale.` : "No stuck or unsold coins found in the latest wallet check.");
   } catch(error) {
+    latestWalletCoins = [];
     $("walletCoinsList").replaceChildren();
     setText("walletCoinsStatus", `Unable to check coins: ${error.message}`);
     setText("stuckCoinSaleStatus", "Holdings unavailable. Press Sell stuck coins to check again.");

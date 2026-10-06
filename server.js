@@ -3438,7 +3438,11 @@ async function handleApi(request, response, url) {
     const input=await readBody(request), wallet=tradeWallet(state);
     const profile=input.profile ?? state.strategy.activeProfile;
     if(!supportedProfiles.includes(profile)) {send(response,400,{error:'Choose Frog, Deku or Trunoest to test.'});return true;}
-    if(fnzeroTestBusy || Date.now()-(fnzeroTestAt.get(profile)||0)<60000) {send(response,429,{error:'Wait for the current test to finish; allow one minute between tests of the same trader.'});return true;}
+    const testWaitMs = 60000 - (Date.now() - (fnzeroTestAt.get(profile) || 0));
+    if (fnzeroTestBusy || testWaitMs > 0) {
+      send(response, 429, { error: 'Wait for the current test to finish; allow one minute between tests of the same trader.', retryAfterMs: Math.max(1000, testWaitMs) });
+      return true;
+    }
     let mint;
     try {mint=new PublicKey(String(input.mint||'')).toBase58();} catch {send(response,400,{error:'Enter the coin mint address.'});return true;}
     if(!wallet) {send(response,400,{error:'Configure your trading wallet before running the FnZero test.'});return true;}
