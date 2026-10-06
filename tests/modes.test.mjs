@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {exitReason,takeBackExit,buildPositions,sellFraction,proportionalAmount,dailyResults} from '../lib/position-accounting.mjs';
+import {exitReason,takeBackExit,profitLadderExit,buildPositions,sellFraction,proportionalAmount,dailyResults} from '../lib/position-accounting.mjs';
 import {createTradingJournal} from '../lib/trading-journal.mjs';
 const server=readFileSync(new URL('../server.js',import.meta.url),'utf8');
 const section=(a,b)=>server.slice(server.indexOf(a),server.indexOf(b,server.indexOf(a)));
@@ -35,6 +35,32 @@ test('take my money back sells part after a strong gain and protects the rest',(
  assert.equal(exit.raw,'375000');
  assert.equal(takeBackExit(p,35).reason,'30% loss limit');
 });
+test('profit ladder takes repeated profit and guards the remaining position',()=>{
+ const p={verified:true,raw:'1000000',cost:100,cycle:'buy1'};
+ const wait=profitLadderExit(p,119);
+ assert.equal(wait.reason,null);
+ assert.equal(wait.triggered,false);
+ const first=profitLadderExit(p,120,wait);
+ assert.equal(first.reason,'20% profit ladder');
+ assert.equal(first.partial,true);
+ assert(BigInt(first.raw)>0n);
+ assert(BigInt(first.raw)<BigInt(p.raw));
+ assert.equal(Math.round(first.baselineUnit*1e6),120);
+ const retry=profitLadderExit(p,120,first);
+ assert.equal(retry.reason,'20% profit ladder');
+ assert.equal(retry.raw,first.raw);
+ const remaining={...p,raw:'833333',cost:83.33};
+ const afterSale=profitLadderExit(remaining,100,first);
+ assert.equal(afterSale.reason,null);
+ const second=profitLadderExit(remaining,120,afterSale);
+ assert.equal(second.reason,'20% profit ladder');
+ assert.equal(second.partial,true);
+ const afterSecondSale={...p,raw:'578703',cost:57.86};
+ const protectedExit=profitLadderExit(afterSecondSale,74,second);
+ assert.equal(protectedExit.reason,'10% profit guard');
+ assert.equal(protectedExit.raw,afterSecondSale.raw);
+ assert.equal(profitLadderExit(p,90).reason,'10% loss guard');
+});
 test('maximum is a ceiling for every mode, including Exact Copy, without forcing smaller buys upward',()=>{
  let mode='limits';
  const c=vm.createContext({Number,Math,profileBuyMode:()=>mode,profileSurviveMaxUsd:()=>50});
@@ -43,6 +69,7 @@ test('maximum is a ceiling for every mode, including Exact Copy, without forcing
  mode='loss';assert.equal(c.buyUsdAmount({},'safe',200),50);
  mode='takeback';assert.equal(c.buyUsdAmount({},'safe',200),50);
  mode='exact';assert.equal(c.buyUsdAmount({},'safe',200),50);
+ mode='ladder';assert.equal(c.buyUsdAmount({},'safe',3),50);assert.equal(c.buyUsdAmount({},'safe',200),50);
 });
 test('partial sale follows source fraction, including huge integer quantities',()=>{
  const b=(amount)=>({owner:'source',mint:'coin',uiTokenAmount:{amount}});
