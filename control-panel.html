@@ -89,12 +89,18 @@
                 <p class="hint">FnZero is experimental. Test each coin and direction first. A successful test is valid for one hour, until server restart. Direct USDC pools only; unsupported routes use Jupiter. Your purchase limits and sell rules still apply.</p>
                 <fieldset>
                   <legend>Test FnZero without trading</legend>
+                  <label>Trader to test <select id="fnzeroTrader"><option value="safe">Frog</option><option value="frog">Deku</option><option value="truenest">Trunoest</option></select></label>
+                  <p class="hint">Test any trader without changing who you copy. A result applies only to the tested coin and direction, not all of that trader’s trades.</p>
+                  <button id="loadFnzeroCoins" type="button" class="secondary-action">Load this trader’s recent coins</button>
+                  <p id="fnzeroCoinsStatus" role="status" aria-live="polite">Load recent coins or paste a coin mint address below.</p>
+                  <label>Recent coin <select id="fnzeroCoin"><option value="">Paste a mint below, or load recent coins</option></select></label>
                   <label>Coin mint address <input id="fnzeroMint" autocomplete="off" placeholder="Paste the Solana coin mint address"></label>
                   <label>Direction <select id="fnzeroSide"><option value="buy">Test buy</option><option value="sell">Test sell of held coin</option></select></label>
                   <label>Buy test amount in dollars <input id="fnzeroAmount" inputmode="decimal" value="5.00"></label>
                   <p class="hint">Stop trading before testing. This uses real quotes and RPC simulation, but does not sign or send a trade. FnZero uses 1% slippage, up to 0.00001 SOL priority fee, plus network fees and any token-account rent.</p>
                   <button id="testFnzero" type="button" class="secondary-action">Test FnZero without trading</button>
                   <p id="fnzeroTestResult" role="status" aria-live="polite">No test run yet. Half-second trading has not been verified.</p>
+                  <div id="fnzeroTraderResults" aria-live="polite"></div>
                 </fieldset>
       </section>
       <section class="wallet-remaining" aria-labelledby="walletRemainingTitle">
@@ -615,6 +621,6 @@
         <p id="businessMessage" class="message-line"></p>
       </section>
     </main>
-    <script src="./script.js?v=fnzero-trial-v1"></script>
+    <script src="./script.js?v=fnzero-all-traders-v2"></script>
   </body>
 </html>

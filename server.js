@@ -114,7 +114,20 @@ let emergencyStopRequested = false;
 
 const fnzeroRouter = createFnzeroRouter();
 let fnzeroTestBusy = false;
-let fnzeroTestAt = 0;
+const fnzeroTestAt = new Map();
+const fnzeroCoinChecks = new Map();
+
+function fnzeroRecentCoins(transactions) {
+  const coins = new Map();
+  for (const tx of [...transactions].sort((a,b)=>Number(b.timestamp||0)-Number(a.timestamp||0))) {
+    for (const token of [...(tx.events?.swap?.tokenInputs || []), ...(tx.events?.swap?.tokenOutputs || [])]) {
+      if (!token.mint || isQuoteMint(token.mint) || coins.has(token.mint)) continue;
+      try { new PublicKey(token.mint); } catch { continue; }
+      coins.set(token.mint,{mint:token.mint,symbol:String(token.symbol || token.mint).slice(0,80),lastSeen:tx.timestamp || null});
+    }
+  }
+  return [...coins.values()].slice(0,20);
+}
 
 const defaultState = {
   settings: {
@@ -712,7 +725,7 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "fnzero-route-trial-v1",
+      appVersion: "fnzero-all-traders-v2",
       fnzero: isOwner ? fnzeroRouter.status() : undefined,
       marketDataProvider: "Direct Solana alerts + GMGN recovery",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
@@ -3390,19 +3403,43 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/fnzero/coins") {
+    const state=await readState();
+    if(requireOwner(response,sessionFromRequest(request,state)))return true;
+    if(supportedProfiles.some(p=>state.profiles?.[p]?.running)) {send(response,409,{error:'Stop trading before loading test coins.'});return true;}
+    const input=await readBody(request), profile=input.profile;
+    if(!supportedProfiles.includes(profile)) {send(response,400,{error:'Choose Frog, Deku or Trunoest to test.'});return true;}
+    const wallet=targetWallet(state,profile), previous=fnzeroCoinChecks.get(wallet);
+    if(!wallet) {send(response,400,{error:'This trader has no configured wallet.'});return true;}
+    if(previous?.result && Date.now()-previous.at<300000) {send(response,200,{...previous.result,profile,cached:true});return true;}
+    if(previous && (previous.busy || Date.now()-previous.at<60000)) {send(response,429,{error:'Wait one minute before reloading this trader’s coins.'});return true;}
+    const check={at:Date.now(),busy:true};fnzeroCoinChecks.set(wallet,check);
+    try {
+      const key=String(state.settings.gmgnApiKey || process.env.GMGN_API_KEY || '').trim();
+      if(!key)throw Error('GMGN API key is missing. You can still paste a coin mint address for testing.');
+      const transactions=await fetchOfficialGmgnTransactionsForAddress(key,wallet);
+      check.result={profile,wallet,coins:fnzeroRecentCoins(transactions),checkedAt:new Date().toISOString(),readOnly:true};
+      send(response,200,check.result);
+    } catch(error) {send(response,400,{error:error.message});}
+    finally {check.busy=false;}
+    return true;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/fnzero/test") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request,state))) return true;
-    if(fnzeroTestBusy || Date.now()-fnzeroTestAt<60000) {send(response,429,{error:'Wait one minute between FnZero tests.'});return true;}
     // Tests must not compete with live exits for the wallet/RPC budget.
     if(supportedProfiles.some(p=>state.profiles?.[p]?.running)) {send(response,409,{error:'Stop trading before running the read-only FnZero test.'});return true;}
     const input=await readBody(request), wallet=tradeWallet(state);
+    const profile=input.profile ?? state.strategy.activeProfile;
+    if(!supportedProfiles.includes(profile)) {send(response,400,{error:'Choose Frog, Deku or Trunoest to test.'});return true;}
+    if(fnzeroTestBusy || Date.now()-(fnzeroTestAt.get(profile)||0)<60000) {send(response,429,{error:'Wait for the current test to finish; allow one minute between tests of the same trader.'});return true;}
     let mint;
     try {mint=new PublicKey(String(input.mint||'')).toBase58();} catch {send(response,400,{error:'Enter the coin mint address.'});return true;}
     if(!wallet || isQuoteMint(mint)) {send(response,400,{error:'Choose a trading coin and configure your wallet first.'});return true;}
     if(!['buy','sell'].includes(input.side)) {send(response,400,{error:'Choose buy or sell for the test.'});return true;}
-    const connection=solanaConnection(state.settings), profile=state.strategy.activeProfile || 'safe';
-    fnzeroTestBusy=true;fnzeroTestAt=Date.now();
+    const connection=solanaConnection(state.settings);
+    fnzeroTestBusy=true;fnzeroTestAt.set(profile,Date.now());
     try {
       let amount;
       if(input.side==='buy') {
@@ -3420,7 +3457,7 @@ async function handleApi(request, response, url) {
       const order=await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(state.settings),query});
       const discoveryMs=Date.now()-quoteStart;
       const result=await fnzeroRouter.test({connection,order,query});
-      send(response,200,{...result,discoveryMs});
+      send(response,200,{...result,discoveryMs,profile,traderWallet:targetWallet(state,profile),mint,side:input.side});
     } catch(error) {send(response,400,{error:error.message});}
     finally {fnzeroTestBusy=false;}
     return true;

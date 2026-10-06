@@ -71,3 +71,52 @@ test('read-only test endpoint requires owner, rejects running tests, and contain
  assert.match(endpoint,/requireOwner/);assert.match(endpoint,/Stop trading before/);
  assert.doesNotMatch(endpoint,/signSolanaTransaction|executeTradingOrder|sendRawTransaction/);
 });
+
+function traderTestHarness({owner=true,running=false}={}) {
+ const state={settings:{frogSurviveMax:20},strategy:{activeProfile:'safe'},profiles:{safe:{running},frog:{running:false},truenest:{running:false}}};
+ const budgets=[],loaded=[];
+ const c=vm.createContext({Map,Date,Number,String,BigInt,Error,PublicKey,process:{env:{}},
+   supportedProfiles:['safe','frog','truenest'],fnzeroTestAt:new Map(),fnzeroCoinChecks:new Map(),fnzeroTestBusy:false,
+   readState:async()=>state,sessionFromRequest:()=>({}),requireOwner:r=>!owner?(r.status=403,true):false,
+   readBody:async r=>r.body,send:(r,status,body)=>Object.assign(r,{status,body}),
+   tradeWallet:()=>Keypair.generate().publicKey.toBase58(),targetWallet:(_s,p)=>`wallet-${p}`,
+   isQuoteMint:m=>m===USDC,usdcMint:USDC,solanaConnection:()=>({}),withWalletOperation:fn=>fn(),
+   profileTradeableUsdc:async(_c,_s,p)=>{budgets.push(p);return 20;},usdcRawFromUsd:n=>String(n*1e6),
+   jupiterApiKey:()=>'',jupiterJson:async()=>({}),fnzeroRouter:{test:async()=>({ok:false,message:'unsupported test route'})},
+   fetchOfficialGmgnTransactionsForAddress:async(_key,w)=>{loaded.push(w);return [];}});
+ const start=source.indexOf('  if (request.method === "POST" && url.pathname === "/api/fnzero/coins")');
+ const end=source.indexOf('  if (request.method === "POST" && url.pathname === "/api/settings")',start);
+ vm.runInContext(source.slice(source.indexOf('function fnzeroRecentCoins('),source.indexOf('const defaultState ='))+`\nasync function handle(request,response,url){${source.slice(start,end)}}`,c);
+ return {state,budgets,loaded,c,request:async(path,body)=>{const response={};await c.handle({method:'POST',body},response,{pathname:path});return response;}};
+}
+
+test('all three traders test independently using their own budget without switching the active trader',async()=>{
+ const h=traderTestHarness();
+ for(const profile of ['safe','frog','truenest']) {
+  const r=await h.request('/api/fnzero/test',{profile,mint:fixture.output_mint,side:'buy',amount:'10.00'});
+  assert.equal(r.status,200);assert.equal(r.body.profile,profile);assert.equal(r.body.ok,false);
+ }
+ assert.deepEqual(h.budgets,['safe','frog','truenest']);assert.equal(h.state.strategy.activeProfile,'safe');
+ const repeat=await h.request('/api/fnzero/test',{profile:'safe',mint:fixture.output_mint,side:'buy',amount:'10'});
+ assert.equal(repeat.status,429);
+});
+
+test('test endpoints reject unauthorized, running and invalid-profile requests before loading or simulating',async()=>{
+ for(const endpoint of ['/api/fnzero/coins','/api/fnzero/test']) {
+  for(const [options,profile,status] of [[{owner:false},'safe',403],[{running:true},'safe',409],[{},'unknown',400]]) {
+   const h=traderTestHarness(options),r=await h.request(endpoint,{profile,mint:fixture.output_mint,side:'buy',amount:'10'});
+   assert.equal(r.status,status);assert.equal(h.budgets.length,0);assert.equal(h.loaded.length,0);
+  }
+ }
+});
+
+test('recent coin lookup uses the requested trader wallet, caches results, and excludes quote/invalid/duplicate mints',async()=>{
+ const h=traderTestHarness();h.state.settings.gmgnApiKey='test-key';
+ for(const profile of ['safe','frog','truenest']) {
+  assert.equal((await h.request('/api/fnzero/coins',{profile})).status,200);
+  assert.equal((await h.request('/api/fnzero/coins',{profile})).body.cached,true);
+ }
+ assert.deepEqual(h.loaded,['wallet-safe','wallet-frog','wallet-truenest']);
+ const coins=h.c.fnzeroRecentCoins([{timestamp:1,events:{swap:{tokenInputs:[{mint:USDC},{mint:'bad'}],tokenOutputs:[{mint:fixture.output_mint,symbol:'old'}]}}},{timestamp:2,events:{swap:{tokenInputs:[{mint:fixture.output_mint,symbol:'new'}]}}}]);
+ assert.equal(coins.length,1);assert.equal(coins[0].symbol,'new');assert.equal(coins[0].lastSeen,2);
+});
