@@ -443,15 +443,6 @@ function renderStockCoinHistory(trades = []) {
   }
   rows.forEach((trade) => {
     const pnl = Number(trade.pnl || 0);
-    const timing = trade.execution?.timingsMs;
-    const stages = timing ? [
-      ["Verify",timing.sourceVerification], ["Size/funds",timing.sizingAndFunds],
-      ["Route",timing.swapQuote], ["Wallet queue",timing.walletQueue],
-      ["Final checks",timing.finalChecks], ["Sign",timing.signing],
-      ["Journal/controls",timing.journalAndControls ?? timing.controlsAfterSigning],
-      ["Detect to submit",timing.detectionToSubmit], ["Detect to blocked decision",timing.detectionToDecision],
-      ["Execution response",timing.executeResponse]
-    ].filter(([,value])=>Number.isFinite(value)).map(([name,value])=>`${name}: ${Math.round(value)}ms`).join(" | ") : "";
     const li = document.createElement("li");
     li.className = pnl >= 0 ? "tape-win" : "tape-loss";
     li.innerHTML = `
@@ -1046,6 +1037,15 @@ function renderWatchTape(profile, trades = []) {
 
   roomTrades.forEach((trade) => {
     const pnl = Number(trade.pnl || 0);
+    const timing = trade.execution?.timingsMs;
+    const stages = timing ? [
+      ["Verify",timing.sourceVerification], ["Size/funds",timing.sizingAndFunds],
+      ["Route",timing.swapQuote], ["Wallet queue",timing.walletQueue],
+      ["Final checks",timing.finalChecks], ["Sign",timing.signing],
+      ["Journal/controls",timing.journalAndControls ?? timing.controlsAfterSigning],
+      ["Detect to submit",timing.detectionToSubmit], ["Detect to blocked decision",timing.detectionToDecision],
+      ["Execution response",timing.executeResponse]
+    ].filter(([,value])=>Number.isFinite(value)).map(([name,value])=>`${name}: ${Math.round(value)}ms`).join(" | ") : "";
     const detail = trade.executionError || trade.execution?.copySizingNote || "";
     const li = document.createElement("li");
     li.className = pnl >= 0 ? "tape-win" : "tape-loss";

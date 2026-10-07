@@ -47,6 +47,14 @@ test('partial order is durably reserved before execution; returned txid is persi
   await h.c.recordExecutionResponse(key,{status:'Success',signature});
   assert.equal(h.d.pending[key].txid,signature);assert.equal(h.saves(),2);
 });
+test('ordinary buys also reserve spending before submission',async()=>{
+  const h=journalHarness();delete h.d.growthGoal;
+  const key=await h.c.recordPendingSwap({wallet:'wallet',mint:'coin',side:'buy'}, {}, {requestId:'r1',inAmount:'5000000'});
+  assert.equal(h.d.pending[key].reservedUsd,5);
+  assert.equal(h.d.pending[key].goalId,undefined);
+  await assert.rejects(h.c.recordPendingSwap({wallet:'wallet',mint:'other',side:'buy'}, {}, {requestId:'r2'}),/Cannot reserve/);
+  assert.equal(Object.keys(h.d.pending).length,1);
+});
 test('uncertain execution retains reservation and missing signature cannot report success',async()=>{
   const h=journalHarness();const key=await h.c.recordPendingSwap({wallet:'wallet',mint:'coin',side:'buy'}, {}, {requestId:'r1',inAmount:'20000000'});
   await assert.rejects(h.c.recordExecutionResponse(key,{status:'Success'}),/valid transaction ID/);

@@ -4,6 +4,7 @@ import { createRpcReadPool } from "./lib/rpc-read-pool.mjs";
 import { inspectSwapSignature } from "./lib/swap-signature.mjs";
 import { createGmgnRequestGate, gmgnRetryAt } from "./lib/gmgn-rate-limit.mjs";
 import { validateGrowthSettings, growthSnapshot, growthTradeable, growthTransition } from "./lib/growth-goal.mjs";
+import { availableCachedCash } from "./lib/wallet-budget.mjs";
 import { createTradingJournal } from "./lib/trading-journal.mjs";
 import { sellFraction, proportionalAmount, exitReason, trailingExit, takeBackExit, profitLadderExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
 import { decodeDirectSwap, verifySourceSignal, canonicalSignalId } from "./lib/direct-signals.mjs";
@@ -1539,6 +1540,7 @@ async function executeUsdcWithdrawalLocked(state, { profile, destination, amount
     .toString("base64");
   const signed = await signSolanaTransaction(state, signer, sourceWallet, unsignedTransaction);
 
+  invalidateWalletBudget(sourceWallet);
   const signature = await connection.sendRawTransaction(Buffer.from(signed.signedTransactionBase64, "base64"), {
     skipPreflight: false,
     maxRetries: 3
@@ -1681,45 +1683,73 @@ async function updateGrowthProgress() {
 }
 
 const tradeableUsdcCache = new Map();
+const walletBudgetRevisions = new Map();
+let budgetJournal;
+let budgetReserves;
+function invalidateWalletBudget(wallet) {
+  walletBudgetRevisions.set(wallet, (walletBudgetRevisions.get(wallet) || 0) + 1);
+  for (const [key, sample] of tradeableUsdcCache) {
+    if (sample.wallet === wallet) tradeableUsdcCache.delete(key);
+  }
+}
 function tradeableUsdcCacheKey(state, profile, wallet) {
   return `${wallet}:${profile}:${state.settings?.profitMode || ""}:${profileDepositUsd(state, profile)}:${state.settings?.growthPrincipal || ""}:${state.settings?.growthTarget || ""}`;
 }
-
+function walletBudgetFingerprint(wallet, journal) {
+  return JSON.stringify([walletBudgetRevisions.get(wallet) || 0,
+    Object.entries(journal.pending || {}).filter(([,p]) => p.wallet === wallet)
+      .map(([id,p]) => [id,p.side,p.reservedUsd]),
+    (journal.fills || []).filter(f => f.wallet === wallet).map(f => [f.txid,f.side,f.usd]),
+    journal.growthGoal, budgetReserves?.[wallet]?.lockedUsd]);
+}
 function tradeableUsdcCacheAge(state, profile, wallet) {
   const cached = tradeableUsdcCache.get(tradeableUsdcCacheKey(state, profile, wallet));
   return cached ? Date.now() - cached.at : Infinity;
 }
-
-async function profileTradeableUsdc(connection, state, profile, wallet) {
-  const principal = profileDepositUsd(state, profile);
-  const currentUsdc = await tokenUiBalance(connection, wallet, usdcMint);
-  const locked = await protectProfit(state, wallet, currentUsdc);
-  let tradeable;
+function tradeableFromSample(state, profile, sample) {
+  const cash = availableCachedCash(sample, budgetJournal);
+  const locked = budgetReserves?.[sample.wallet]?.lockedUsd;
+  if (!Number.isFinite(locked)) return 0;
   if (state.settings.profitMode === "target") {
-    const snapshot = growthSnapshot(await executionJournal.load());
-    tradeable = snapshot?.wallet !== wallet ? 0 : growthTradeable(snapshot, currentUsdc, locked);
-  } else {
-    tradeable = Math.max(0, Math.min(currentUsdc - locked, principal));
+    const snapshot = growthSnapshot(budgetJournal);
+    return snapshot?.wallet !== sample.wallet ? 0 : growthTradeable(snapshot, cash, locked);
   }
-  tradeableUsdcCache.set(tradeableUsdcCacheKey(state, profile, wallet), { value: tradeable, at: Date.now() });
-  return tradeable;
+  return Math.max(0, Math.min(cash - locked, profileDepositUsd(state, profile)));
 }
-
+async function publishWalletBudget(connection, state, profile, wallet, background = false) {
+  budgetJournal = await executionJournal.load();
+  budgetReserves = await readProfitReserves();
+  const fingerprint = walletBudgetFingerprint(wallet, budgetJournal);
+  const at = Date.now();
+  const fillIds = new Set((budgetJournal.fills || []).map(f => f.txid));
+  const cash = await tokenUiBalance(connection, wallet, usdcMint);
+  const publish = async () => {
+    // A swap, withdrawal, confirmation or plan change during the RPC read
+    // makes the sample ambiguous. Keep the previous conservative sample.
+    if (fingerprint !== walletBudgetFingerprint(wallet, budgetJournal)) return null;
+    await protectProfit(state, wallet, cash);
+    const sample = {wallet, cash, at, fillIds};
+    tradeableUsdcCache.set(tradeableUsdcCacheKey(state, profile, wallet), sample);
+    return tradeableFromSample(state, profile, sample);
+  };
+  return background ? withWalletOperation(publish, -50) : publish();
+}
+async function profileTradeableUsdc(connection, state, profile, wallet) {
+  const value = await publishWalletBudget(connection, state, profile, wallet);
+  if (value === null) throw new Error("Wallet changed during balance refresh; retry with a verified budget");
+  return value;
+}
 async function cachedProfileTradeableUsdc(connection, state, profile, wallet, maxAgeMs = 2500) {
-  const key = tradeableUsdcCacheKey(state, profile, wallet);
-  const cached = tradeableUsdcCache.get(key);
-  if (cached && Date.now() - cached.at <= maxAgeMs) return cached.value;
-  return profileTradeableUsdc(connection, state, profile, wallet);
+  const value = cachedProfileTradeableUsdcValue(state, profile, wallet, maxAgeMs);
+  return value === null ? profileTradeableUsdc(connection, state, profile, wallet) : value;
 }
-
 function cachedProfileTradeableUsdcValue(state, profile, wallet, maxAgeMs = 2500) {
-  const cached = tradeableUsdcCache.get(tradeableUsdcCacheKey(state, profile, wallet));
-  return cached && Date.now() - cached.at <= maxAgeMs ? cached.value : null;
+  const sample = tradeableUsdcCache.get(tradeableUsdcCacheKey(state, profile, wallet));
+  return sample && Date.now() - sample.at <= maxAgeMs ? tradeableFromSample(state, profile, sample) : null;
 }
-
 let budgetWarmRunning = false;
 async function warmTradeableUsdcCache() {
-  if (budgetWarmRunning || walletBusy) return;
+  if (budgetWarmRunning) return;
   budgetWarmRunning = true;
   try {
     const state = await readState();
@@ -1728,10 +1758,11 @@ async function warmTradeableUsdcCache() {
     if (!state.profiles?.[profile]?.running || state.strategy?.paused) return;
     const wallet = tradeWallet(state, profile);
     if (!wallet || tradeableUsdcCacheAge(state, profile, wallet) < budgetWarmMaxAgeMs) return;
-    const connection = solanaConnection(state.settings, { priority: 10 });
-    await withWalletOperation(() => profileTradeableUsdc(connection, state, profile, wallet), -50);
+    const connection = solanaConnection(state.settings, { priority: -10 });
+    // The network wait must never occupy the trading wallet queue.
+    await publishWalletBudget(connection, state, profile, wallet, true);
   } catch {
-    // Warming is only a latency hint. Real buys still perform their guarded check.
+    // Failed warming cannot extend the age of a previous sample.
   } finally {
     budgetWarmRunning = false;
   }
@@ -2240,10 +2271,15 @@ async function recordPendingSwap(info,signed,order) {
   const key=txid || `jupiter:${order.requestId}`;
   const goal = d.growthGoal;
   if (goal && goal.status !== "completed" && goal.wallet === info.wallet) {
-    info = {...info, goalId: goal.id, ...(info.side === "buy" ? {reservedUsd: Number(order.inAmount)/1e6} : {})};
+    info = {...info, goalId: goal.id};
   }
   if(await hasPendingMint(info.wallet,info.mint))throw new Error('Previous transaction for this coin awaits confirmation');
   if(d.pending[key])throw new Error('This order already awaits confirmation');
+  if (info.side === "buy") {
+    const reservedUsd = Number(order.inAmount) / 1e6;
+    if (!Number.isFinite(reservedUsd) || reservedUsd <= 0) throw new Error("Cannot reserve the buy amount");
+    info = {...info, reservedUsd};
+  }
   d.pending[key]={...info,txid,expires:order.lastValidBlockHeight,requestId:order.requestId,submittedAt:Date.now()};
   if(!txid)d.notices[key]='Awaiting Jupiter co-signature and transaction ID. An uncertain submission will not be retried automatically.';
   await executionJournal.save();return key;
@@ -2365,7 +2401,7 @@ async function refreshExecutionReport(state) {
  for(const trade of [...(state.trades || [])].reverse()) {
    const e=trade.execution, txid=e?.txid;
    if(!txid || d.checked[txid] || Object.values(d.pending).some(p=>p.txid===txid) || !['buy','sell'].includes(e.action))continue;
-   d.pending[txid]={txid,wallet:tradeWallet(state),profile:profileFromTrade(trade),mint:e.action==='buy'?e.outputMint:e.inputMint,side:e.action,source:canonicalSignalId(trade.signature),historical:true,submittedAt:Date.now()};
+   d.pending[txid]={txid,wallet:tradeWallet(state),profile:profileFromTrade(trade),mint:e.action==='buy'?e.outputMint:e.inputMint,side:e.action,...(e.action==='buy' ? {reservedUsd:Number(e.copiedTradeAmount)/1e6} : {}),source:canonicalSignalId(trade.signature),historical:true,submittedAt:Date.now()};
  }
  await executionJournal.save();
  await executionJournal.reconcile(connection);
@@ -3350,7 +3386,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "copy-latency-stages-v3",
+      appVersion: "wallet-budget-latency-v4",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
