@@ -1766,6 +1766,7 @@ async function runSimpleSpeedTest() {
       <ol>${rows}</ol>
       ${real.ok ? `<p>Starting wallet budget: ${!buy.fundsCacheUsed ? "fresh balance read required" : `cached balance ${Math.round(buy.fundsCacheAgeMs)} ms old; spending reservations checked`}. ${escapeHtml(buy.liveControlMessage || "")}</p>` : ""}
       ${buy.fnzeroFallbackReason ? `<p>FnZero fallback: ${escapeHtml(buy.fnzeroFallbackReason)}</p>` : ""}
+      ${buy.entryPriceCheck?.allowed ? `<p>Buy price protection passed: minimum quoted output is within 5% of the trader's verified entry price.</p>` : ""}
       <p><strong>SELL: ${sell.routeReady ? "preparation ready" : sell.quoteReady ? "hypothetical quote ready" : "not ready"}</strong>${Number.isFinite(sell.elapsedMs) ? ` in ${sell.elapsedMs} ms` : Number.isFinite(sell.timingsMs?.preparationToReady) ? ` in ${sell.timingsMs.preparationToReady} ms` : ""}. ${escapeHtml(sell.kind || sell.status || "Not checked")}${sell.message ? `: ${escapeHtml(sell.message)}` : ""}</p>
       ${sell.fnzeroFallbackReason ? `<p>Sell FnZero fallback: ${escapeHtml(sell.fnzeroFallbackReason)}</p>` : ""}
       <p>Signing → sending → confirmation: <strong>not run in this test</strong>. Live trading adds these steps after preparation.</p>

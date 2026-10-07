@@ -2,6 +2,7 @@ import { createFnzeroRouter, submitFnzeroOrder } from "./lib/fnzero-route.mjs";
 import { rpcProvider, monitoredProfiles } from "./lib/rpc-provider.mjs";
 import { createRpcReadPool } from "./lib/rpc-read-pool.mjs";
 import { inspectSwapSignature, base58 } from "./lib/swap-signature.mjs";
+import { copyBuyPriceCheck } from "./lib/copy-price-guard.mjs";
 import { createGmgnRequestGate, gmgnRetryAt } from "./lib/gmgn-rate-limit.mjs";
 import { validateGrowthSettings, growthSnapshot, growthTradeable, growthTransition } from "./lib/growth-goal.mjs";
 import { availableCachedCash } from "./lib/wallet-budget.mjs";
@@ -2234,6 +2235,12 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   if (leg.action === "buy" && profileBuyMode(state, profile) === "exactFull" && BigInt(order.inAmount) !== BigInt(copyAmount.amount)) {
     throw new Error("Full-amount copy requires the complete authorized purchase amount; no order sent");
   }
+  let entryPriceCheck;
+  if (leg.action === 'buy') {
+    const sourceAmount=tokenAmounts(verified.sourceTx,targetWallet(state,profile),outputMint);
+    entryPriceCheck=copyBuyPriceCheck({sourceRaw:String(sourceAmount.after-sourceAmount.before),sourceUsd:sourceBuyUsd,inputRaw:copyAmount.amount,order});
+    if(!entryPriceCheck.allowed)return {status:entryPriceCheck.message,detectedAt,entryPriceCheck};
+  }
 
   const submit = async () => {
     const walletAcquiredAt = Date.now();
@@ -2275,6 +2282,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
       sourceSignature: canonicalSignalId(transaction.signature), action: leg.action,
       inputMint, outputMint, copiedTradeAmount: copyAmount.amount,
       routeOutputAmount: order.outAmount, executionEngine: order.executionEngine || "jupiter",
+      entryPriceCheck,
       fnzeroFallbackReason: order.fnzeroFallbackReason || "",
       fundsCacheAgeMs: Number.isFinite(fundsCacheAgeMs) ? fundsCacheAgeMs : null,
       fundsCacheUsed: Number.isFinite(fundsCacheAgeMs) && fundsCacheAgeMs <= (typeof tradeFundsFastMaxAgeMs === "number" ? tradeFundsFastMaxAgeMs : 10000),
@@ -2326,6 +2334,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     detectedAt,
     submittedAt,
     verifiedAt: verified.verifiedAt,
+    entryPriceCheck,
     sourceBlockTime: verified.sourceTx.blockTime,
     sourceSlot: verified.sourceTx.slot,
     executionEngine: order.executionEngine || "jupiter",

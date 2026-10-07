@@ -1,5 +1,6 @@
 import {rpcProvider,monitoredProfiles} from '../lib/rpc-provider.mjs';
-import { sellFraction, proportionalAmount } from '../lib/position-accounting.mjs';
+import { sellFraction, proportionalAmount, tokenAmounts } from '../lib/position-accounting.mjs';
+import {copyBuyPriceCheck} from '../lib/copy-price-guard.mjs';
 import { canonicalSignalId } from "../lib/direct-signals.mjs";
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,8 +35,8 @@ test('poll cadence does not expire buys; a known subsequent source sell cancels 
 function executionHarness() {
  const submitted=[];let stopped=false;
  const state={profiles:{safe:{running:true}},strategy:{activeProfile:'safe'},settings:{}};
- const c=vm.createContext({Date,BigInt,Number,emergencyStopRequested:false,canonicalSignalId,sellFraction,proportionalAmount,
- verifyCopySource:async(_,t)=>({leg:t.leg,sourceTx:{blockTime:1,slot:1,meta:{preTokenBalances:[{owner:"wallet",mint:"COIN",uiTokenAmount:{amount:"123"}}],postTokenBalances:[]}},verifiedAt:new Date().toISOString()}),
+ const c=vm.createContext({Date,BigInt,Number,emergencyStopRequested:false,canonicalSignalId,sellFraction,proportionalAmount,tokenAmounts,copyBuyPriceCheck,
+ verifyCopySource:async(_,t)=>({leg:t.leg,sourceTx:{blockTime:1,slot:1,meta:t.leg.action==='buy'?{preTokenBalances:[],postTokenBalances:[{owner:'wallet',mint:'COIN',uiTokenAmount:{amount:'123'}}]}:{preTokenBalances:[{owner:"wallet",mint:"COIN",uiTokenAmount:{amount:"123"}}],postTokenBalances:[]}},verifiedAt:new Date().toISOString()}),
  trackedPosition:async()=>({raw:'123'}),hasPendingMint:async()=>false,recordPendingSwap:async()=> 'test',recordExecutionResponse:async()=>{},supportedProfiles:['safe'],signalFeeds:new Map(),targetWallet:()=> 'wallet',
  readState:async()=>({...state,profiles:{safe:{running:!stopped}}}),primarySwapLeg:t=>t.leg,
  tradeWallet:()=> 'wallet',signerId:()=> 'wallet',jupiterApiKey:()=> 'test',solanaConnection:()=>({getParsedTransaction:async()=>({meta:{preTokenBalances:[{owner:'wallet',mint:'COIN',uiTokenAmount:{amount:'123'}}],postTokenBalances:[]}})}),
@@ -43,7 +44,7 @@ function executionHarness() {
  buyUsdAmount:()=>50,profileTradeableUsdc:async()=>100,profileBuyMode:()=> 'cap50',usdcRawFromUsd:x=>String(Math.floor(x*1e6)),
  tokenBalanceRaw:async()=> '123',profileCopySizing:()=> 'test',
  signSolanaTransaction:async()=>({signedTransactionBase64:'signed',signWith:'wallet'}),
- jupiterJson:async(path,options)=>{if(path.includes('execute')){submitted.push(options);return {signature:'test'}}return {transaction:'test',inAmount:options.query.amount,outAmount:'123'}}});
+ jupiterJson:async(path,options)=>{if(path.includes('execute')){submitted.push(options);return {signature:'test'}}return {transaction:'test',inAmount:options.query.amount,outAmount:'123',slippageBps:0}}});
  vm.runInContext(section(server,'const walletJobs =','async function readProfitReserves'),c);
  vm.runInContext(section(server,'// Poll cadence','function transactionSignature('),c);
  const buy={timestamp:Date.now()/1000-1,leg:{action:'buy',inputMint:'USDC',outputMint:'COIN',amount:'50000000',sourceUsd:50}};
@@ -115,7 +116,7 @@ test('a sell submits while a different buy is still awaiting its quote',async()=
  h.c.jupiterJson=async(path,options)=>{
   if(path.includes('execute')){h.submitted.push(options);return {signature:'test'}}
   if(options.query.inputMint==='USDC'){quoteStarted();await waiting;}
-  return {transaction:'test',inAmount:options.query.amount,outAmount:'123'};
+  return {transaction:'test',inAmount:options.query.amount,outAmount:'123',slippageBps:0};
  };
  const pending=h.c.executeCopiedSwap('safe',h.buy,h.state);await started;
  assert.equal((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,'Submitted - confirmation pending');
@@ -371,7 +372,7 @@ test('sell quote is rebuilt when a partial exit changes the remaining position',
 
 test('FnZero copied buys and sells retain spending checks and Stop during signing',async()=>{
  const h=executionHarness();h.state.settings.executionEngine='fnzero';let sends=0;
- h.c.fnzeroRouter={prepare:async({query})=>({transaction:'fnzero',inAmount:query.amount,outAmount:'123',executionEngine:'fnzero'})};
+ h.c.fnzeroRouter={prepare:async({query})=>({transaction:'fnzero',inAmount:query.amount,outAmount:'123',slippageBps:0,executionEngine:'fnzero'})};
  h.c.submitFnzeroOrder=async()=>{sends++;return {signature:'test',status:'Success'};};
  assert.equal((await h.c.executeCopiedSwap('safe',h.buy,h.state)).executionEngine,'fnzero');
  assert.equal((await h.c.executeCopiedSwap('safe',h.sell,h.state)).executionEngine,'fnzero');
@@ -381,7 +382,7 @@ test('FnZero copied buys and sells retain spending checks and Stop during signin
 });
 test('FnZero cannot use locked profit when the spendable balance changes',async()=>{
  const h=executionHarness();h.state.settings.executionEngine='fnzero';let checks=0,sends=0;
- h.c.fnzeroRouter={prepare:async({query})=>({transaction:'fnzero',inAmount:query.amount,outAmount:'123',executionEngine:'fnzero'})};
+ h.c.fnzeroRouter={prepare:async({query})=>({transaction:'fnzero',inAmount:query.amount,outAmount:'123',slippageBps:0,executionEngine:'fnzero'})};
  h.c.profileTradeableUsdc=async()=>++checks===1?100:0;
  h.c.submitFnzeroOrder=async()=>{sends++;};
  assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/locked profit protected/);assert.equal(sends,0);
@@ -478,4 +479,20 @@ test('sell replay checks verified copied holdings but never signs an exit',async
  assert.equal(result.routeReady,true);assert.equal(result.copiedTradeAmount,'123');assert.equal(h.submitted.length,0);
  h.c.tokenBalanceRaw=async()=> '0';
  await assert.rejects(h.c.executeCopiedSwapLocked('safe',h.sell,h.state,false,undefined,true),/holding differs/);
+});
+
+test('an expensive copy buy is blocked before signing and its sell lane remains eligible',async()=>{
+ const h=executionHarness(),original=h.c.jupiterJson;let signs=0;
+ h.c.signSolanaTransaction=async()=>{signs++;return {signedTransactionBase64:'signed'};};
+ h.c.jupiterJson=async(...args)=>{const r=await original(...args);if(args[1]?.query?.inputMint==='USDC')return {...r,outAmount:'100'};return r;};
+ const buy=await h.c.executeCopiedSwap('safe',h.buy,h.state);
+ assert.match(buy.status,/entry can cost/);assert.equal(signs,0);assert.equal(h.submitted.length,0);
+ const sell=await h.c.executeCopiedSwap('safe',h.sell,h.state);
+ assert.equal(sell.status,'Submitted - confirmation pending');assert.equal(signs,1);assert.equal(h.submitted.length,1);
+});
+test('a missing verified source entry blocks a buy instead of treating its price as zero',async()=>{
+ const h=executionHarness();h.c.verifyCopySource=async()=>({leg:h.buy.leg,sourceTx:{blockTime:1,meta:{}}});
+ h.c.signSolanaTransaction=async()=>{throw new Error('must not sign');};
+ assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/source entry price cannot be verified/);
+ assert.equal(h.submitted.length,0);
 });

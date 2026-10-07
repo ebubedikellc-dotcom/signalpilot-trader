@@ -34,6 +34,7 @@
             <button id="savePurchaseLimit" type="button">Save limit</button>
           </div>
           <small id="purchaseLimitStatus" role="status" aria-live="polite">Applies to every trader. Trader’s Full Amount bypasses this purchase limit, but keeps your total budget.</small>
+          <small>Buy price protection: skip copies whose minimum quoted output costs more than 5% above the trader's verified entry price. Unverifiable quotes are skipped. This does not guarantee a profitable trade.</small>
         </div>
         <div id="traderPicker" hidden>
           <label>Who should I copy? <select id="selectedTrader"><option value="safe">Frog</option><option value="frog">Deku</option><option value="truenest">Trunoest</option></select></label>
@@ -613,6 +614,6 @@
         <p id="businessMessage" class="message-line"></p>
       </section>
     </main>
-    <script src="./script.js?v=ladder-five-percent-v9"></script>
+    <script src="./script.js?v=copy-price-protection-v10"></script>
   </body>
 </html>
