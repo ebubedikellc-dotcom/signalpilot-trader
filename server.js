@@ -96,7 +96,6 @@ const budgetWarmIntervalMs = Number(process.env.BUDGET_WARM_INTERVAL_MS || 500);
 const budgetWarmMaxAgeMs = Number(process.env.BUDGET_WARM_MAX_AGE_MS || 5000);
 const tradeFundsFastMaxAgeMs = Number(process.env.TRADE_FUNDS_FAST_MAX_AGE_MS || 10000);
 const directReadRetryMs = Number(process.env.DIRECT_READ_RETRY_MS || 150);
-const fnzeroLearnBudgetMs = Number(process.env.FNZERO_LEARN_BUDGET_MS || 180);
 const maxBuyReactionMs = Number(process.env.MAX_BUY_REACTION_MS || 950);
 const maxSignalAgeMs = Number(process.env.MAX_SIGNAL_AGE_MS || 5000);
 const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
@@ -1941,19 +1940,11 @@ async function prepareTradingOrder(state, query) {
   const order = await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(state.settings),query});
   if (state.settings.executionEngine === 'fnzero' && typeof fnzeroRouter.learn === "function") {
     try {
-      const learnPromise = fnzeroRouter.learn({
-        connection:solanaConnection(state.settings,{priority:query.inputMint===usdcMint ? 50 : 100}),
-        order,
-        query
-      }).catch((error) => ({ speedPilotError: error }));
-      const learned = await Promise.race([
-        learnPromise,
-        new Promise((resolve) => setTimeout(() => resolve(null), fnzeroLearnBudgetMs))
-      ]);
-      if (learned && !learned.speedPilotError) return learned;
-      if (learned?.speedPilotError) throw learned.speedPilotError;
-      learnPromise.catch(() => {});
-      fallbackReason = [fallbackReason, `FnZero learning continued in background after ${fnzeroLearnBudgetMs}ms`].filter(Boolean).join("; ");
+      // Learn for the next trade without delaying this already-built order.
+      void fnzeroRouter.learn({
+        connection:solanaConnection(state.settings,{priority:0}), order, query
+      }).catch(() => {});
+      fallbackReason = [fallbackReason, "FnZero route learning continues in background"].filter(Boolean).join("; ");
     } catch(error) {
       fallbackReason = [fallbackReason, error.message].filter(Boolean).join("; ");
     }
@@ -1987,7 +1978,17 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     state.strategy = currentControls.strategy;
     state.settings = currentControls.settings;
   }
-  const verified = await verifyCopySource(profile, transaction, state);
+  const verificationPromise = verifyCopySource(profile, transaction, state);
+  const expectedLeg = primarySwapLeg(transaction, profile, state);
+  // Speculative valuation is read-only. Reuse it only if the verified net input
+  // is identical; a feed mismatch must still block signing and submission.
+  const valuationPromise = expectedLeg?.action === "buy" && !Number(expectedLeg.sourceUsd || 0)
+    && isQuoteMint(expectedLeg.inputMint) && expectedLeg.inputMint !== usdcMint
+    ? jupiterJson("/swap/v2/order", {apiKey:jupiterApiKey(state.settings),
+        query:{inputMint:expectedLeg.inputMint,outputMint:usdcMint,amount:expectedLeg.amount}})
+        .then(order => ({value:Number(order.outAmount || 0)/1_000_000}), error => ({error}))
+    : null;
+  const verified = await verificationPromise;
   const sourceVerifiedAt = Date.now();
   const leg = verified.leg;
   if (!leg?.inputMint || !leg?.outputMint || !leg?.amount) {
@@ -2032,11 +2033,16 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
         sourceUsd = Number(leg.amount) / 1_000_000;
       } else {
         // Quote only: value the trader's SOL/USDT input without spending it.
-        const valuation = await jupiterJson("/swap/v2/order", {
-          apiKey,
-          query: { inputMint: leg.inputMint, outputMint: usdcMint, amount: leg.amount }
-        });
-        sourceUsd = Number(valuation.outAmount || 0) / 1_000_000;
+        if (valuationPromise && leg.inputMint === expectedLeg.inputMint && String(leg.amount) === String(expectedLeg.amount)) {
+          const valuation = await valuationPromise;
+          if (valuation.error) throw valuation.error;
+          sourceUsd = valuation.value;
+        } else {
+          const valuation = await jupiterJson("/swap/v2/order", {
+            apiKey, query: { inputMint: leg.inputMint, outputMint: usdcMint, amount: leg.amount }
+          });
+          sourceUsd = Number(valuation.outAmount || 0) / 1_000_000;
+        }
       }
     }
     return sourceUsd;
@@ -2157,7 +2163,14 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     if (reason) return { status: reason, detectedAt };
     const buySpeedLimitMs = typeof maxBuyReactionMs === "number" ? maxBuyReactionMs : 950;
     if (leg.action === "buy" && signedAt - preparationStartedAt > buySpeedLimitMs) {
-      return { status: `Buy blocked: speed target missed ${signedAt - preparationStartedAt}ms exceeded ${buySpeedLimitMs}ms; no late buy sent`, detectedAt };
+      return { status: `Buy blocked: speed target missed ${signedAt - preparationStartedAt}ms exceeded ${buySpeedLimitMs}ms; no late buy sent`, detectedAt,
+        timingsMs: {
+          sourceVerification:sourceVerifiedAt-preparationStartedAt,
+          sizingAndFunds:sizingReadyAt-sourceVerifiedAt, swapQuote:quoteReadyAt-sizingReadyAt,
+          walletQueue:walletAcquiredAt-quoteReadyAt, finalChecks:fundsCheckedAt-walletAcquiredAt,
+          signing:signedAt-fundsCheckedAt, controlsAfterSigning:Date.now()-signedAt,
+          detectionToDecision:Date.now()-Date.parse(detectedAt), preparationToDecision:Date.now()-preparationStartedAt
+        } };
     }
 
   const submittedAt = new Date().toISOString();
@@ -2190,6 +2203,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
       signing: signedAt - fundsCheckedAt,
       journalAndControls: executionStartedAt - signedAt,
       executeResponse: executionReturnedAt - executionStartedAt,
+      detectionToSubmit: executionStartedAt - Date.parse(detectedAt),
       preparationToResponse: executionReturnedAt - preparationStartedAt
     },
 
@@ -3063,6 +3077,18 @@ function monitoringEnabled(state) {
 const directReadJobs = new Map();
 const directReadSeen = new Set();
 let directReadsActive = 0;
+let directRetryTimer = null;
+let directRetryDueAt = Infinity;
+function scheduleDirectRetry() {
+  const dueAt = Math.min(...[...directReadJobs.values()].filter(j=>!j.active).map(j=>j.dueAt));
+  if (!Number.isFinite(dueAt) || dueAt >= directRetryDueAt) return;
+  clearTimeout(directRetryTimer);
+  directRetryDueAt = dueAt;
+  directRetryTimer = setTimeout(() => {
+    directRetryTimer = null; directRetryDueAt = Infinity; pumpDirectReads();
+  }, Math.max(0,dueAt-Date.now()));
+  directRetryTimer.unref?.();
+}
 function queueDirectRead(wallet, signature, sub) {
   if (!signature) return;
   const key = `${wallet}:${signature}`;
@@ -3088,6 +3114,7 @@ function pumpDirectReads() {
       pumpDirectReads();
     });
   }
+  if (directReadsActive < 3) scheduleDirectRetry();
 }
 function directReadFailure(error, settings = {}) {
   let message = String(error?.message || error || "Unknown RPC error");
@@ -3323,7 +3350,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "verified-direct-copy-v2",
+      appVersion: "copy-latency-stages-v3",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"

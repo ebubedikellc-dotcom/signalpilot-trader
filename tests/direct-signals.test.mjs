@@ -35,7 +35,7 @@ function harness(running=true) {
  const row=fixtures[0],feeds=new Map();let reads=0;
  const state={profiles:{safe:{running}},settings:{}};
  const sub={connection:{getParsedTransaction:async()=>{reads++;return row.transaction}}};
- const c=vm.createContext({Map,Set,Date,Number,process:{env:{}},solanaConnection:()=>sub.connection,decodeDirectSwap,signalFeeds:feeds,supportedProfiles:['safe'],readState:async()=>state,targetWallet:()=>row.wallet,sub,wallet:row.wallet});
+ const c=vm.createContext({Map,Set,Date,Number,Math,setTimeout,clearTimeout,directReadRetryMs:10,process:{env:{}},solanaConnection:()=>sub.connection,decodeDirectSwap,signalFeeds:feeds,supportedProfiles:['safe'],readState:async()=>state,targetWallet:()=>row.wallet,sub,wallet:row.wallet});
  vm.runInContext(section('let wakeCopyWorker =','const signalFeeds ='),c);
  vm.runInContext('liveSubscriptions.set(wallet,sub)',c);
  return {c,sub,state,feeds,row,reads:()=>reads};
@@ -87,3 +87,11 @@ test('missing or failed source confirmation cannot authorize a copy',()=>{
  const failed=structuredClone(multihop.transaction);failed.meta.err={failed:true};
  assert.throws(()=>verifySourceSignal(failed,multihop.wallet,multihop.signature,expected),/could not be verified/);
 });
+
+ test('missing source transactions retry promptly without waiting for a worker tick',async()=>{
+ const h=harness();let reads=0;
+ h.sub.connection.getParsedTransaction=async()=>++reads===1?null:h.row.transaction;
+ h.c.queueDirectRead(h.row.wallet,h.row.signature,h.sub);
+ await new Promise(r=>setTimeout(r,50));
+ assert.equal(reads,2);assert.equal(h.feeds.get('safe:Solana live').transactions[0].signature,h.row.signature);
+ });

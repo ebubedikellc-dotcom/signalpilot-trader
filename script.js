@@ -443,6 +443,15 @@ function renderStockCoinHistory(trades = []) {
   }
   rows.forEach((trade) => {
     const pnl = Number(trade.pnl || 0);
+    const timing = trade.execution?.timingsMs;
+    const stages = timing ? [
+      ["Verify",timing.sourceVerification], ["Size/funds",timing.sizingAndFunds],
+      ["Route",timing.swapQuote], ["Wallet queue",timing.walletQueue],
+      ["Final checks",timing.finalChecks], ["Sign",timing.signing],
+      ["Journal/controls",timing.journalAndControls ?? timing.controlsAfterSigning],
+      ["Detect to submit",timing.detectionToSubmit], ["Detect to blocked decision",timing.detectionToDecision],
+      ["Execution response",timing.executeResponse]
+    ].filter(([,value])=>Number.isFinite(value)).map(([name,value])=>`${name}: ${Math.round(value)}ms`).join(" | ") : "";
     const li = document.createElement("li");
     li.className = pnl >= 0 ? "tape-win" : "tape-loss";
     li.innerHTML = `
@@ -1044,6 +1053,7 @@ function renderWatchTape(profile, trades = []) {
       <strong>${escapeHtml(trade.action || "Copied signal")}</strong>
       <span>${escapeHtml(trade.token || "-")} - ${money(trade.amount)} - ${escapeHtml(trade.status || "Observed")}</span>
       ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
+      ${stages ? `<span>${escapeHtml(stages)}</span>` : ""}
       <em>${trade.time ? escapeHtml(trade.time) : "live"}</em>
     `;
     tape.appendChild(li);

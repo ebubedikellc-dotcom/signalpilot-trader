@@ -325,3 +325,35 @@ test('FnZero cannot use locked profit when the spendable balance changes',async(
  h.c.submitFnzeroOrder=async()=>{sends++;};
  assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/locked profit protected/);assert.equal(sends,0);
 });
+
+test('SOL valuation starts during source verification, but cannot authorize an unverified buy',async()=>{
+ const h=executionHarness(),original=h.c.jupiterJson;
+ let release,started=false,signed=0;
+ const verification=new Promise(r=>release=r);
+ h.buy.leg={...h.buy.leg,inputMint:'SOL',sourceUsd:0};h.c.isQuoteMint=m=>['SOL','USDC'].includes(m);
+ h.c.verifyCopySource=async()=>{await verification;throw new Error('Source token mismatch');};
+ h.c.jupiterJson=async(path,options)=>{if(options.query?.inputMint==='SOL'){started=true;return {outAmount:'50000000'};}return original(path,options);};
+ h.c.signSolanaTransaction=async()=>{signed++;};
+ const pending=h.c.executeCopiedSwap('safe',h.buy,h.state);
+ await new Promise(r=>setImmediate(r));assert.equal(started,true);assert.equal(signed,0);
+ release();await assert.rejects(pending,/Source token mismatch/);assert.equal(signed,0);assert.equal(h.submitted.length,0);
+});
+test('a different verified source amount requires its own valuation',async()=>{
+ const h=executionHarness(),original=h.c.jupiterJson,amounts=[];
+ h.buy.leg={...h.buy.leg,inputMint:'SOL',sourceUsd:0};h.c.isQuoteMint=m=>['SOL','USDC'].includes(m);
+ h.c.verifyCopySource=async()=>({leg:{...h.buy.leg,amount:'100000000'},sourceTx:{blockTime:1,slot:1}});
+ h.c.jupiterJson=async(path,options)=>{if(options.query?.inputMint==='SOL'){amounts.push(options.query.amount);return {outAmount:'50000000'};}return original(path,options);};
+ await h.c.executeCopiedSwap('safe',h.buy,h.state);assert.deepEqual(amounts,['50000000','100000000']);
+});
+test('FnZero learning cannot delay a Jupiter fallback order',async()=>{
+ const h=executionHarness();h.state.settings.executionEngine='fnzero';let learned=0;
+ h.c.fnzeroRouter={prepare:async()=>{throw new Error('cold route');},learn:()=>{learned++;return new Promise(()=>{});}};
+ const order=await h.c.prepareTradingOrder(h.state,{inputMint:'USDC',outputMint:'COIN',amount:'100',taker:'wallet'});
+ assert.equal(order.executionEngine,'jupiter');assert.equal(learned,1);assert.match(order.fnzeroFallbackReason,/background/);
+});
+test('blocked buys retain stage timings and never submit',async()=>{
+ const h=executionHarness();h.c.maxBuyReactionMs=-1;h.buy.detectedAt=new Date(Date.now()-1200).toISOString();
+ const result=await h.c.executeCopiedSwap('safe',h.buy,h.state);
+ assert.match(result.status,/speed target missed/);assert(Number.isFinite(result.timingsMs.signing));
+ assert(result.timingsMs.detectionToDecision>=1000);assert.equal(h.submitted.length,0);
+});
