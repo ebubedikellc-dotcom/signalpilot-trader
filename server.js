@@ -3476,7 +3476,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "overlap-verified-route-v9",
+      appVersion: "manual-sale-attribution-v10",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
