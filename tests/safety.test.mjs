@@ -58,6 +58,25 @@ test('unheld source sales do not consume verification RPC calls',async()=>{
  h.c.hasPendingMint=async()=>true;
  assert.match((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,/remains queued/);
 });
+test('unsigned buy route overlaps verification but no signing occurs until verification succeeds',async()=>{
+ const h=executionHarness();let release,quotes=0,signs=0;
+ const verified=new Promise(r=>release=r),original=h.c.verifyCopySource,quote=h.c.jupiterJson;
+ h.c.profileSurviveMaxUsd=()=>50;h.c.cachedProfileTradeableUsdcValue=()=>100;h.c.tradeFundsFastMaxAgeMs=10000;
+ h.c.verifyCopySource=async(...args)=>{await verified;return original(...args);};
+ h.c.jupiterJson=async(...args)=>{quotes++;return quote(...args);};
+ h.c.signSolanaTransaction=async()=>{signs++;return {signedTransactionBase64:'signed'};};
+ const preparation=h.c.executeCopiedSwap('safe',h.buy,h.state);
+ await new Promise(r=>setImmediate(r));assert.equal(quotes,1);assert.equal(signs,0);
+ release();await preparation;assert.equal(quotes,2);assert.equal(signs,1); // One order and one execute.
+});
+test('speculative order is discarded when verified sizing changes',async()=>{
+ const h=executionHarness(),original=h.c.jupiterJson,amounts=[];let sizes=0;
+ h.c.profileSurviveMaxUsd=()=>50;h.c.cachedProfileTradeableUsdcValue=()=>100;h.c.tradeFundsFastMaxAgeMs=10000;
+ h.c.buyUsdAmount=()=>++sizes===1?50:20;
+ h.c.jupiterJson=async(path,options)=>{if(options.query)amounts.push(options.query.amount);return original(path,options);};
+ const result=await h.c.executeCopiedSwap('safe',h.buy,h.state);
+ assert.deepEqual(amounts,['50000000','20000000']);assert.equal(result.copiedTradeAmount,'20000000');
+});
 test('full-amount copies skip insufficient budget and never reduce the purchase',async()=>{
  const h=executionHarness();h.c.profileBuyMode=()=> 'exactFull';
  h.c.profileTradeableUsdc=async()=>20;

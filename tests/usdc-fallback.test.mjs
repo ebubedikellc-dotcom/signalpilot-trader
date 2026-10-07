@@ -33,3 +33,8 @@ test('unexpected balance failures are not masked by the fallback',async()=>{
  const h=harness();await assert.rejects(h.c.tokenUiBalance({getParsedTokenAccountsByOwner:async()=>{throw new Error('bad request');}},owner,mint),/bad request/);
  assert.equal(h.calls.length,0);
 });
+test('buy budget can read canonical USDC directly without waiting on indexed wallet discovery',async()=>{
+ const h=harness();const reader=h.c.solanaConnection({}, {publicNode:true});
+ reader.getParsedTokenAccountsByOwner=async()=>{throw new Error('must not use indexed listing');};
+ assert.equal(await h.c.tokenUiBalance(reader,owner,mint,50,true),212);
+});

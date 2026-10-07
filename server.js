@@ -833,18 +833,14 @@ async function walletBalanceFromConnection(connection, wallet, key) {
   return { address: wallet, sol: lamports / LAMPORTS_PER_SOL, usdc: tokens[usdcMint]?.amount || 0, tokens, error: "", updatedAt: new Date().toISOString() };
 }
 
-async function tokenUiBalance(connection, owner, mint, priority = 0) {
+async function tokenUiBalance(connection, owner, mint, priority = 0, canonicalOnly = false) {
   const ownerKey = solanaAddress(owner);
   const mintKey = solanaAddress(mint);
   if (!ownerKey || !mintKey) return 0;
-  let accounts;
-  try { accounts = await connection.getParsedTokenAccountsByOwner(ownerKey, { mint: mintKey }, "confirmed"); }
-  catch(error) {
-    if (mint !== usdcMint || !isRateLimitError(error) && !/timed out|connection failed/i.test(error.message)) throw error;
+  const canonicalBalance = async (reader) => {
     // USDC routes debit the canonical associated account. Reading that account
     // needs no indexed wallet listing and conservatively excludes other accounts.
-    const fallback = solanaConnection({}, {publicNode:true,priority});
-    const account = await fallback.getAccountInfo(associatedTokenAddress(ownerKey,mintKey),"confirmed");
+    const account = await reader.getAccountInfo(associatedTokenAddress(ownerKey,mintKey),"confirmed");
     if (!account) return 0;
     if (account.executable || !account.owner.equals(tokenProgramId) || account.data.length !== 165 ||
         !new PublicKey(account.data.subarray(0,32)).equals(mintKey) ||
@@ -852,6 +848,13 @@ async function tokenUiBalance(connection, owner, mint, priority = 0) {
       throw new Error("Cannot verify the USDC associated account");
     }
     return Number(account.data.readBigUInt64LE(64))/1e6;
+  };
+  if (canonicalOnly && mint === usdcMint) return canonicalBalance(connection);
+  let accounts;
+  try { accounts = await connection.getParsedTokenAccountsByOwner(ownerKey, { mint: mintKey }, "confirmed"); }
+  catch(error) {
+    if (mint !== usdcMint || !isRateLimitError(error) && !/timed out|connection failed/i.test(error.message)) throw error;
+    return canonicalBalance(solanaConnection({}, {publicNode:true,priority}));
   }
   return (accounts.value || []).reduce((sum, item) => {
     return sum + Number(item.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0);
@@ -1737,7 +1740,7 @@ async function publishWalletBudget(connection, state, profile, wallet, backgroun
   const fingerprint = walletBudgetFingerprint(wallet, budgetJournal);
   const at = Date.now();
   const fillIds = new Set((budgetJournal.fills || []).map(f => f.txid));
-  const cash = await tokenUiBalance(connection, wallet, usdcMint, background ? -10 : 50);
+  const cash = await tokenUiBalance(connection, wallet, usdcMint, background ? -10 : 50, true);
   const publish = async () => {
     // A swap, withdrawal, confirmation or plan change during the RPC read
     // makes the sample ambiguous. Keep the previous conservative sample.
@@ -2045,6 +2048,22 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     }
   }
   const verificationPromise = verifyCopySource(profile, transaction, state);
+  let speculativeBuyOrder = null;
+  let speculativeBuyAmount = "";
+  const speculativeWallet = tradeWallet(state, profile);
+  if (expectedLeg?.action === "buy" && expectedLeg.outputMint && !isQuoteMint(expectedLeg.outputMint) &&
+      profileBuyMode(state, profile) !== "exactFull" && typeof profileSurviveMaxUsd === "function" &&
+      typeof cachedProfileTradeableUsdcValue === "function") {
+    const budget = cachedProfileTradeableUsdcValue(state, profile, speculativeWallet, tradeFundsFastMaxAgeMs);
+    const hintedUsd = expectedLeg.inputMint === usdcMint ? Number(expectedLeg.amount)/1e6 : Number(expectedLeg.sourceUsd || 0);
+    const anticipatedUsd = hintedUsd > 0 ? buyUsdAmount(state, profile, hintedUsd) : profileSurviveMaxUsd(state, profile);
+    if (budget !== null && anticipatedUsd > 0 && anticipatedUsd <= budget) {
+      speculativeBuyAmount = usdcRawFromUsd(anticipatedUsd);
+      speculativeBuyOrder = prepareTradingOrder(state, {inputMint:usdcMint,
+        outputMint:expectedLeg.outputMint,amount:speculativeBuyAmount,taker:speculativeWallet,swapMode:"ExactIn"})
+        .catch(error => ({speedPilotError:error}));
+    }
+  }
   // Speculative valuation is read-only. Reuse it only if the verified net input
   // is identical; a feed mismatch must still block signing and submission.
   const valuationPromise = expectedLeg?.action === "buy" && !Number(expectedLeg.sourceUsd || 0)
@@ -2130,7 +2149,10 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     const cachedTradeableUsdc = typeof cachedProfileTradeableUsdcValue === "function"
       ? cachedProfileTradeableUsdcValue(state, profile, wallet, tradeFundsFastMaxAgeMs)
       : null;
-    if (cachedTradeableUsdc === null || (cachedTradeableUsdc > 0 && (
+    if (speculativeBuyOrder && speculativeBuyAmount === warmedOrderAmount &&
+        leg.outputMint === expectedLeg.outputMint && wallet === speculativeWallet) {
+      warmedOrderPromise = speculativeBuyOrder;
+    } else if (cachedTradeableUsdc === null || (cachedTradeableUsdc > 0 && (
       !["exact", "exactFull"].includes(profileBuyMode(state, profile)) || buyUsd <= cachedTradeableUsdc
     ))) {
       warmedOrderPromise = prepareTradingOrder(state, {
@@ -3454,7 +3476,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "read-provider-fallback-v8",
+      appVersion: "overlap-verified-route-v9",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
