@@ -57,9 +57,9 @@ test('profit ladder takes repeated profit and guards the remaining position',()=
  assert.equal(second.partial,true);
  const afterSecondSale={...p,raw:'578703',cost:57.86};
  const protectedExit=profitLadderExit(afterSecondSale,74,second);
- assert.equal(protectedExit.reason,'10% profit guard');
+ assert.equal(protectedExit.reason,'5% profit guard');
  assert.equal(protectedExit.raw,afterSecondSale.raw);
- assert.equal(profitLadderExit(p,90).reason,'10% loss guard');
+ assert.equal(profitLadderExit(p,95).reason,'5% loss guard');
 });
 test('maximum is a ceiling for every mode, including Exact Copy, without forcing smaller buys upward',()=>{
  let mode='limits';
@@ -132,4 +132,24 @@ test('GMGN repair hold rejects Start even when mode and keys are ready',async()=
  const h=controls();h.state.settings.providerRepairHold=true;
  const result=await h.run('/api/queue/start');assert.equal(result.code,409);assert.match(result.body.error,/GMGN/);
  assert(Object.values(h.state.profiles).every(p=>!p.running));
+});
+
+test('5% ladder loss guard triggers at the boundary and sells the entire remaining holding',()=>{
+ const p={verified:true,raw:'1000000',cost:5,cycle:'buy-five'};
+ assert.equal(profitLadderExit(p,4.75001).triggered,false);
+ for(const quote of [4.75,4.74,4]) {
+  const exit=profitLadderExit(p,quote);
+  assert.equal(exit.reason,'5% loss guard');assert.equal(exit.raw,p.raw);assert.equal(exit.partial,false);
+ }
+ assert.equal(profitLadderExit(p,6).reason,'20% profit ladder');
+ assert.equal(profitLadderExit(p,NaN),null);
+});
+test('5% guard protects the latest profit ladder level after a partial sale',()=>{
+ const p={verified:true,raw:'1000000',cost:5,cycle:'profit-five'};
+ const mark=profitLadderExit(p,6);
+ const remaining={...p,raw:'833333',cost:5*833333/1000000};
+ const trigger=mark.baselineUnit*Number(remaining.raw)*0.95;
+ assert.equal(profitLadderExit(remaining,trigger+0.00001,mark).triggered,false);
+ const exit=profitLadderExit(remaining,trigger,mark);
+ assert.equal(exit.reason,'5% profit guard');assert.equal(exit.raw,remaining.raw);assert.equal(exit.partial,false);
 });

@@ -1,8 +1,8 @@
-const CACHE_NAME = "signalpilot-owner-v11-speed-backup";
+const CACHE_NAME = "signalpilot-owner-v12-ladder-five-percent";
 const APP_SHELL = [
   "/control-panel.html",
   "/styles.css",
-  "/script.js?v=speed-backup-v8",
+  "/script.js?v=ladder-five-percent-v9",
   "/manifest.webmanifest",
   "/signalpilot-icon.svg"
 ];

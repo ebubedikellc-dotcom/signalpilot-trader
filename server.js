@@ -2593,7 +2593,7 @@ async function runPositionWatch() {
       }
      }else if(mode==='ladder') {
       d.profitLadders ||= {};
-      const mark=profitLadderExit(p,proceeds,d.profitLadders[p.key],20,10);
+      const mark=profitLadderExit(p,proceeds,d.profitLadders[p.key],20,5);
       if(!mark)throw new Error('Profit Ladder needs a valid sell quote and verified purchase');
       d.profitLadders[p.key]=mark;
       await executionJournal.save();
