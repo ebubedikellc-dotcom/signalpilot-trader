@@ -1999,10 +1999,10 @@ async function executeCopiedSwap(profile, transaction, state, expectedPositionCy
   return executeCopiedSwapLocked(profile, transaction, state);
 }
 
-async function executeCopiedSwapLocked(profile, transaction, state, walletLocked = false, expectedPositionCycle) {
+async function executeCopiedSwapLocked(profile, transaction, state, walletLocked = false, expectedPositionCycle, dryRun = false) {
   const preparationStartedAt = Date.now();
   const currentControls = await readState();
-  if (emergencyStopRequested || !supportedProfiles.some((key) => currentControls.profiles?.[key]?.running)) {
+  if (!dryRun && (emergencyStopRequested || !supportedProfiles.some((key) => currentControls.profiles?.[key]?.running))) {
     return { status: "Skipped - trading stopped by owner" };
   }
   if (Number(currentControls.strategy?.controlRevision || 0) > Number(state.strategy?.controlRevision || 0)) {
@@ -2026,7 +2026,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     return { status: "Skipped - unsupported swap format" };
   }
 
-  if (leg.action === "buy") {
+  if (leg.action === "buy" && !dryRun) {
     if (state.strategy?.activeProfile !== profile) return { status: "Buy blocked: trader selection changed" };
     const reason = buySignalError(profile, transaction, state);
     if (reason) return { status: reason };
@@ -2041,6 +2041,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   let outputMint = leg.outputMint;
   let copyAmount = scaledCopyAmount(leg.amount, state, profile);
   let sourceBuyUsd = 0;
+  const fundsCacheAgeMs = typeof tradeableUsdcCacheAge === "function" ? tradeableUsdcCacheAge(state, profile, wallet) : Infinity;
   let warmedOrderPromise = null;
   let warmedOrderAmount = "";
 
@@ -2053,8 +2054,8 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   }
 
   if (leg.action === "buy") {
-    if (state.strategy?.paused) return { status: `Game stopped - ${state.strategy.pauseReason || "new buys paused"}` };
-    if (profileSellOnly(state, profile)) {
+    if (!dryRun && state.strategy?.paused) return { status: `Game stopped - ${state.strategy.pauseReason || "new buys paused"}` };
+    if (!dryRun && profileSellOnly(state, profile)) {
       return { status: "Skipped - Sell Only mode is ON, new buys are blocked" };
     }
     const valueSourceBuy = async () => {
@@ -2175,7 +2176,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     };
     if (await hasPendingMint(wallet, leg.action === "buy" ? outputMint : inputMint)) return {status:"Skipped - prior transaction for this coin awaits confirmation"};
     let reason = await checkControls();
-    if (reason) return { status: reason, detectedAt };
+    if (reason && !dryRun) return { status: reason, detectedAt };
     if (leg.action === "buy") {
       const current = await readState();
       const tradeable = typeof cachedProfileTradeableUsdc === "function"
@@ -2188,6 +2189,26 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
       }
     }
     const fundsCheckedAt = Date.now();
+    // The route test uses this same verification, sizing, routing and final
+    // funds path. It exits before signing, journalling or submitting an order.
+    if (dryRun) return {
+      status: "Read-only preparation complete", readOnly: true, routeReady: true,
+      liveControlsReady: !reason, liveControlMessage: reason || "Current trading controls allow this signal",
+      sourceSignature: canonicalSignalId(transaction.signature), action: leg.action,
+      inputMint, outputMint, copiedTradeAmount: copyAmount.amount,
+      routeOutputAmount: order.outAmount, executionEngine: order.executionEngine || "jupiter",
+      fnzeroFallbackReason: order.fnzeroFallbackReason || "",
+      fundsCacheAgeMs: Number.isFinite(fundsCacheAgeMs) ? fundsCacheAgeMs : null,
+      fundsCacheUsed: Number.isFinite(fundsCacheAgeMs) && fundsCacheAgeMs <= (typeof tradeFundsFastMaxAgeMs === "number" ? tradeFundsFastMaxAgeMs : 10000),
+      timingsMs: {
+        sourceVerification: sourceVerifiedAt - preparationStartedAt,
+        sizingAndFunds: sizingReadyAt - sourceVerifiedAt,
+        swapQuote: quoteReadyAt - sizingReadyAt,
+        walletQueue: walletAcquiredAt - quoteReadyAt,
+        finalChecks: fundsCheckedAt - walletAcquiredAt,
+        preparationToReady: fundsCheckedAt - preparationStartedAt
+      }
+    };
     const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
     const signedAt = Date.now();
     reason = await checkControls();
@@ -3386,7 +3407,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "wallet-budget-latency-v4",
+      appVersion: "live-route-replay-v5",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
@@ -3584,110 +3605,65 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/simple-speed-test") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
-    const started = performance.now();
-    const activeProfile = state.strategy?.activeProfile || "frog";
-    const engine = state.settings?.executionEngine === "fnzero" ? "FnZero where supported, Jupiter fallback" : "Jupiter";
-    const traderWallet = targetWallet(state, activeProfile);
-    const wallet = tradeWallet(state);
-    const steps = [];
-    const mark = (name) => steps.push({ name, ms: Math.round(performance.now() - started) });
-    mark("Fake trader BUY received");
-    await Promise.resolve();
-    mark("Machine BUY decision ready");
-    await Promise.resolve();
-    mark("Fake trader SELL received");
-    await Promise.resolve();
-    mark("Machine SELL decision ready");
-    const real = { ok: false, message: "Real route was not checked.", submitted: false };
+    const started = Date.now();
+    const profile = state.strategy?.activeProfile || "frog";
+    const wallet = tradeWallet(state, profile);
+    const real = {ok:false, submitted:false, profile};
+    let transactions = [], buySignal;
     try {
-      if (!traderWallet) throw new Error("No selected trader wallet is configured.");
-      if (!wallet) throw new Error("No trading wallet is configured.");
-      const feedStart = performance.now();
-      const transactions = await fetchGmgnTransactionsForAddress(state.settings, traderWallet);
-      const feedMs = Math.max(1, Math.round(performance.now() - feedStart));
-      const buySignal = transactions.find((transaction) => {
-        const leg = primarySwapLeg(transaction, activeProfile, state);
+      if (!targetWallet(state, profile) || !wallet) throw new Error("Configure the trader and trading wallet first.");
+      const feedStarted = Date.now();
+      transactions = await fetchGmgnTransactionsForAddress(state.settings, targetWallet(state, profile));
+      real.feedMs = Date.now() - feedStarted;
+      buySignal = transactions.find(t => {
+        const leg = primarySwapLeg(t, profile, state);
         return leg?.action === "buy" && leg.outputMint && !isQuoteMint(leg.outputMint);
       });
-      if (!buySignal) throw new Error(`GMGN connected in ${feedMs}ms, but no recent buy signal was found for ${profileLabel(activeProfile)}.`);
-      const leg = primarySwapLeg(buySignal, activeProfile, state);
-      const connection = solanaConnection(state.settings, { priority: 50 });
-      const sourceUsd = sourceUsdFromSignal(buySignal, traderWallet);
-      const targetUsd = buyUsdAmount(state, activeProfile, sourceUsd) || profileSurviveMaxUsd(state, activeProfile);
-      if (!(targetUsd > 0)) throw new Error(`GMGN connected in ${feedMs}ms, but the latest buy size could not be measured.`);
-      const warmBuyQuery = { inputMint: usdcMint, outputMint: leg.outputMint, amount: usdcRawFromUsd(targetUsd), taker: wallet, swapMode: "ExactIn" };
-      const buyRouteStart = performance.now();
-      let warmedBuyRouteMs = 0;
-      const warmedBuyOrderPromise = prepareTradingOrder(state, warmBuyQuery)
-        .then((order) => {
-          warmedBuyRouteMs = Math.max(1, Math.round(performance.now() - buyRouteStart));
-          return order;
-        })
-        .catch((error) => {
-          warmedBuyRouteMs = Math.max(1, Math.round(performance.now() - buyRouteStart));
-          return { speedPilotError: error };
+      if (!buySignal) throw new Error("Feed connected, but no recent buy was available to replay.");
+      const replay = {...buySignal, detectedAt:new Date().toISOString()};
+      // Internal dry-run flag cannot be selected on a live execution endpoint.
+      const buy = await executeCopiedSwapLocked(profile, replay, structuredClone(state), false, undefined, true);
+      real.buy = buy;
+      real.buyReadyMs = Date.now() - started;
+      real.ok = buy.routeReady === true;
+      real.message = buy.status;
+      real.token = primarySwapLeg(buySignal, profile, state)?.outputSymbol || buy.outputMint;
+      real.plannedUsd = Number(buy.copiedTradeAmount || 0) / 1e6;
+    } catch (error) { real.message = error.message || "Buy preparation failed"; }
+    // Check sells separately: a failed buy must not conceal a usable exit.
+    try {
+      const connection = solanaConnection(state.settings, {priority:50});
+      const journal = await executionJournal.snapshot();
+      const held = Object.values(journal.positions || {}).find(p => p.wallet === wallet && p.profile === profile && p.verified && BigInt(p.raw || '0') > 0n);
+      if (held) {
+        const sourceSell = transactions.find(t => {
+          const leg = primarySwapLeg(t, profile, state);
+          return leg?.action === "sell" && leg.inputMint === held.mint;
         });
-      const cachedAvailable = cachedProfileTradeableUsdcValue(state, activeProfile, wallet, tradeFundsFastMaxAgeMs);
-      const budgetStart = performance.now();
-      const available = cachedAvailable !== null
-        ? cachedAvailable
-        : await withWalletOperation(() => cachedProfileTradeableUsdc(connection, state, activeProfile, wallet, tradeFundsFastMaxAgeMs));
-      const walletCheckMs = Math.max(1, Math.round(performance.now() - budgetStart));
-      const plannedUsd = Math.min(available, targetUsd);
-      if (!(plannedUsd > 0)) throw new Error(`GMGN connected in ${feedMs}ms, but available trading cash is $${available.toFixed(2)}.`);
-      let buyOrder;
-      let buyRouteMs;
-      if (plannedUsd === targetUsd) {
-        buyOrder = await warmedBuyOrderPromise;
-        buyRouteMs = warmedBuyRouteMs || Math.max(1, Math.round(performance.now() - buyRouteStart));
-      } else {
-        const resizedRouteStart = performance.now();
-        buyOrder = await prepareTradingOrder(state, { inputMint: usdcMint, outputMint: leg.outputMint, amount: usdcRawFromUsd(plannedUsd), taker: wallet, swapMode: "ExactIn" });
-        buyRouteMs = Math.max(1, Math.round(performance.now() - resizedRouteStart));
-      }
-      if (buyOrder?.speedPilotError) throw buyOrder.speedPilotError;
-      const backendBuyReadyMs = feedMs + buyRouteMs;
-      const held = await latestHeldCopiedToken(connection, state, activeProfile, wallet);
-      let sellRouteMs = 0;
-      let sellMessage = "No copied token is held now, so a real sell route was not checked.";
-      if (held?.mint && held?.amount) {
-        const sellRouteStart = performance.now();
-        await prepareTradingOrder(state, { inputMint: held.mint, outputMint: usdcMint, amount: held.amount, taker: wallet, swapMode: "ExactIn" });
-        sellRouteMs = Math.max(1, Math.round(performance.now() - sellRouteStart));
-        sellMessage = `Real sell route prepared for held coin in ${sellRouteMs}ms.`;
-      }
-      real.ok = true;
-      real.message = "Real GMGN feed and real buy route preparation checked. No signature or trade was sent.";
-      real.profile = activeProfile;
-      real.traderWallet = traderWallet;
-      real.feedMs = feedMs;
-      real.walletCheckMs = walletCheckMs;
-      real.walletCheckInCriticalPath = cachedAvailable === null;
-      real.buyRouteMs = buyRouteMs;
-      real.backendBuyReadyMs = backendBuyReadyMs;
-      real.sellRouteMs = sellRouteMs;
-      real.sellMessage = sellMessage;
-      real.token = leg.outputSymbol || leg.outputMint;
-      real.mint = leg.outputMint;
-      real.plannedUsd = Number(plannedUsd.toFixed(2));
-      real.executionEngine = buyOrder.executionEngine || "jupiter";
-      real.fnzeroFallbackReason = buyOrder.fnzeroFallbackReason || "";
-      real.submitted = false;
-    } catch (error) {
-      real.message = error.message || "Real route check failed.";
-    }
-    const totalMs = Math.max(1, Math.round(performance.now() - started));
+        if (sourceSell) {
+          real.sell = await executeCopiedSwapLocked(profile, {...sourceSell,detectedAt:new Date().toISOString()}, structuredClone(state), false, held.cycle, true);
+          real.sell.kind = "Verified trader sell replay";
+        } else {
+          const sellStarted = Date.now();
+          const amount = await tokenBalanceRaw(connection, wallet, held.mint);
+          if (BigInt(amount || '0') < BigInt(held.raw)) throw new Error("Wallet holding differs from recorded holding; review required");
+          if (await hasPendingMint(wallet, held.mint)) throw new Error("A transaction for this holding is still pending");
+          const order = await prepareTradingOrder(state,{inputMint:held.mint,outputMint:usdcMint,amount:held.raw,taker:wallet,swapMode:"ExactIn"});
+          if (!order.transaction || !order.inAmount || BigInt(order.inAmount) !== BigInt(held.raw)) throw new Error("Full holding sell route could not be built");
+          real.sell = {routeReady:true,kind:"Full holding exit route; no matching trader sell to replay",executionEngine:order.executionEngine || "jupiter",fnzeroFallbackReason:order.fnzeroFallbackReason || "",elapsedMs:Date.now()-sellStarted};
+        }
+      } else if (real.buy?.routeOutputAmount && BigInt(real.buy.routeOutputAmount) > 0n) {
+        const sellStarted = Date.now();
+        const order = await prepareTradingOrder(state,{inputMint:real.buy.outputMint,outputMint:usdcMint,amount:real.buy.routeOutputAmount,taker:wallet,swapMode:"ExactIn"});
+        if (!order.outAmount || BigInt(order.outAmount) <= 0n) throw new Error("Hypothetical sell quote unavailable without a holding");
+        real.sell = {routeReady:false,quoteReady:true,kind:"Hypothetical reverse route: uses the buy quote's output; wallet does not hold these tokens",executionEngine:order.executionEngine || "jupiter",fnzeroFallbackReason:order.fnzeroFallbackReason || "",elapsedMs:Date.now()-sellStarted};
+      } else real.sell = {routeReady:false,kind:"Sell not checked: no verified holding or buy output available"};
+    } catch (error) { real.sell = {routeReady:false,kind:"Sell route unavailable",message:error.message}; }
+    const live = (state.trades || []).find(t => Number.isFinite(t.execution?.timingsMs?.detectionToSubmit));
     send(response, 200, {
-      readOnly: true,
-      fakeCoin: "DEMO",
-      profile: activeProfile,
-      engine,
-      buyReactionMs: Math.max(1, steps[1].ms - steps[0].ms),
-      sellReactionMs: Math.max(1, steps[3].ms - steps[2].ms),
-      totalMs,
-      steps,
-      real,
-      message: "Speed test completed. No wallet signature or transaction submission was used."
+      readOnly:true, real, totalMs:Date.now()-started,
+      latestLive:live ? {token:live.token,time:live.time,status:live.status,timingsMs:live.execution.timingsMs} : null,
+      message:"Replayed an existing signal using live preparation checks. Signing, sending and confirmation were not performed."
     });
     return true;
   }

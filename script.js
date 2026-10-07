@@ -1737,24 +1737,29 @@ async function runSimpleSpeedTest() {
   if (!button || !result) return;
   button.disabled = true;
   const started = performance.now();
-  result.textContent = "Testing real feed and route speed, then fake buy/sell reaction. No real trade will be sent...";
+  result.textContent = "Replaying a real signal through verification, funds and route checks. Checking the sell route too…";
   try {
     const test = await api("/api/simple-speed-test", { method: "POST" });
     const browserMs = Math.round(performance.now() - started);
-    const seconds = (browserMs / 1000).toFixed(2);
-    const real = test.real || {};
-    const backendBuyReadyMs = real.ok
-      ? Number(real.backendBuyReadyMs || (Number(real.feedMs || 0) + Math.max(Number(real.walletCheckMs || 0), Number(real.buyRouteMs || 0))))
-      : 0;
-    const backendSeconds = backendBuyReadyMs ? (backendBuyReadyMs / 1000).toFixed(2) : "0.00";
-    const walletNote = real.walletCheckInCriticalPath ? "wallet refresh was slow and needs warming" : "wallet balance was already warm";
-    const realLine = real.ok
-      ? `REAL route-ready ${backendBuyReadyMs}ms (${backendSeconds}s): GMGN feed ${real.feedMs}ms; buy route ${real.buyRouteMs}ms for ${real.token || "coin"} ($${real.plannedUsd || 0}) using ${real.executionEngine || test.engine}. Wallet check ${real.walletCheckMs}ms separately (${walletNote}). ${real.sellMessage || ""}`
-      : `REAL check did not pass: ${real.message || "not checked"}`;
-    result.textContent =
-      `${realLine} Fake reaction: trader BUY -> machine BUY ${test.buyReactionMs}ms; ` +
-      `trader SELL -> machine SELL ${test.sellReactionMs}ms. ` +
-      `Phone/browser click-to-result display time: ${browserMs}ms (${seconds}s). No real money moved.`;
+    const real = test.real || {}, buy = real.buy || {}, sell = real.sell || {};
+    const timing = buy.timingsMs || {};
+    const stages = [["Feed request",real.feedMs],["Source verification",timing.sourceVerification],
+      ["Sizing and funds",timing.sizingAndFunds],["Remaining route wait",timing.swapQuote],
+      ["Wallet queue",timing.walletQueue],["Final funds and controls",timing.finalChecks]];
+    const rows = stages.filter(([,ms])=>Number.isFinite(ms)).map(([name,ms])=>
+      `<li>${escapeHtml(name)}: <strong>${Math.round(ms)} ms</strong></li>`).join("");
+    const live = test.latestLive;
+    result.innerHTML = `
+      <p><strong>${real.ok ? `BUY preparation ready in ${Math.round(real.buyReadyMs)} ms (${(real.buyReadyMs/1000).toFixed(2)} s)` : "BUY preparation did not pass"}</strong></p>
+      <p>${escapeHtml(real.ok ? `${real.token || "Coin"}: $${real.plannedUsd.toFixed(2)} using ${buy.executionEngine}` : real.message || "No result")}</p>
+      <ol>${rows}</ol>
+      ${real.ok ? `<p>Starting wallet budget: ${!buy.fundsCacheUsed ? "fresh balance read required" : `cached balance ${Math.round(buy.fundsCacheAgeMs)} ms old; spending reservations checked`}. ${escapeHtml(buy.liveControlMessage || "")}</p>` : ""}
+      ${buy.fnzeroFallbackReason ? `<p>FnZero fallback: ${escapeHtml(buy.fnzeroFallbackReason)}</p>` : ""}
+      <p><strong>SELL: ${sell.routeReady ? "preparation ready" : sell.quoteReady ? "hypothetical quote ready" : "not ready"}</strong>${Number.isFinite(sell.elapsedMs) ? ` in ${sell.elapsedMs} ms` : Number.isFinite(sell.timingsMs?.preparationToReady) ? ` in ${sell.timingsMs.preparationToReady} ms` : ""}. ${escapeHtml(sell.kind || sell.status || "Not checked")}${sell.message ? `: ${escapeHtml(sell.message)}` : ""}</p>
+      ${sell.fnzeroFallbackReason ? `<p>Sell FnZero fallback: ${escapeHtml(sell.fnzeroFallbackReason)}</p>` : ""}
+      <p>Signing → sending → confirmation: <strong>not run in this test</strong>. Live trading adds these steps after preparation.</p>
+      <p>${live ? `Latest recorded live submission: ${escapeHtml(live.token || "coin")} — ${Math.round(live.timingsMs.detectionToSubmit)} ms from site detection to submission request. ${escapeHtml(live.time || "")}` : "No recorded live submission timing yet."}</p>
+      <p>Existing signal replay; feed request time does not measure how soon GMGN first detects a new trade. Phone result displayed in ${browserMs} ms. No money moved.</p>`;
   } catch (error) {
     result.textContent = `Speed test failed: ${error.message}. No real trade was sent.`;
   } finally {

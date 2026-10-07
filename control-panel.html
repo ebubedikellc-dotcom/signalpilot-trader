@@ -84,7 +84,7 @@
       </section>
       <section class="wallet-remaining" aria-labelledby="speedTestTitle">
         <h2 id="speedTestTitle">Simple speed test</h2>
-        <p>One click checks the real trader feed and real route preparation speed, then runs a fake buy/sell reaction test. It never signs or sends a trade.</p>
+        <p>Replays a recent trader signal using the live source verification, spending limits, wallet budget and buy route checks, then checks a sell route. Shows each stage and any available live submission timing. It never signs or sends a trade.</p>
         <label>Trade execution
           <select id="executionEngine">
             <option value="jupiter">Jupiter (current route)</option>
@@ -93,7 +93,7 @@
         </label>
         <button id="saveExecutionEngine" type="button" class="secondary-action">Save execution option</button>
         <button id="runSpeedTest" type="button" class="secondary-action">Test speed</button>
-        <p id="speedTestResult" role="status" aria-live="polite">No real-route speed test run yet.</p>
+        <div id="speedTestResult" role="status" aria-live="polite">No route test run yet.</div>
       </section>
       <section class="wallet-remaining" aria-labelledby="walletRemainingTitle">
         <h2 id="walletRemainingTitle">My wallet money and trading amount</h2>

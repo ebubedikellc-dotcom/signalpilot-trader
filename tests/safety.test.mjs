@@ -13,13 +13,15 @@ test('speed test checks real read-only routing but cannot sign or submit trades'
  assert.match(endpoint,/requireOwner/);
  assert.match(endpoint,/fetchGmgnTransactionsForAddress/);
  assert.match(endpoint,/prepareTradingOrder/);
- assert.match(endpoint,/buyReactionMs/);
- assert.match(endpoint,/sellReactionMs/);
+ assert.match(endpoint,/executeCopiedSwapLocked/);
+ assert.match(endpoint,/undefined, true/);
+ assert.match(endpoint,/hasPendingMint/);
  assert.doesNotMatch(endpoint,/signSolanaTransaction|executeTradingOrder|sendRawTransaction|submitFnzeroOrder/);
  assert.doesNotMatch(script,/fnzeroMint|fnzeroCoin|fnzeroSide|testFnzero/);
  assert.match(script,/runSimpleSpeedTest/);
- assert.match(script,/REAL check/);
- assert.match(script,/trader BUY -> machine BUY/);
+ assert.match(script,/BUY preparation/);
+ assert.match(script,/not run in this test/);
+ assert.doesNotMatch(endpoint,/buyReactionMs|sellReactionMs|Fake trader/);
 });
 test('poll cadence does not expire buys; a known subsequent source sell cancels them',()=>{
  const feeds=new Map();const c=vm.createContext({Number,signalFeeds:feeds,primarySwapLeg:t=>t.leg,targetWallet:()=> 'wallet'});
@@ -356,4 +358,38 @@ test('blocked buys retain stage timings and never submit',async()=>{
  const result=await h.c.executeCopiedSwap('safe',h.buy,h.state);
  assert.match(result.status,/speed target missed/);assert(Number.isFinite(result.timingsMs.signing));
  assert(result.timingsMs.detectionToDecision>=1000);assert.equal(h.submitted.length,0);
+});
+
+test('route test replays the live buy path and exits before signing or submission',async()=>{
+ const h=executionHarness();let signed=0,recorded=0;
+ h.c.signSolanaTransaction=async()=>{signed++;throw new Error('test must never sign');};
+ h.c.recordPendingSwap=async()=>{recorded++;throw new Error('test must never journal orders');};
+ const result=await h.c.executeCopiedSwapLocked('safe',h.buy,h.state,false,undefined,true);
+ assert.equal(result.readOnly,true);assert.equal(result.routeReady,true);
+ assert.equal(result.copiedTradeAmount,'50000000');
+ assert(Number.isFinite(result.timingsMs.preparationToReady));
+ assert.equal(signed,0);assert.equal(recorded,0);assert.equal(h.submitted.length,0);
+});
+test('stopped trading can check routes while test reports the live control block',async()=>{
+ const h=executionHarness();h.stop();
+ h.c.signSolanaTransaction=async()=>{throw new Error('must not sign');};
+ const result=await h.c.executeCopiedSwapLocked('safe',h.buy,h.state,false,undefined,true);
+ assert.equal(result.routeReady,true);assert.equal(result.liveControlsReady,false);
+ assert.match(result.liveControlMessage,/stopped/);assert.equal(h.submitted.length,0);
+});
+test('route replay keeps source verification and exact-copy funds protections',async()=>{
+ const h=executionHarness();h.c.verifyCopySource=async()=>{throw new Error('Source token mismatch');};
+ await assert.rejects(h.c.executeCopiedSwapLocked('safe',h.buy,h.state,false,undefined,true),/mismatch/);
+ const h2=executionHarness();h2.c.profileBuyMode=()=> 'exactFull';h2.c.profileTradeableUsdc=async()=>20;
+ h2.c.signSolanaTransaction=async()=>{throw new Error('must not sign');};
+ const result=await h2.c.executeCopiedSwapLocked('safe',h2.buy,h2.state,false,undefined,true);
+ assert.match(result.status,/insufficient/);assert.equal(result.routeReady,undefined);
+ assert.equal(h2.submitted.length,0);
+});
+test('sell replay checks verified copied holdings but never signs an exit',async()=>{
+ const h=executionHarness();h.c.signSolanaTransaction=async()=>{throw new Error('must not sign');};
+ const result=await h.c.executeCopiedSwapLocked('safe',h.sell,h.state,false,undefined,true);
+ assert.equal(result.routeReady,true);assert.equal(result.copiedTradeAmount,'123');assert.equal(h.submitted.length,0);
+ h.c.tokenBalanceRaw=async()=> '0';
+ await assert.rejects(h.c.executeCopiedSwapLocked('safe',h.sell,h.state,false,undefined,true),/holding differs/);
 });
