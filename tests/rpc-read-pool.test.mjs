@@ -78,7 +78,7 @@ test('only reads fail over when the configured provider is rate-limited; writes 
  vm.runInContext(source.slice(source.indexOf('const rpcConnections'),source.indexOf('function solanaAddress')),c);
  const client=c.solanaConnection({heliusKey:'test-key'});
  assert.equal(await client.getBalance('w'),123);
- assert.deepEqual(calls,['https://mainnet.helius-rpc.com/?api-key=test-key','https://api.mainnet-beta.solana.com']);
+ assert.deepEqual(calls,['https://mainnet.helius-rpc.com/?api-key=test-key','https://solana-rpc.publicnode.com']);
  await assert.rejects(client.sendRawTransaction('bytes'),/429/);assert.equal(calls.at(-1),'write');assert.equal(calls.length,3);
 });
 

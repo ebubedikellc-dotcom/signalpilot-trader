@@ -833,11 +833,26 @@ async function walletBalanceFromConnection(connection, wallet, key) {
   return { address: wallet, sol: lamports / LAMPORTS_PER_SOL, usdc: tokens[usdcMint]?.amount || 0, tokens, error: "", updatedAt: new Date().toISOString() };
 }
 
-async function tokenUiBalance(connection, owner, mint) {
+async function tokenUiBalance(connection, owner, mint, priority = 0) {
   const ownerKey = solanaAddress(owner);
   const mintKey = solanaAddress(mint);
   if (!ownerKey || !mintKey) return 0;
-  const accounts = await connection.getParsedTokenAccountsByOwner(ownerKey, { mint: mintKey }, "confirmed");
+  let accounts;
+  try { accounts = await connection.getParsedTokenAccountsByOwner(ownerKey, { mint: mintKey }, "confirmed"); }
+  catch(error) {
+    if (mint !== usdcMint || !isRateLimitError(error) && !/timed out|connection failed/i.test(error.message)) throw error;
+    // USDC routes debit the canonical associated account. Reading that account
+    // needs no indexed wallet listing and conservatively excludes other accounts.
+    const fallback = solanaConnection({}, {publicNode:true,priority});
+    const account = await fallback.getAccountInfo(associatedTokenAddress(ownerKey,mintKey),"confirmed");
+    if (!account) return 0;
+    if (account.executable || !account.owner.equals(tokenProgramId) || account.data.length !== 165 ||
+        !new PublicKey(account.data.subarray(0,32)).equals(mintKey) ||
+        !new PublicKey(account.data.subarray(32,64)).equals(ownerKey) || account.data[108] !== 1) {
+      throw new Error("Cannot verify the USDC associated account");
+    }
+    return Number(account.data.readBigUInt64LE(64))/1e6;
+  }
   return (accounts.value || []).reduce((sum, item) => {
     return sum + Number(item.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0);
   }, 0);
@@ -1386,11 +1401,11 @@ function signerId(state) {
 }
 
 const rpcConnections = new Map();
-function solanaConnection(settings = {}, { fastRead = false, publicOnly = false, direct = false, priority = fastRead ? 100 : 0 } = {}) {
-  const provider = rpcProvider(settings, process.env, {publicOnly,direct});
+function solanaConnection(settings = {}, { fastRead = false, publicOnly = false, publicNode = false, direct = false, priority = fastRead ? 100 : 0 } = {}) {
+  const provider = rpcProvider(settings, process.env, {publicOnly,direct,publicNode});
   const endpoint = provider.http;
   if (!rpcConnections.has(endpoint)) {
-    const pool = createRpcReadPool({intervalMs: provider.public ? 1100 : 250, maxConcurrent: provider.public ? 1 : 2});
+    const pool = createRpcReadPool({intervalMs: provider.readIntervalMs ?? (provider.public ? 1100 : 250), maxConcurrent: provider.readConcurrency ?? (provider.public ? 1 : 2)});
     const connection = new Connection(endpoint, {
       commitment:'confirmed', disableRetryOnRateLimit:true,
       ...(provider.ws ? {wsEndpoint:provider.ws} : {}),
@@ -1419,7 +1434,7 @@ function solanaConnection(settings = {}, { fastRead = false, publicOnly = false,
         if(provider.secret)error.message=String(error.message).split(provider.secret).join('[redacted]');
         const safeRead=['getBalance','getParsedTokenAccountsByOwner','getParsedTransaction','getBlockHeight','getSignatureStatuses','getAccountInfo','getLatestBlockhash','getMultipleAccountsInfoAndContext','simulateTransaction'].includes(property);
         if(!provider.public && safeRead && (isRateLimitError(error) || /timed out|connection failed/i.test(error.message))) {
-          return solanaConnection({}, {publicOnly:true,priority})[property](...args);
+          return solanaConnection({}, {publicOnly:property==='getParsedTokenAccountsByOwner',publicNode:property!=='getParsedTokenAccountsByOwner',priority})[property](...args);
         }
         throw error;
       });
@@ -1722,7 +1737,7 @@ async function publishWalletBudget(connection, state, profile, wallet, backgroun
   const fingerprint = walletBudgetFingerprint(wallet, budgetJournal);
   const at = Date.now();
   const fillIds = new Set((budgetJournal.fills || []).map(f => f.txid));
-  const cash = await tokenUiBalance(connection, wallet, usdcMint);
+  const cash = await tokenUiBalance(connection, wallet, usdcMint, background ? -10 : 50);
   const publish = async () => {
     // A swap, withdrawal, confirmation or plan change during the RPC read
     // makes the sample ambiguous. Keep the previous conservative sample.
@@ -3439,7 +3454,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "wallet-queue-isolation-v7",
+      appVersion: "read-provider-fallback-v8",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
