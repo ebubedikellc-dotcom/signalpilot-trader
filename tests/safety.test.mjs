@@ -50,6 +50,14 @@ function executionHarness() {
  const sell={timestamp:1,leg:{action:'sell',inputMint:'COIN',outputMint:'USDC',amount:'123'}};
  return {c,state,buy,sell,submitted,stop:()=>{stopped=true}};
 }
+test('unheld source sales do not consume verification RPC calls',async()=>{
+ const h=executionHarness();h.c.trackedPosition=async()=>null;
+ h.c.verifyCopySource=async()=>{throw new Error('unheld sell must not use RPC');};
+ const result=await h.c.executeCopiedSwap('safe',h.sell,h.state);
+ assert.match(result.status,/no verified copied holding/);assert.equal(h.submitted.length,0);
+ h.c.hasPendingMint=async()=>true;
+ assert.match((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,/remains queued/);
+});
 test('full-amount copies skip insufficient budget and never reduce the purchase',async()=>{
  const h=executionHarness();h.c.profileBuyMode=()=> 'exactFull';
  h.c.profileTradeableUsdc=async()=>20;
@@ -265,9 +273,9 @@ test('copy sell waits for an existing exit without requesting another sale',asyn
  assert.equal(h.submitted.length,0);
 });
 test('a sale confirmed during the balance read is reported as closed, not a mismatch',async()=>{
- const h=executionHarness();let reads=0;
- h.c.trackedPosition=async()=>++reads===1?{raw:'123',cycle:'original'}:{raw:'0',cycle:'original'};
- h.c.tokenBalanceRaw=async()=>'';
+ const h=executionHarness();let closed=false;
+ h.c.trackedPosition=async()=>({raw:closed?'0':'123',cycle:'original'});
+ h.c.tokenBalanceRaw=async()=>{closed=true;return '';};
  assert.match((await h.c.executeCopiedSwap('safe',h.sell,h.state)).status,/already closed/);
  assert.equal(h.submitted.length,0);
 });
@@ -333,8 +341,9 @@ test('sell quote overlaps balance read but a shortfall prevents signing and send
  assert.equal(signed,0);assert.equal(h.submitted.length,0);
 });
 test('sell quote is rebuilt when a partial exit changes the remaining position',async()=>{
- const h=executionHarness(),original=h.c.jupiterJson,amounts=[];let reads=0;
- h.c.trackedPosition=async()=>({raw:++reads===1?'123':'60',cycle:'same'});
+ const h=executionHarness(),original=h.c.jupiterJson,amounts=[];let raw='123';
+ h.c.trackedPosition=async()=>({raw,cycle:'same'});
+ h.c.tokenBalanceRaw=async()=>{raw='60';return '60';};
  h.c.jupiterJson=async(path,options)=>{if(options.query)amounts.push(options.query.amount);return original(path,options);};
  const result=await h.c.executeCopiedSwap('safe',h.sell,h.state);
  assert.deepEqual(amounts,['123','60']);assert.equal(result.copiedTradeAmount,'60');

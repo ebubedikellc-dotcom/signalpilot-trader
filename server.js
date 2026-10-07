@@ -2018,8 +2018,18 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     state.strategy = currentControls.strategy;
     state.settings = currentControls.settings;
   }
-  const verificationPromise = verifyCopySource(profile, transaction, state);
   const expectedLeg = primarySwapLeg(transaction, profile, state);
+  if (expectedLeg?.action === "sell") {
+    const heldWallet = tradeWallet(state, profile);
+    if (await hasPendingMint(heldWallet, expectedLeg.inputMint)) {
+      return {status:"Waiting - previous transaction for this coin awaits confirmation; sell remains queued"};
+    }
+    const heldPosition = await trackedPosition(state, profile, expectedLeg.inputMint);
+    if (!heldPosition || BigInt(heldPosition.raw) <= 0n) {
+      return {status:"Skipped - no verified copied holding for this trader"};
+    }
+  }
+  const verificationPromise = verifyCopySource(profile, transaction, state);
   // Speculative valuation is read-only. Reuse it only if the verified net input
   // is identical; a feed mismatch must still block signing and submission.
   const valuationPromise = expectedLeg?.action === "buy" && !Number(expectedLeg.sourceUsd || 0)
