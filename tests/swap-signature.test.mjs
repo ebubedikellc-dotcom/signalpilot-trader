@@ -74,3 +74,15 @@ test('sponsored fees are not charged to growth cash; owner-paid rent remains cou
   tx.meta.postBalances[1]=1000000;assert.equal(c.solCost(tx,'wallet'),0.002);
   assert.equal(c.solCost(tx,'missing'),null);
 });
+
+test('failed sponsored execution saves returned signature before reporting failure',async()=>{
+ const h=journalHarness();const key=await h.c.recordPendingSwap({wallet:'wallet',mint:'coin',side:'sell'}, {}, {requestId:'r1'});
+ const signature='2'.repeat(88);
+ await assert.rejects(h.c.recordExecutionResponse(key,{status:'Failed',code:-1000,errorMessage:'Slippage tolerance exceeded',signature}),/checking chain/);
+ assert.equal(h.d.pending[key].txid,signature);assert.match(h.d.notices[key],/checking chain/);
+});
+test('failed execution without a receipt retains its reservation',async()=>{
+ const h=journalHarness();const key=await h.c.recordPendingSwap({wallet:'wallet',mint:'coin',side:'sell'}, {}, {requestId:'r1'});
+ await assert.rejects(h.c.recordExecutionResponse(key,{status:'Failed',code:-1001}),/checking chain/);
+ assert.equal(h.d.pending[key].txid,null);
+});

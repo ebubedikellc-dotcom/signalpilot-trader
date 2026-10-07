@@ -33,3 +33,12 @@ test('missing or invalid Retry-After gets a bounded default cooldown',async()=>{
   h.advance(1);h.success();await h.quote();assert.equal(h.calls(),2);
  }
 });
+test('execute error retains its structured receipt without retrying the signed order',async()=>{
+ for(const ok of [true,false]) {
+  let calls=0;const payload={status:'Failed',code:-1000,errorMessage:'Slippage tolerance exceeded',signature:'2'.repeat(88)};
+  const c=vm.createContext({URL,AbortSignal,Map,Number,Math,JSON,Object,Error,Date,setTimeout,fetch:async()=>{calls++;return {ok,status:ok?200:400,headers:{get:()=>null},json:async()=>payload};}});
+  vm.runInContext(snippet,c);
+  await assert.rejects(c.jupiterJson('/swap/v2/execute',{method:'POST'}),error=>error.executionResponse===payload);
+  assert.equal(calls,1);
+ }
+});

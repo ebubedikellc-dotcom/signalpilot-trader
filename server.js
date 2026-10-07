@@ -1,7 +1,7 @@
 import { createFnzeroRouter, submitFnzeroOrder } from "./lib/fnzero-route.mjs";
 import { rpcProvider, monitoredProfiles } from "./lib/rpc-provider.mjs";
 import { createRpcReadPool } from "./lib/rpc-read-pool.mjs";
-import { inspectSwapSignature } from "./lib/swap-signature.mjs";
+import { inspectSwapSignature, base58 } from "./lib/swap-signature.mjs";
 import { createGmgnRequestGate, gmgnRetryAt } from "./lib/gmgn-rate-limit.mjs";
 import { validateGrowthSettings, growthSnapshot, growthTradeable, growthTransition } from "./lib/growth-goal.mjs";
 import { availableCachedCash } from "./lib/wallet-budget.mjs";
@@ -1436,7 +1436,7 @@ function solanaConnection(settings = {}, { fastRead = false, publicOnly = false,
       if(!result?.catch)return result;
       return result.catch(error=>{
         if(provider.secret)error.message=String(error.message).split(provider.secret).join('[redacted]');
-        const safeRead=['getBalance','getParsedTokenAccountsByOwner','getParsedTransaction','getBlockHeight','getSignatureStatuses','getAccountInfo','getLatestBlockhash','getMultipleAccountsInfoAndContext','simulateTransaction'].includes(property);
+        const safeRead=['getSignaturesForAddress','getBalance','getParsedTokenAccountsByOwner','getParsedTransaction','getBlockHeight','getSignatureStatuses','getAccountInfo','getLatestBlockhash','getMultipleAccountsInfoAndContext','simulateTransaction'].includes(property);
         if(!provider.public && safeRead && (isRateLimitError(error) || /timed out|connection failed/i.test(error.message))) {
           return solanaConnection({}, {publicOnly:property==='getParsedTokenAccountsByOwner',publicNode:property!=='getParsedTokenAccountsByOwner',priority})[property](...args);
         }
@@ -1900,6 +1900,7 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.error || payload.errorMessage) {
         const error = new Error(payload.errorMessage || payload.error || `Jupiter returned ${response.status}`);
+        if (pathname === '/swap/v2/execute') error.executionResponse = payload;
         if (response.status === 429) {
           error.rateLimited = true;
           if (isQuote) {
@@ -1914,7 +1915,9 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {
         throw error;
       }
       if (pathname === "/swap/v2/execute" && payload.status !== "Success") {
-        throw new Error(`Jupiter execution not confirmed: ${payload.status || "unknown status"}${payload.code !== undefined ? ` (code ${payload.code})` : ""}${payload.signature ? `; transaction ${payload.signature}` : ""}`);
+        const error = new Error(`Jupiter execution not confirmed: ${payload.status || "unknown status"}${payload.code !== undefined ? ` (code ${payload.code})` : ""}${payload.signature ? `; transaction ${payload.signature}` : ""}`);
+        error.executionResponse = payload;
+        throw error;
       }
       return payload;
     } catch (error) {
@@ -2010,12 +2013,17 @@ async function prepareTradingOrder(state, query) {
   }
   return {...order, executionEngine:'jupiter', ...(fallbackReason ? {fnzeroFallbackReason:fallbackReason} : {})};
 }
-async function executeTradingOrder(state, signed, order) {
+async function executeTradingOrder(state, signed, order, pendingKey) {
   if (order.executionEngine === 'fnzero') {
     return submitFnzeroOrder(solanaConnection(state.settings,{priority:100}), signed.signedTransactionBase64, order);
   }
-  return jupiterJson('/swap/v2/execute',{apiKey:jupiterApiKey(state.settings),method:'POST',body:{
-    signedTransaction:signed.signedTransactionBase64,requestId:order.requestId,lastValidBlockHeight:order.lastValidBlockHeight}});
+  try {
+    return await jupiterJson('/swap/v2/execute',{apiKey:jupiterApiKey(state.settings),method:'POST',body:{
+      signedTransaction:signed.signedTransactionBase64,requestId:order.requestId,lastValidBlockHeight:order.lastValidBlockHeight}});
+  } catch (error) {
+    if (pendingKey && error.executionResponse) await recordExecutionResponse(pendingKey, error.executionResponse);
+    throw error;
+  }
 }
 
 async function executeCopiedSwap(profile, transaction, state, expectedPositionCycle) {
@@ -2307,7 +2315,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     const d = await executionJournal.load(); delete d.pending[journalKey]; await executionJournal.save();
     return {status:`Buy blocked: speed target missed ${executionStartedAt-preparationStartedAt}ms exceeded ${buySpeedLimitMs}ms backup deadline; no late buy sent`,detectedAt};
   }
-  const executed = await executeTradingOrder(state, signed, order);
+  const executed = await executeTradingOrder(state, signed, order, journalKey);
 
   const executionReturnedAt = Date.now();
   await recordExecutionResponse(journalKey,executed);
@@ -2379,25 +2387,31 @@ async function recordPendingSwap(info,signed,order) {
     info = {...info, reservedUsd};
   }
   d.pending[key]={...info,txid,expires:order.lastValidBlockHeight,requestId:order.requestId,submittedAt:Date.now()};
+  if (!txid && signed.signedTransactionBase64) {
+    const tx=VersionedTransaction.deserialize(Buffer.from(signed.signedTransactionBase64,'base64'));
+    const index=tx.message.staticAccountKeys.findIndex(k=>k.toBase58()===info.wallet);
+    d.pending[key].ownerSignature=base58(tx.signatures[index]);
+  }
   if(!txid)d.notices[key]='Awaiting Jupiter co-signature and transaction ID. An uncertain submission will not be retried automatically.';
   await executionJournal.save();return key;
 }
 async function recordExecutionResponse(key,result) {
   const d=await executionJournal.load();
-  if(result.status && result.status!=='Success') {
-    d.notices[key]=`Execution response: ${result.status}; checking chain before retrying`;
-    await executionJournal.save();throw new Error(d.notices[key]);
-  }
   const returned=result.signature || result.txid;
   const pending=d.pending[key];
   if(!pending)throw new Error('Pending order is missing; confirmation requires review');
   if(pending.txid && returned && returned!==pending.txid)throw new Error('Execution returned a different signature; confirmation requires review');
-  if(!pending.txid) {
+  if(!pending.txid && returned) {
     if(typeof returned!=='string' || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(returned))throw new Error('Execution did not return a valid transaction ID; order remains reserved for review');
     pending.txid=returned;
     delete d.notices[key];
     await executionJournal.save();
   }
+  if(result.status && result.status!=='Success' || result.error || result.errorMessage) {
+    d.notices[key]=`Execution response: ${result.status || 'failed'}; checking chain before retrying`;
+    await executionJournal.save();throw new Error(d.notices[key]);
+  }
+  if(!pending.txid)throw new Error('Execution did not return a valid transaction ID; order remains reserved for review');
 }
 async function trackedPosition(state,profile,mint) {
   const snapshot=await executionJournal.snapshot();
@@ -2603,7 +2617,7 @@ async function runPositionWatch() {
      if(emergencyStopRequested || !supportedProfiles.some(x=>before.profiles[x].running) || before.strategy.controlRevision!==current.strategy.controlRevision)return;
      const key=await recordPendingSwap({...salePosition,side:'sell',reason},signed,order);
      if(emergencyStopRequested){delete d.pending[key];await executionJournal.save();return;}
-     const result=await executeTradingOrder(current,signed,order);
+     const result=await executeTradingOrder(current,signed,order,key);
      await recordExecutionResponse(key,result);
      d.notices[p.key]=`${reason}: sale submitted; awaiting chain confirmation`;
      await executionJournal.save();
@@ -2684,7 +2698,8 @@ async function executeManualTokenSellLocked(state, { profile, mint, automatic = 
     const check=await readState();
     if(emergencyStopRequested || !supportedProfiles.some(p=>check.profiles[p].running)) throw new Error("Trading stopped; sell cancelled before submission");
   }
-  const executed = await jupiterJson("/swap/v2/execute", {
+  let executed;
+  try { executed = await jupiterJson("/swap/v2/execute", {
     apiKey: jupiterApiKey(state.settings),
     method: "POST",
     body: {
@@ -2692,7 +2707,10 @@ async function executeManualTokenSellLocked(state, { profile, mint, automatic = 
       requestId: order.requestId,
       lastValidBlockHeight: order.lastValidBlockHeight
     }
-  });
+  }); } catch (error) {
+    if (pendingKey && error.executionResponse) await recordExecutionResponse(pendingKey,error.executionResponse);
+    throw error;
+  }
 
   if (pendingKey) await recordExecutionResponse(pendingKey, executed);
 
