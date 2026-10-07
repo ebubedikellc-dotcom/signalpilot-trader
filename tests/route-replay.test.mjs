@@ -5,12 +5,12 @@ import fs from 'node:fs';
 const server=fs.readFileSync(new URL('../server.js',import.meta.url),'utf8');
 const script=fs.readFileSync(new URL('../script.js',import.meta.url),'utf8');
 const section=(s,a,b)=>s.slice(s.indexOf(a),s.indexOf(b,s.indexOf(a)));
-function harness({holding=false,buyFails=false}={}) {
+function harness({holding=false,buyFails=false,testVersion=2}={}) {
  let response;const calls=[];
  const state={settings:{},strategy:{activeProfile:'safe'},trades:[]};
  const c=vm.createContext({Date,Number,BigInt,Object,structuredClone,
    request:{method:'POST'},response:{},url:{pathname:'/api/simple-speed-test'},
-   readState:async()=>state,requireOwner:()=>false,sessionFromRequest:()=>({}),tradeWallet:()=> 'wallet',targetWallet:()=> 'source',
+   readBody:async()=>({testVersion}),readState:async()=>state,requireOwner:()=>false,sessionFromRequest:()=>({}),tradeWallet:()=> 'wallet',targetWallet:()=> 'source',
    fetchGmgnTransactionsForAddress:async()=>[{signature:'source-buy',leg:{action:'buy',inputMint:'USDC',outputMint:'COIN',outputSymbol:'Coin'}}],
    primarySwapLeg:t=>t.leg,isQuoteMint:m=>m==='USDC',usdcMint:'USDC',
    executeCopiedSwapLocked:async(...args)=>{calls.push(args);if(buyFails)throw new Error('Source mismatch');return {routeReady:true,copiedTradeAmount:'5000000',routeOutputAmount:'100',outputMint:'COIN',executionEngine:'jupiter',timingsMs:{sourceVerification:20}};},
@@ -48,4 +48,9 @@ test('test display separates preparation, hypothetical sales and unmeasured sign
  assert.match(result.innerHTML,/hypothetical quote ready/);assert.match(result.innerHTML,/not run in this test/);
  assert.match(result.innerHTML,/&lt;Coin>/);assert.doesNotMatch(result.innerHTML,/Fake reaction|machine BUY 1ms/);
  assert.equal(button.disabled,false);
+});
+
+test('outdated testing clients get a refresh message before any route requests',async()=>{
+ const h=harness({testVersion:1});await h.c.run();
+ assert.match(h.result().error,/Refresh this page/);assert.equal(h.calls.length,0);
 });

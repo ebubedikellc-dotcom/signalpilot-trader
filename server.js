@@ -3407,7 +3407,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "live-route-replay-v5",
+      appVersion: "route-test-client-v6",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
@@ -3605,6 +3605,11 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/simple-speed-test") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    const testInput = await readBody(request);
+    if (testInput.testVersion !== 2) {
+      send(response, 409, {error:"The testing screen has been updated. Refresh this page to load the new buy and sell test, then press Test speed again."});
+      return true;
+    }
     const started = Date.now();
     const profile = state.strategy?.activeProfile || "frog";
     const wallet = tradeWallet(state, profile);

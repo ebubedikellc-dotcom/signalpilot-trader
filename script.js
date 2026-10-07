@@ -1739,7 +1739,7 @@ async function runSimpleSpeedTest() {
   const started = performance.now();
   result.textContent = "Replaying a real signal through verification, funds and route checks. Checking the sell route too…";
   try {
-    const test = await api("/api/simple-speed-test", { method: "POST" });
+    const test = await api("/api/simple-speed-test", { method: "POST", body:JSON.stringify({testVersion:2}) });
     const browserMs = Math.round(performance.now() - started);
     const real = test.real || {}, buy = real.buy || {}, sell = real.sell || {};
     const timing = buy.timingsMs || {};

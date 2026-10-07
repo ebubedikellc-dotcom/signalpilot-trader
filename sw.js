@@ -1,8 +1,8 @@
-const CACHE_NAME = "signalpilot-owner-v8-exact-copy-options";
+const CACHE_NAME = "signalpilot-owner-v9-route-test-client";
 const APP_SHELL = [
   "/control-panel.html",
   "/styles.css",
-  "/script.js",
+  "/script.js?v=route-test-client-v6",
   "/manifest.webmanifest",
   "/signalpilot-icon.svg"
 ];
