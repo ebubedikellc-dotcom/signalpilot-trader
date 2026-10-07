@@ -301,12 +301,43 @@ test('SOL valuation and initial funds verification overlap, with a fresh funds r
  assert.equal(h.submitted.length,0);releaseValue();releaseFunds();
  assert.equal((await pending).status,'Submitted - confirmation pending');assert.equal(reads,2);
 });
-test('failed parallel funds verification never builds or submits a purchase',async()=>{
- const h=executionHarness();let orders=0;
+test('failed parallel funds verification may quote but never signs or submits a purchase',async()=>{
+ const h=executionHarness();let orders=0,signed=0;
  h.c.profileTradeableUsdc=async()=>{throw new Error('unverified funds');};
  h.c.jupiterJson=async()=>{orders++;};
+ h.c.signSolanaTransaction=async()=>{signed++;};
  await assert.rejects(h.c.executeCopiedSwap('safe',h.buy,h.state),/unverified funds/);
- assert.equal(orders,0);assert.equal(h.submitted.length,0);
+ assert.equal(orders,1);assert.equal(signed,0);assert.equal(h.submitted.length,0);
+});
+
+test('cold buy quote overlaps funds read and is rebuilt when budget reduces the size',async()=>{
+ const h=executionHarness(),original=h.c.jupiterJson,amounts=[];let release,signed=0;
+ const funds=new Promise(r=>release=r);
+ h.c.profileTradeableUsdc=async()=>{await funds;return 20;};
+ h.c.jupiterJson=async(path,options)=>{if(options.query)amounts.push(options.query.amount);return original(path,options);};
+ h.c.signSolanaTransaction=async()=>{signed++;return {signedTransactionBase64:'test'};};
+ const pending=h.c.executeCopiedSwap('safe',h.buy,h.state);
+ await new Promise(r=>setImmediate(r));assert.deepEqual(amounts,['50000000']);assert.equal(signed,0);
+ release();const result=await pending;
+ assert.deepEqual(amounts,['50000000','20000000']);assert.equal(result.copiedTradeAmount,'20000000');assert.equal(signed,1);
+});
+test('sell quote overlaps balance read but a shortfall prevents signing and sending',async()=>{
+ const h=executionHarness(),original=h.c.jupiterJson;let release,quoted=0,signed=0;
+ const balance=new Promise(r=>release=r);
+ h.c.tokenBalanceRaw=()=>balance;
+ h.c.jupiterJson=async(path,options)=>{if(options.query)quoted++;return original(path,options);};
+ h.c.signSolanaTransaction=async()=>{signed++;};
+ const pending=h.c.executeCopiedSwap('safe',h.sell,h.state);
+ await new Promise(r=>setImmediate(r));assert.equal(quoted,1);assert.equal(signed,0);
+ release('0');await assert.rejects(pending,/holding differs/);
+ assert.equal(signed,0);assert.equal(h.submitted.length,0);
+});
+test('sell quote is rebuilt when a partial exit changes the remaining position',async()=>{
+ const h=executionHarness(),original=h.c.jupiterJson,amounts=[];let reads=0;
+ h.c.trackedPosition=async()=>({raw:++reads===1?'123':'60',cycle:'same'});
+ h.c.jupiterJson=async(path,options)=>{if(options.query)amounts.push(options.query.amount);return original(path,options);};
+ const result=await h.c.executeCopiedSwap('safe',h.sell,h.state);
+ assert.deepEqual(amounts,['123','60']);assert.equal(result.copiedTradeAmount,'60');
 });
 
 
