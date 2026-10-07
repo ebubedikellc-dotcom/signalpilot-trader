@@ -2085,7 +2085,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
       typeof cachedProfileTradeableUsdc === "function"
         ? cachedProfileTradeableUsdc(connection, state, profile, wallet, tradeFundsFastMaxAgeMs)
         : profileTradeableUsdc(connection, state, profile, wallet)
-    ));
+    )).then(value => ({value}), error => ({error}));
     const sourceUsd = await valueSourceBuy();
     sourceBuyUsd = sourceUsd;
     let buyUsd = buyUsdAmount(state, profile, sourceUsd);
@@ -2096,14 +2096,16 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     const cachedTradeableUsdc = typeof cachedProfileTradeableUsdcValue === "function"
       ? cachedProfileTradeableUsdcValue(state, profile, wallet, tradeFundsFastMaxAgeMs)
       : null;
-    if (cachedTradeableUsdc !== null && cachedTradeableUsdc > 0 && (
+    if (cachedTradeableUsdc === null || (cachedTradeableUsdc > 0 && (
       !["exact", "exactFull"].includes(profileBuyMode(state, profile)) || buyUsd <= cachedTradeableUsdc
-    )) {
+    ))) {
       warmedOrderPromise = prepareTradingOrder(state, {
         inputMint, outputMint, amount:warmedOrderAmount, taker:wallet, swapMode:"ExactIn"
       }).catch((error) => ({ speedPilotError: error }));
     }
-    const tradeableUsdc = await tradeableUsdcPromise;
+    const fundsResult = await tradeableUsdcPromise;
+    if (fundsResult.error) throw fundsResult.error;
+    const tradeableUsdc = fundsResult.value;
     if (tradeableUsdc <= 0) return { status: "Skipped - no tradeable USDC after profit lock" };
     if (["exact", "exactFull"].includes(profileBuyMode(state, profile)) && buyUsd > tradeableUsdc) {
       if (warmedOrderPromise) warmedOrderPromise.catch(() => {});
@@ -2124,6 +2126,16 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     if (expectedPositionCycle && tracked.cycle !== expectedPositionCycle) return {status:"Skipped - original copied holding already closed"};
     const fraction = sellFraction(verified.sourceTx, targetWallet(state,profile), leg.inputMint);
     if (!fraction) throw new Error("Cannot verify the trader's sold proportion yet; sell remains queued");
+    // Prepare an unsigned exit while verifying the wallet. The verified source
+    // fraction and journal bound this quote; no signing happens before the
+    // balance and position-cycle checks below succeed.
+    warmedOrderAmount = proportionalAmount(tracked.raw, fraction);
+    if (BigInt(warmedOrderAmount) > 0n) {
+      warmedOrderPromise = prepareTradingOrder(state, {
+        inputMint:leg.inputMint, outputMint:usdcMint, amount:warmedOrderAmount,
+        taker:wallet, swapMode:"ExactIn"
+      }).catch(error => ({speedPilotError:error}));
+    }
     const heldAmount = await tokenBalanceRaw(connection,wallet,leg.inputMint);
     // A trailing/manual exit may confirm while this read is in flight. Refresh
     // the journal before labelling its already-sold tokens a wallet mismatch.
@@ -2133,6 +2145,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     tracked = refreshed;
     if (BigInt(heldAmount || '0') < BigInt(tracked.raw)) throw new Error("Wallet holding differs from recorded holding; review required");
     const amount = proportionalAmount(tracked.raw, fraction);
+    if (amount !== warmedOrderAmount) warmedOrderPromise = null;
     if (BigInt(amount) === 0n) return {status:"Skipped - proportional amount below one token unit"};
     inputMint = leg.inputMint; outputMint = usdcMint;
     copyAmount = {amount,note:"Copy the verified proportion sold by the original trader"};
