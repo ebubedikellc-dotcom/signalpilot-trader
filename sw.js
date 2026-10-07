@@ -1,8 +1,8 @@
-const CACHE_NAME = "signalpilot-owner-v9-route-test-client";
+const CACHE_NAME = "signalpilot-owner-v10-trade-amount-display";
 const APP_SHELL = [
   "/control-panel.html",
   "/styles.css",
-  "/script.js?v=route-test-client-v6",
+  "/script.js?v=trade-amount-display-v7",
   "/manifest.webmanifest",
   "/signalpilot-icon.svg"
 ];
