@@ -3735,7 +3735,9 @@ async function handleApi(request, response, url) {
         }
       } else if (real.buy?.routeOutputAmount && BigInt(real.buy.routeOutputAmount) > 0n) {
         const sellStarted = Date.now();
-        const order = await prepareTradingOrder(state,{inputMint:real.buy.outputMint,outputMint:usdcMint,amount:real.buy.routeOutputAmount,taker:wallet,swapMode:"ExactIn"});
+        // With no holding, request pricing only. Supplying a taker asks Jupiter
+        // to build a spend and correctly fails its wallet-funds check.
+        const order = await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(state.settings),query:{inputMint:real.buy.outputMint,outputMint:usdcMint,amount:real.buy.routeOutputAmount,swapMode:"ExactIn"}});
         if (!order.outAmount || BigInt(order.outAmount) <= 0n) throw new Error("Hypothetical sell quote unavailable without a holding");
         real.sell = {routeReady:false,quoteReady:true,kind:"Hypothetical reverse route: uses the buy quote's output; wallet does not hold these tokens",executionEngine:order.executionEngine || "jupiter",fnzeroFallbackReason:order.fnzeroFallbackReason || "",elapsedMs:Date.now()-sellStarted};
       } else real.sell = {routeReady:false,kind:"Sell not checked: no verified holding or buy output available"};

@@ -16,6 +16,7 @@ function harness({holding=false,buyFails=false,testVersion=2}={}) {
    executeCopiedSwapLocked:async(...args)=>{calls.push(args);if(buyFails)throw new Error('Source mismatch');return {routeReady:true,copiedTradeAmount:'5000000',routeOutputAmount:'100',outputMint:'COIN',executionEngine:'jupiter',timingsMs:{sourceVerification:20}};},
    solanaConnection:()=>({}),executionJournal:{snapshot:async()=>({positions:holding ? {a:{wallet:'wallet',profile:'safe',verified:true,mint:'COIN',raw:'90'}} : {}})},
    tokenBalanceRaw:async()=> '100',hasPendingMint:async()=>false,
+   jupiterApiKey:()=> 'test',jupiterJson:async(_path,options)=>{calls.push(options.query);return {outAmount:'4900000'};},
    prepareTradingOrder:async(_s,q)=>{calls.push(q);return {transaction:'unused',outAmount:'4900000',inAmount:q.amount,executionEngine:'jupiter'};},
    send:(_r,_status,data)=>response=data});
  vm.runInContext('async function run(){'+section(server,'  if (request.method === "POST" && url.pathname === "/api/simple-speed-test")','  if (request.method === "POST" && url.pathname === "/api/fnzero/coins")')+'}',c);
@@ -25,6 +26,7 @@ test('route test calls internal replay and labels an unheld reverse route hypoth
  const h=harness();await h.c.run();const r=h.result();
  assert.equal(r.readOnly,true);assert.equal(r.real.ok,true);
  assert.equal(h.calls[0][5],true);assert.equal(h.calls[1].amount,'100');
+ assert.equal(h.calls[1].taker,undefined);
  assert.equal(r.real.sell.routeReady,false);assert.equal(r.real.sell.quoteReady,true);
  assert.match(r.real.sell.kind,/wallet does not hold/);assert.equal(r.latestLive,null);
  assert.equal(r.buyReactionMs,undefined);
