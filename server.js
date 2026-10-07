@@ -1743,6 +1743,15 @@ async function cachedProfileTradeableUsdc(connection, state, profile, wallet, ma
   const value = cachedProfileTradeableUsdcValue(state, profile, wallet, maxAgeMs);
   return value === null ? profileTradeableUsdc(connection, state, profile, wallet) : value;
 }
+async function prepareProfileTradeableUsdc(connection, state, profile, wallet, maxAgeMs) {
+  const value = cachedProfileTradeableUsdcValue(state, profile, wallet, maxAgeMs);
+  if (value !== null) return value;
+  // Read outside the wallet queue; publication alone is serialized and rejects
+  // a sample if a swap or withdrawal changed the ledger during the RPC wait.
+  const refreshed = await publishWalletBudget(connection, state, profile, wallet, true);
+  if (refreshed === null) throw new Error("Wallet changed during balance refresh; retry with a verified budget");
+  return refreshed;
+}
 function cachedProfileTradeableUsdcValue(state, profile, wallet, maxAgeMs = 2500) {
   const sample = tradeableUsdcCache.get(tradeableUsdcCacheKey(state, profile, wallet));
   return sample && Date.now() - sample.at <= maxAgeMs ? tradeableFromSample(state, profile, sample) : null;
@@ -2081,11 +2090,11 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     };
     // Start the funds check first. Once we know the intended buy size, warm the
     // quote route while the wallet/RPC read is still finishing.
-    const tradeableUsdcPromise = withWalletOperation(() => (
-      typeof cachedProfileTradeableUsdc === "function"
-        ? cachedProfileTradeableUsdc(connection, state, profile, wallet, tradeFundsFastMaxAgeMs)
+    const tradeableUsdcPromise = (
+      typeof prepareProfileTradeableUsdc === "function"
+        ? prepareProfileTradeableUsdc(connection, state, profile, wallet, tradeFundsFastMaxAgeMs)
         : profileTradeableUsdc(connection, state, profile, wallet)
-    )).then(value => ({value}), error => ({error}));
+    ).then(value => ({value}), error => ({error}));
     const sourceUsd = await valueSourceBuy();
     sourceBuyUsd = sourceUsd;
     let buyUsd = buyUsdAmount(state, profile, sourceUsd);
@@ -3420,7 +3429,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "route-test-client-v6",
+      appVersion: "wallet-queue-isolation-v7",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
@@ -3532,13 +3541,20 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/status") {
     const state = await readState();
     const payload = statusPayload(state, sessionFromRequest(request, state));
+    budgetJournal = await executionJournal.load();
+    budgetReserves = await readProfitReserves();
+    const wallet = tradeWallet(state, "frog");
+    const fingerprint = walletBudgetFingerprint(wallet, budgetJournal);
+    // Dashboard RPC calls can take seconds. They must not occupy the queue
+    // that serializes signing, reservations and submissions.
+    payload.walletBalances = await walletBalances(state).catch((error) => ({ error: error.message || "Balance check failed" }));
     await withWalletOperation(async () => {
-      payload.walletBalances = await walletBalances(state).catch((error) => ({ error: error.message || "Balance check failed" }));
       const cash = payload.walletBalances.frog;
-      if (cash && !cash.error && Number.isFinite(cash.usdc)) await protectProfit(state, cash.address, cash.usdc);
+      if (fingerprint === walletBudgetFingerprint(wallet, budgetJournal) &&
+          cash && !cash.error && Number.isFinite(cash.usdc)) await protectProfit(state, cash.address, cash.usdc);
       payload.profitReserves = await readProfitReserves();
       if (payload.auth?.role === "owner") payload.growth = growthSnapshot(await executionJournal.load());
-    });
+    }, -50);
     send(response, 200, payload);
     return true;
   }

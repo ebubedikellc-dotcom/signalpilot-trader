@@ -68,6 +68,34 @@ test('withdrawal invalidation rejects an in-flight background sample',async()=>{
   release();await warm;
   assert.equal(h.c.cachedProfileTradeableUsdcValue(h.state,'safe','wallet'),null);
 });
+test('initial buy funds read leaves the wallet queue free and rejects concurrent spending',async()=>{
+  const h=harness();let release,started;
+  const wait=new Promise(r=>release=r),ready=new Promise(r=>started=r);
+  h.c.tokenUiBalance=async()=>{started();await wait;return 100;};
+  const funds=h.c.prepareProfileTradeableUsdc({},h.state,'safe','wallet',10000);
+  const rejected=assert.rejects(funds,/Wallet changed during balance refresh/);
+  await ready;
+  assert.equal(await h.c.withWalletOperation(async()=>{
+    h.journal.pending.a={wallet:'wallet',side:'buy',reservedUsd:10};
+    return 'trade submitted';
+  },100),'trade submitted');
+  release();await rejected;
+  assert.equal(h.c.cachedProfileTradeableUsdcValue(h.state,'safe','wallet'),null);
+});
+test('dashboard balance waits do not block trading or publish stale profit protection',async()=>{
+  const h=harness();let release,started,protectedCount=0,sent;
+  const wait=new Promise(r=>release=r),ready=new Promise(r=>started=r);
+  Object.assign(h.c,{request:{method:'GET'},response:{},url:{pathname:'/api/status'},
+    statusPayload:()=>({}),sessionFromRequest:()=>({}),
+    walletBalances:async()=>{started();await wait;return {frog:{address:'wallet',usdc:100}};},
+    protectProfit:async()=>{protectedCount++;},send:(_r,_status,p)=>sent=p});
+  vm.runInContext('async function status(){'+section(server,'  if (request.method === "GET" && url.pathname === "/api/status")','  if (request.method === "GET" && url.pathname === "/api/business")')+'}',h.c);
+  const read=h.c.status();await ready;
+  await h.c.withWalletOperation(async()=>{h.c.invalidateWalletBudget('wallet');},100);
+  release();await read;
+  assert.equal(protectedCount,0);
+  assert.equal(sent.walletBalances.frog.usdc,100);
+});
 test('trading tape renders actual submission and blocked-decision timings without crashing',()=>{
   const tape={innerHTML:'',rows:[],appendChild(row){this.rows.push(row);}};
   const c=vm.createContext({Number,Math,$:()=>tape,profileName:()=> 'Frog',profileTradeMatches:()=>true,
