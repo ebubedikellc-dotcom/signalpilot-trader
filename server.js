@@ -97,7 +97,8 @@ const budgetWarmIntervalMs = Number(process.env.BUDGET_WARM_INTERVAL_MS || 500);
 const budgetWarmMaxAgeMs = Number(process.env.BUDGET_WARM_MAX_AGE_MS || 5000);
 const tradeFundsFastMaxAgeMs = Number(process.env.TRADE_FUNDS_FAST_MAX_AGE_MS || 10000);
 const directReadRetryMs = Number(process.env.DIRECT_READ_RETRY_MS || 150);
-const maxBuyReactionMs = Number(process.env.MAX_BUY_REACTION_MS || 950);
+// Aim for 500 ms; allow a 1000 ms buy deadline without waiting or retrying.
+const maxBuyReactionMs = 1000;
 const maxSignalAgeMs = Number(process.env.MAX_SIGNAL_AGE_MS || 5000);
 const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
 const sessionMaxAge = 60 * 60 * 24 * 30;
@@ -2282,9 +2283,9 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     const signedAt = Date.now();
     reason = await checkControls();
     if (reason) return { status: reason, detectedAt };
-    const buySpeedLimitMs = typeof maxBuyReactionMs === "number" ? maxBuyReactionMs : 950;
-    if (leg.action === "buy" && signedAt - preparationStartedAt > buySpeedLimitMs) {
-      return { status: `Buy blocked: speed target missed ${signedAt - preparationStartedAt}ms exceeded ${buySpeedLimitMs}ms; no late buy sent`, detectedAt,
+    const buySpeedLimitMs = typeof maxBuyReactionMs === "number" ? maxBuyReactionMs : 1000;
+    if (leg.action === "buy" && Date.now() - preparationStartedAt > buySpeedLimitMs) {
+      return { status: `Buy blocked: speed target missed ${Date.now() - preparationStartedAt}ms exceeded ${buySpeedLimitMs}ms backup deadline; no late buy sent`, detectedAt,
         timingsMs: {
           sourceVerification:sourceVerifiedAt-preparationStartedAt,
           sizingAndFunds:sizingReadyAt-sourceVerifiedAt, swapQuote:quoteReadyAt-sizingReadyAt,
@@ -2301,12 +2302,19 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     return {status:"Skipped - trading stopped by owner"};
   }
   const executionStartedAt = Date.now();
+  // Include journal persistence in the deadline. Keep exits eligible when slow.
+  if (leg.action === "buy" && executionStartedAt - preparationStartedAt > buySpeedLimitMs) {
+    const d = await executionJournal.load(); delete d.pending[journalKey]; await executionJournal.save();
+    return {status:`Buy blocked: speed target missed ${executionStartedAt-preparationStartedAt}ms exceeded ${buySpeedLimitMs}ms backup deadline; no late buy sent`,detectedAt};
+  }
   const executed = await executeTradingOrder(state, signed, order);
 
   const executionReturnedAt = Date.now();
   await recordExecutionResponse(journalKey,executed);
   return {
     status: "Submitted - confirmation pending",
+    speedWindow: executionStartedAt - preparationStartedAt <= 500 ? "0.5 s target" :
+      executionStartedAt - preparationStartedAt <= 1000 ? "1 s backup" : "Exit continued after 1 s",
     detectedAt,
     submittedAt,
     verifiedAt: verified.verifiedAt,

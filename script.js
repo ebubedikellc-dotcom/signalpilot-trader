@@ -1063,6 +1063,7 @@ function renderWatchTape(profile, trades = []) {
       <span>${escapeHtml(trade.token || "-")} - ${tradeAmountLabel(trade)} - ${escapeHtml(trade.status || "Observed")}</span>
       ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
       ${stages ? `<span>${escapeHtml(stages)}</span>` : ""}
+      ${trade.execution?.speedWindow ? `<span>${escapeHtml(trade.execution.speedWindow)}</span>` : ""}
       <em>${trade.time ? escapeHtml(trade.time) : "live"}</em>
     `;
     tape.appendChild(li);
@@ -1761,6 +1762,7 @@ async function runSimpleSpeedTest() {
     result.innerHTML = `
       <p><strong>${real.ok ? `BUY preparation ready in ${Math.round(real.buyReadyMs)} ms (${(real.buyReadyMs/1000).toFixed(2)} s)` : "BUY preparation did not pass"}</strong></p>
       <p>${escapeHtml(real.ok ? `${real.token || "Coin"}: $${real.plannedUsd.toFixed(2)} using ${buy.executionEngine}` : real.message || "No result")}</p>
+      <p>Buy and sell target: <strong>0.5 seconds</strong>; backup target: <strong>1 second</strong>. Submit as soon as ready. Buys over 1 second are blocked; sells keep trying to exit. These are targets, not guaranteed completion times.</p>
       <ol>${rows}</ol>
       ${real.ok ? `<p>Starting wallet budget: ${!buy.fundsCacheUsed ? "fresh balance read required" : `cached balance ${Math.round(buy.fundsCacheAgeMs)} ms old; spending reservations checked`}. ${escapeHtml(buy.liveControlMessage || "")}</p>` : ""}
       ${buy.fnzeroFallbackReason ? `<p>FnZero fallback: ${escapeHtml(buy.fnzeroFallbackReason)}</p>` : ""}

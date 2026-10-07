@@ -419,6 +419,33 @@ test('blocked buys retain stage timings and never submit',async()=>{
  assert(result.timingsMs.detectionToDecision>=1000);assert.equal(h.submitted.length,0);
 });
 
+test('buy target and one-second backup submit once, with an inclusive deadline',async()=>{
+ for (const elapsed of [500,501,1000,1001]) {
+  const h=executionHarness(); let clock=Date.now();
+  h.c.Date=class extends Date {static now(){return clock;}};
+  h.c.signSolanaTransaction=async()=>{clock+=elapsed;return {signedTransactionBase64:'signed',signWith:'wallet'};};
+  const result=await h.c.executeCopiedSwap('safe',h.buy,h.state);
+  if(elapsed>1000) {assert.match(result.status,/1000ms backup deadline/);assert.equal(h.submitted.length,0);}
+  else {assert.equal(h.submitted.length,1);assert.equal(result.speedWindow,elapsed<=500?'0.5 s target':'1 s backup');}
+ }
+});
+test('journal delays cannot send a buy after its backup deadline',async()=>{
+ const h=executionHarness();let clock=Date.now(),saved=0;
+ h.c.Date=class extends Date {static now(){return clock;}};
+ const journal={pending:{test:{}}};h.c.executionJournal={load:async()=>journal,save:async()=>{saved++;}};
+ h.c.recordPendingSwap=async()=>{clock+=1001;return 'test';};
+ const result=await h.c.executeCopiedSwap('safe',h.buy,h.state);
+ assert.match(result.status,/1000ms backup deadline/);assert.equal(h.submitted.length,0);
+ assert.equal(journal.pending.test,undefined);assert.equal(saved,1);
+});
+test('sell uses the backup window and remains eligible after one second',async()=>{
+ for(const elapsed of [750,1500]) {
+  const h=executionHarness();let clock=Date.now();h.c.Date=class extends Date {static now(){return clock;}};
+  h.c.signSolanaTransaction=async()=>{clock+=elapsed;return {signedTransactionBase64:'signed',signWith:'wallet'};};
+  const result=await h.c.executeCopiedSwap('safe',h.sell,h.state);
+  assert.equal(h.submitted.length,1);assert.equal(result.speedWindow,elapsed<=1000?'1 s backup':'Exit continued after 1 s');
+ }
+});
 test('route test replays the live buy path and exits before signing or submission',async()=>{
  const h=executionHarness();let signed=0,recorded=0;
  h.c.signSolanaTransaction=async()=>{signed++;throw new Error('test must never sign');};
