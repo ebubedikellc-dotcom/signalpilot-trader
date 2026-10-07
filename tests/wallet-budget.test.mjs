@@ -100,6 +100,7 @@ test('trading tape renders actual submission and blocked-decision timings withou
   const tape={innerHTML:'',rows:[],appendChild(row){this.rows.push(row);}};
   const c=vm.createContext({Number,Math,$:()=>tape,profileName:()=> 'Frog',profileTradeMatches:()=>true,
     document:{createElement:()=>({})},escapeHtml:s=>String(s),money:n=>String(n)});
+  vm.runInContext(section(script,'function tradeAmountLabel(','function solAmount('),c);
   vm.runInContext(section(script,'function renderWatchTape(','function renderLiveWatch('),c);
   c.renderWatchTape('frog',[{execution:{timingsMs:{sourceVerification:12,signing:45,detectionToSubmit:510}}},
     {execution:{timingsMs:{detectionToDecision:1000}}},{status:'Observed'}]);
@@ -107,4 +108,7 @@ test('trading tape renders actual submission and blocked-decision timings withou
   assert.match(tape.rows[0].innerHTML,/Sign: 45ms/);
   assert.match(tape.rows[1].innerHTML,/Detect to blocked decision: 1000ms/);
   assert.equal(tape.rows.length,3);
+  assert.equal(c.tradeAmountLabel({action:'Sell signal',amount:81165649.89}), 'USD value unavailable');
+  assert.equal(c.tradeAmountLabel({action:'Sell signal',amount:81165649.89,sourceReceivedUsd:8}), 'Trader report: 8');
+  assert.equal(c.tradeAmountLabel({action:'Buy signal',amount:2.96,sourceUsd:200,execution:{swapUsdValue:5}}), 'Copy: 5');
 });

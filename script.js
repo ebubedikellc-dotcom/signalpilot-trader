@@ -83,6 +83,15 @@ function money(value) {
   return amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+function tradeAmountLabel(trade = {}) {
+  if (!/signal|observed movement/i.test(String(trade.action || ""))) return money(trade.amount);
+  const copyUsd = Number(trade.execution?.swapUsdValue);
+  if (Number.isFinite(copyUsd) && copyUsd > 0) return `Copy: ${money(copyUsd)}`;
+  const sourceUsd = Number(/sell/i.test(trade.action) ? trade.sourceReceivedUsd : trade.sourceUsd);
+  if (Number.isFinite(sourceUsd) && sourceUsd > 0) return `Trader report: ${money(sourceUsd)}`;
+  return "USD value unavailable";
+}
+
 function solAmount(value) {
   if (value === null || value === undefined || value === "") return "Checking...";
   const amount = Number(value);
@@ -665,7 +674,7 @@ function renderTrades(trades = []) {
       <td>${trade.profile || "-"}</td>
       <td>${trade.action || "-"}</td>
       <td>${trade.token || "-"}</td>
-      <td>${money(trade.amount)}</td>
+      <td>${tradeAmountLabel(trade)}</td>
       <td>${money(pnl)}</td>
       <td>${escapeHtml(trade.status || "-")}${trade.execution?.submittedAt ? `<br>Copy submitted: ${escapeHtml(trade.execution.submittedAt)}<br>Execution response: ${escapeHtml(trade.execution.confirmedAt || "Pending")}` : ""}${trade.executionError ? `<br>${escapeHtml(trade.executionError)}` : ""}</td>
     `;
@@ -909,7 +918,7 @@ function renderRoomThread(profile, trades = []) {
   recent.forEach((trade) => {
     const li = document.createElement("li");
     const time = trade.time ? `${trade.time} - ` : "";
-    const detail = `${time}${trade.token || "-"} - ${money(trade.amount)} - ${trade.status || "-"}`;
+    const detail = `${time}${trade.token || "-"} - ${tradeAmountLabel(trade)} - ${trade.status || "-"}`;
     li.innerHTML = `
       <strong>${escapeHtml(trade.action || "Copied signal")}</strong>
       <span>${escapeHtml(detail)}</span>
@@ -1051,7 +1060,7 @@ function renderWatchTape(profile, trades = []) {
     li.className = pnl >= 0 ? "tape-win" : "tape-loss";
     li.innerHTML = `
       <strong>${escapeHtml(trade.action || "Copied signal")}</strong>
-      <span>${escapeHtml(trade.token || "-")} - ${money(trade.amount)} - ${escapeHtml(trade.status || "Observed")}</span>
+      <span>${escapeHtml(trade.token || "-")} - ${tradeAmountLabel(trade)} - ${escapeHtml(trade.status || "Observed")}</span>
       ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
       ${stages ? `<span>${escapeHtml(stages)}</span>` : ""}
       <em>${trade.time ? escapeHtml(trade.time) : "live"}</em>
