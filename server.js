@@ -3906,7 +3906,13 @@ async function handleApi(request, response, url) {
       // Check Helius itself, without silently reporting public fallback as success.
       const result = await fetch(provider.http,{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({jsonrpc:"2.0",id:1,method:"getBalance",params:[wallet,{commitment:"confirmed"}]}),signal:AbortSignal.timeout(8000)});
-      const payload = await result.json();
+      const responseText = await result.text();
+      if (/max usage reached|quota exceeded|credits exhausted/i.test(responseText)) {
+        throw new Error("Helius usage allowance is exhausted. Restore the account allowance or save a working Helius API key, then check again.");
+      }
+      let payload;
+      try { payload = JSON.parse(responseText); }
+      catch { throw new Error(`Helius returned ${result.status} without a valid RPC response; balance not verified.`); }
       if (!result.ok || payload.error || !Number.isSafeInteger(payload.result?.value) || payload.result.value < 0) {
         throw new Error(payload.error?.message || `Helius returned ${result.status}; balance not verified.`);
       }
