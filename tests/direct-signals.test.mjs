@@ -74,6 +74,26 @@ test('direct lookup accepts version 1 transactions as well as older recorded swa
 });
 
 const multihop=JSON.parse(fs.readFileSync(new URL('./fixtures/multihop-source-swap.json',import.meta.url)));
+const pumpMultihop=JSON.parse(fs.readFileSync(new URL('./fixtures/pump-multihop-source-swap.json',import.meta.url)));
+test('matching confirmed Pump multi-hop sell verifies the same wallet token and exact sold units',()=>{
+ const r=JSON.parse(fs.readFileSync(new URL('./fixtures/pump-multihop-source-sell.json',import.meta.url)));
+ const decoded=verifySourceSignal(r.transaction,r.wallet,r.signature,{action:'sell',inputMint:r.expectedMint});
+ assert.equal(decoded.events.swap.tokenInputs[0].rawTokenAmount.tokenAmount,'15307716452016');
+ assert.equal(decoded.events.swap.tokenOutputs[0].mint,SOL);
+ assert.throws(()=>verifySourceSignal(r.transaction,r.wallet,r.signature,{action:'sell',inputMint:r.intermediateMint}),/Source token mismatch/);
+});
+test('confirmed Pump multi-hop route decodes the wallet final mint, not the GMGN intermediate coin',()=>{
+ const r=pumpMultihop;
+ const decoded=verifySourceSignal(r.transaction,r.wallet,r.signature,{action:'buy',outputMint:r.expectedMint});
+ assert.equal(decoded.events.swap.tokenOutputs[0].mint,r.expectedMint);
+ assert.equal(decoded.events.swap.tokenOutputs[0].rawTokenAmount.tokenAmount,'20410288602688');
+ assert.throws(()=>verifySourceSignal(r.transaction,r.wallet,r.signature,{action:'buy',outputMint:r.intermediateMint}),/Source token mismatch/);
+ const untrusted=structuredClone(r.transaction);
+ untrusted.meta.logMessages=untrusted.meta.logMessages.map(l=>l.replaceAll('pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA','FakeProgram').replaceAll('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P','FakeProgram'));
+ assert.equal(decodeDirectSwap(untrusted,r.wallet,r.signature),null);
+ const failed=structuredClone(r.transaction);failed.meta.err={failed:true};
+ assert.equal(decodeDirectSwap(failed,r.wallet,r.signature),null);
+});
 test('real routed swap uses the final token received, never its zero-balance intermediate token',()=>{
  const decoded=decodeDirectSwap(multihop.transaction,multihop.wallet,multihop.signature);
  assert(decoded);assert.equal(decoded.events.swap.tokenOutputs[0].mint,multihop.expectedMint);
