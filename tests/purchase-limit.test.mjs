@@ -37,14 +37,14 @@ test('capped modes and all three traders obey the shared ceiling and still copy 
   }
  }
 });
-test('profit ladder uses the shared limit as the chosen higher buy amount',async()=>{
+test('profit ladder uses the shared ceiling without increasing smaller buys',async()=>{
  const h=harness();
  await h.c.handleApi({method:'POST',body:{frogBuyMode:'ladder'}},{},{pathname:'/api/settings'});
  assert.equal(h.c.output.code,200);
  for(const profile of ['safe','frog','truenest']) {
   assert.equal(h.state.settings[profile+'BuyMode'],'ladder');
   assert.equal(h.c.buyUsdAmount(h.state,profile,50),20);
-  assert.equal(h.c.buyUsdAmount(h.state,profile,3),20);
+  assert.equal(h.c.buyUsdAmount(h.state,profile,3),3);
   assert.equal(h.c.buyUsdAmount(h.state,profile,NaN),0);
  }
  const settings=JSON.parse(JSON.stringify(h.state.settings));h.c.syncQueueSurviveSettings(settings);
@@ -82,7 +82,7 @@ test('saving while stopped does not start trading and accepts cents',async()=>{
  assert.equal(h.c.buyUsdAmount(h.state,'safe',20),0.01);
 });
 test('invalid limits never persist or change the saved ceiling',async()=>{
- for(const input of ['',0,-1,'abc','Infinity',null,true,{},'0.001','5.001',1000000001]) {
+ for(const input of [0,-1,'abc','Infinity',null,true,{},'0.001','5.001',1000000001]) {
   const h=harness();assert.equal((await h.save(input)).code,400,String(input));
   assert.equal(h.saves(),0);assert.equal(h.state.settings.frogSurviveMax,'20');
  }
@@ -102,4 +102,23 @@ test('visible Save limit submits only the chosen cap and clears its draft only a
  assert.equal(c.purchaseLimitDirty,false);assert.equal(button.disabled,false);
  c.purchaseLimitDirty=true;c.api=async()=>{throw new Error('Offline')};await c.savePurchaseLimit();
  assert.equal(c.purchaseLimitDirty,true);assert.match(messages.at(-1),/Not saved: Offline/);assert.equal(button.disabled,false);
+});
+
+test('blank highest buy persists through reload and copies full source amount without changing mode',async()=>{
+ const h=harness();const result=await h.save('');assert.equal(result.code,200);
+ for(const profile of ['safe','frog','truenest']) {
+  assert.equal(h.state.settings[profile+'SurviveMax'],'');
+  assert.equal(h.c.buyUsdAmount(h.state,profile,2),2);
+  assert.equal(h.c.buyUsdAmount(h.state,profile,20),20);
+ }
+ const reloaded=JSON.parse(JSON.stringify(h.state));h.c.syncQueueSurviveSettings(reloaded.settings);
+ assert.equal(reloaded.settings.frogSurviveMax,'');assert.equal(h.state.settings.frogBuyMode,'trailing');
+ await h.save('10');
+ for(const amount of [2,7,20])assert.equal(h.c.buyUsdAmount(h.state,'safe',amount),Math.min(amount,10));
+});
+test('blank visible highest buy submits an explicit empty string rather than zero',async()=>{
+ const requests=[];const c=vm.createContext({Number,Math,JSON,String,purchaseLimitDirty:true,value:()=> '',
+ $:()=>({disabled:false}),setText:()=>{},api:async(url,options)=>{requests.push(JSON.parse(options.body));return {};},renderState:()=>{}});
+ vm.runInContext(section(script,'async function savePurchaseLimit(', 'async function ownerWithdraw('),c);
+ await c.savePurchaseLimit();assert.deepEqual(requests[0],{amountUsd:''});
 });

@@ -69,7 +69,7 @@ test('maximum is a ceiling for every mode, including Exact Copy, without forcing
  mode='loss';assert.equal(c.buyUsdAmount({},'safe',200),50);
  mode='takeback';assert.equal(c.buyUsdAmount({},'safe',200),50);
  mode='exact';assert.equal(c.buyUsdAmount({},'safe',200),50);
- mode='ladder';assert.equal(c.buyUsdAmount({},'safe',3),50);assert.equal(c.buyUsdAmount({},'safe',200),50);
+ mode='ladder';assert.equal(c.buyUsdAmount({},'safe',3),3);assert.equal(c.buyUsdAmount({},'safe',200),50);
 });
 test('partial sale follows source fraction, including huge integer quantities',()=>{
  const b=(amount)=>({owner:'source',mint:'coin',uiTokenAmount:{amount}});

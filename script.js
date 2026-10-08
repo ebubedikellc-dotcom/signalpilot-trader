@@ -817,9 +817,10 @@ function queueSurviveMode(settings = {}) {
 function normalizeBuyMode(mode) { return mode === "ladder" ? "ladder" : mode === "exactFull" ? "exactFull" : mode === "takeback" ? "takeback" : mode === "trailing" ? "trailing" : mode === "exact" ? "exact" : mode === "loss" ? "loss" : "limits"; }
 function queueBuyMode(settings = {}) { return normalizeBuyMode(settings.frogBuyMode); }
 function buyModeLabel(mode) { return mode === "ladder" ? "Profit Ladder + Loss Guard" : mode === "exactFull" ? "Exact Copy — Trader’s Full Amount" : mode === "takeback" ? "Take My Money Back" : mode === "trailing" ? "Trailing Stops" : mode === "exact" ? "Exact Copy — My Purchase Limit" : mode === "loss" ? "Loss Protection" : "Profit & Loss Limits"; }
-function surviveMax(settings = {}) { const amount = Number(settings.frogSurviveMax || 5); return amount > 0 ? amount : 5; }
+function surviveMax(settings = {}) { if (settings.frogSurviveMax === "") return Infinity; const amount = Number(settings.frogSurviveMax || 5); return amount > 0 ? amount : 5; }
 function buyModeNote(mode, max = 5, trailing = value("trailingStopPercent") || "10") {
-  if (mode === "ladder") return `Buy up to your $${max} maximum even when the trader buys less. At each fresh 20% rise, try to sell only the profit and leave the rest running. If it falls 5% from the latest ladder level, or falls 5% below your remaining cost, try to sell the rest. Trader sells still sell your matching holding first.`;
+  if (!Number.isFinite(max)) return `Copy the trader’s full purchase amount within your available trading budget. ${buyModeNote(mode, 1000000000, trailing).split(". ").slice(1).join(". ")}`;
+  if (mode === "ladder") return `Copy smaller trader buys as they are; cap larger buys at $${max}. At each fresh 20% rise, try to sell only the profit and leave the rest running. If it falls 5% from the latest ladder level, or falls 5% below your remaining cost, try to sell the rest. Trader sells still sell your matching holding first.`;
   if (mode === "takeback") return `Buy at most $${max} each time; copy smaller buys. If the coin reaches about 60% profit, sell only enough to recover the main money. Leave the rest to run, but sell it if it falls about 30% from its highest watched value, or when the trader sells first.`;
   if (mode === "trailing") return `Buy at most $${max} each time; copy smaller buys. Try to sell after a ${trailing}% fall from the highest value observed since tracking began, or when the trader sells first. The selling point moves up, never down with the price. Losses are still possible; sale prices are not guaranteed.`;
   if (mode === "exactFull") return "Copy the trader’s full purchase amount in USDC equivalent, without your per-purchase limit. Skip if your available trading budget cannot cover it. Locked profit stays protected. Copy the proportion the trader sells; no independent profit or loss exit. Execution prices may differ.";
@@ -976,7 +977,7 @@ function renderRoomStatus(profile, settings = {}, trades = [], backend = {}) {
   if ($(`${profile}SellOnly`)) $(`${profile}SellOnly`).disabled = sellOnly;
   if ($(`${profile}ResumeBuying`)) $(`${profile}ResumeBuying`).disabled = !sellOnly;
   if ($(`${profile}BuyMode`) && document.activeElement !== $(`${profile}BuyMode`)) $(`${profile}BuyMode`).value = buyMode;
-  if ($(`${profile}SurviveMax`) && document.activeElement !== $(`${profile}SurviveMax`)) $(`${profile}SurviveMax`).value = String(maxSurviveBuy);
+  if ($(`${profile}SurviveMax`) && document.activeElement !== $(`${profile}SurviveMax`)) $(`${profile}SurviveMax`).value = Number.isFinite(maxSurviveBuy) ? String(maxSurviveBuy) : "";
   if ($(`${profile}BuyModeSave`)) $(`${profile}BuyModeSave`).textContent = `Save ${buyModeLabel(buyMode)}`;
   setText(`${profile}SurviveNote`, buyModeNote(buyMode, maxSurviveBuy));
   renderRoomThread(profile, roomTrades);
@@ -1204,8 +1205,8 @@ function renderState(state) {
     if ($("trailingStopPercent")) $("trailingStopPercent").value = settings.trailingStopPercent || "10";
   }
   if (!purchaseLimitDirty) {
-    if ($("queueSurviveMax")) $("queueSurviveMax").value = String(maxSurviveBuy);
-    setText("purchaseLimitStatus", `Saved: ${money(maxSurviveBuy)} per purchase · ${buyMode === "exactFull" ? "Not applied in Trader’s Full Amount mode; total budget and locked profit still protected" : "Applies to this mode and all traders · Separate from total budget"}.`);
+    if ($("queueSurviveMax")) $("queueSurviveMax").value = Number.isFinite(maxSurviveBuy) ? String(maxSurviveBuy) : "";
+    setText("purchaseLimitStatus", `Saved: ${Number.isFinite(maxSurviveBuy) ? money(maxSurviveBuy) + " highest buy — smaller buys copy their actual amount" : "Blank — copy trader’s full amount within available trading funds"} · ${buyMode === "exactFull" ? "Not applied in Trader’s Full Amount mode; total budget and locked profit still protected" : "Applies to this mode and all traders · Separate from total budget"}.`);
   }
   if ($("queueBuyModeSave")) $("queueBuyModeSave").textContent = "Save trading mode";
   if ($("automaticSwitch")) $("automaticSwitch").checked = strategy.autoSwitch === true;
@@ -1893,14 +1894,16 @@ async function saveBuyMode(profile = "frog") {
 }
 
 async function savePurchaseLimit() {
-  const amount = Number(value("queueSurviveMax"));
-  if (!Number.isFinite(amount) || amount < 0.01 || amount > 1_000_000_000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.00001) {
+  const raw = String(value("queueSurviveMax")).trim();
+  const blank = raw === "";
+  const amount = Number(raw);
+  if (!blank && (!Number.isFinite(amount) || amount < 0.01 || amount > 1_000_000_000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.00001)) {
     setText("purchaseLimitStatus", "Enter $0.01 or more, with at most two decimal places (maximum $1 billion)."); return;
   }
   $("savePurchaseLimit").disabled = true;
   setText("purchaseLimitStatus", "Saving purchase limit…");
   try {
-    const saved = await api("/api/purchase-limit", {method:"POST",body:JSON.stringify({amountUsd:String(amount)})});
+    const saved = await api("/api/purchase-limit", {method:"POST",body:JSON.stringify({amountUsd:blank ? "" : String(amount)})});
     purchaseLimitDirty = false;
     renderState(saved);
   } catch (error) {
@@ -2192,7 +2195,7 @@ on("saveSelectedTrader", "click", () => switchQueueProfile(value("selectedTrader
 on("queueBuyMode", "change", () => { modeFormDirty = true; explainSelectedMode(); });
 on("queueSurviveMax", "input", () => {
   purchaseLimitDirty = true;
-  setText("purchaseLimitStatus", `Not saved yet. Current limit: ${money(surviveMax(latestState.settings))}. Press Save limit to apply. Trader’s Full Amount bypasses this purchase limit.`);
+  setText("purchaseLimitStatus", `Not saved yet. Current highest buy: ${Number.isFinite(surviveMax(latestState.settings)) ? money(surviveMax(latestState.settings)) : "blank — copy full amount"}. Press Save limit to apply. Trader’s Full Amount bypasses this purchase limit.`);
 });
 on("savePurchaseLimit", "click", savePurchaseLimit);
 on("trailingStopPercent", "input", () => { modeFormDirty = true; explainSelectedMode(); });

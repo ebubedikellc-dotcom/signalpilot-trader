@@ -366,7 +366,7 @@ function syncQueueSurviveSettings(settings = {}) {
   settings.frogSurviveMode = queueMode === "survive" ? "on" : "off";
   settings.truenestSurviveMode = queueMode === "survive" ? "on" : "off";
   // Shared purchase ceiling; the explicitly selected exactFull mode opts out.
-  settings.frogSurviveMax = normalizeUsdSetting(settings.frogSurviveMax, "5");
+  settings.frogSurviveMax = settings.frogSurviveMax === "" ? "" : normalizeUsdSetting(settings.frogSurviveMax, "5");
   settings.safeSurviveMax = settings.frogSurviveMax;
   settings.truenestSurviveMax = settings.frogSurviveMax;
   settings.queueFailureSwitchLimit = normalizeWholeNumberSetting(settings.queueFailureSwitchLimit, "3");
@@ -610,9 +610,9 @@ function publicSettings(settings = {}, includeSecrets = false) {
     safeBuyMode: normalizeBuyMode(settings.safeBuyMode),
     frogBuyMode: normalizeBuyMode(settings.frogBuyMode),
     truenestBuyMode: normalizeBuyMode(settings.truenestBuyMode),
-    safeSurviveMax: normalizeUsdSetting(settings.safeSurviveMax, settings.frogSurviveMax || "5"),
-    frogSurviveMax: normalizeUsdSetting(settings.frogSurviveMax, "5"),
-    truenestSurviveMax: normalizeUsdSetting(settings.truenestSurviveMax, settings.frogSurviveMax || "5"),
+    safeSurviveMax: settings.frogSurviveMax === "" ? "" : normalizeUsdSetting(settings.safeSurviveMax, settings.frogSurviveMax || "5"),
+    frogSurviveMax: settings.frogSurviveMax === "" ? "" : normalizeUsdSetting(settings.frogSurviveMax, "5"),
+    truenestSurviveMax: settings.frogSurviveMax === "" ? "" : normalizeUsdSetting(settings.truenestSurviveMax, settings.frogSurviveMax || "5"),
     queueFailureSwitchLimit: normalizeWholeNumberSetting(settings.queueFailureSwitchLimit, "3"),
     walletSync: settings.walletSync || "Turnkey server wallet",
     riskControl: settings.riskControl || "on",
@@ -990,6 +990,7 @@ function profileBuyMode(state, profile) {
 }
 
 function profileSurviveMaxUsd(state, profile) {
+  if (state.settings.frogSurviveMax === "") return Infinity;
   const value = Number(state.settings.frogSurviveMax || "5");
   return Number.isFinite(value) && value > 0 ? value : surviveBuyUsd;
 }
@@ -1251,7 +1252,6 @@ function buyUsdAmount(state, profile, sourceUsd = 0) {
   const usd = Number(sourceUsd);
   if (!Number.isFinite(usd) || usd <= 0) return 0;
   if (profileBuyMode(state, profile) === "exactFull") return usd;
-  if (profileBuyMode(state, profile) === "ladder") return profileSurviveMaxUsd(state, profile);
   return Math.min(usd, profileSurviveMaxUsd(state, profile));
 }
 
@@ -2176,7 +2176,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     if (fundsResult.error) throw fundsResult.error;
     const tradeableUsdc = fundsResult.value;
     if (tradeableUsdc <= 0) return { status: "Skipped - no tradeable USDC after profit lock" };
-    if (["exact", "exactFull"].includes(profileBuyMode(state, profile)) && buyUsd > tradeableUsdc) {
+    if ((["exact", "exactFull"].includes(profileBuyMode(state, profile)) || state.settings.frogSurviveMax === "") && buyUsd > tradeableUsdc) {
       if (warmedOrderPromise) warmedOrderPromise.catch(() => {});
       return { status: "Skipped - insufficient tradeable USDC to copy the exact amount" };
     }
@@ -3744,14 +3744,15 @@ async function handleApi(request, response, url) {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     const input = await readBody(request);
+    const blank = typeof input.amountUsd === "string" && input.amountUsd.trim() === "";
     const amount = Number(input.amountUsd);
-    if (!["string", "number"].includes(typeof input.amountUsd) || !Number.isFinite(amount) || amount < 0.01 || amount > 1_000_000_000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.00001) {
-      send(response, 400, {error:"Enter a purchase limit from $0.01 to $1,000,000,000, with at most two decimal places."}); return true;
+    if (!blank && (!["string", "number"].includes(typeof input.amountUsd) || !Number.isFinite(amount) || amount < 0.01 || amount > 1_000_000_000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.00001)) {
+      send(response, 400, {error:"Leave blank to copy the trader amount, or enter a purchase limit from $0.01 to $1,000,000,000, with at most two decimal places."}); return true;
     }
-    state.settings.frogSurviveMax = String(amount);
+    state.settings.frogSurviveMax = blank ? "" : String(amount);
     syncQueueSurviveSettings(state.settings);
     state.strategy.controlRevision = Math.max(Date.now(), Number(state.strategy.controlRevision || 0) + 1);
-    state.activity = [line(`Maximum per purchase saved: $${amount.toFixed(2)} for all traders. Trader’s Full Amount bypasses this purchase ceiling only.`), ...(state.activity || [])].slice(0, 20);
+    state.activity = [line(blank ? "Highest buy cleared: copy the trader amount within available trading funds." : `Highest buy saved: $${amount.toFixed(2)} ceiling; smaller buys copy their actual amount.`), ...(state.activity || [])].slice(0, 20);
     await saveState(state);
     send(response, 200, statusPayload(state, {role:"owner",id:"owner"}));
     return true;
@@ -3931,7 +3932,7 @@ async function handleApi(request, response, url) {
     if (input.frogBuyMode !== undefined) {
       if (!["limits", "exact", "exactFull", "loss", "trailing", "takeback", "ladder"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
     }
-    if (input.frogSurviveMax !== undefined && !(Number(input.frogSurviveMax)>0 && Number.isFinite(Number(input.frogSurviveMax)))) { send(response, 400, {error:"Enter a positive maximum purchase amount."}); return true; }
+    if (input.frogSurviveMax !== undefined && input.frogSurviveMax !== "" && !(Number(input.frogSurviveMax)>0 && Number.isFinite(Number(input.frogSurviveMax)))) { send(response, 400, {error:"Enter a positive maximum purchase amount."}); return true; }
     if (input.trailingStopPercent !== undefined && !(Number.isFinite(Number(input.trailingStopPercent)) && Number(input.trailingStopPercent)>0 && Number(input.trailingStopPercent)<100)) {
       send(response,400,{error:"Trailing fall percentage must be greater than 0 and less than 100."}); return true;
     }
