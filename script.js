@@ -1346,8 +1346,13 @@ function renderManualDeposit(settings = {}) {
 }
 
 async function api(path, options = {}) {
+  const boundedRead = path === '/api/status' || path === '/api/owner/wallet-coins';
+  const controller = boundedRead ? new AbortController() : null;
+  const timer = controller ? setTimeout(()=>controller.abort(),10000) : null;
+  try {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
+    ...(controller ? {signal:controller.signal} : {}),
     ...options
   });
   if (!response.ok) {
@@ -1362,7 +1367,11 @@ async function api(path, options = {}) {
     error.payload = payload;
     throw error;
   }
-  return response.json();
+  return await response.json();
+  } catch(error) {
+    if(error.name === 'AbortError') throw new Error('The server took too long to respond. The next refresh will retry.');
+    throw error;
+  } finally {if(timer)clearTimeout(timer);}
 }
 
 function showBusinessMessage(text, error = false) {
@@ -1723,6 +1732,8 @@ async function refresh() {
     const state = await api("/api/status");
     if (state.auth?.role === "owner" || document.body.dataset.role === "owner") renderState(state);
   } catch {
+    setText('remainingBalanceStatus','Connection timed out or failed. Balances are not verified; the next refresh will retry.');
+    ['remainingUsdc','remainingSol','remainingLocked','remainingTradeable','remainingCoins','remainingTotal'].forEach(id=>setText(id,'Unable to check'));
     setText("engineStatus", "Backend not connected");
     setText("engineSubtext", "Render is not answering right now. The site cannot monitor until backend returns.");
     ["frogStart", "truenestStart", "frogStop", "truenestStop"].forEach((id) => {

@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import fs from 'node:fs';
 import { availableCachedCash } from '../lib/wallet-budget.mjs';
 import { growthSnapshot, growthTradeable } from '../lib/growth-goal.mjs';
+import { dashboardWalletBalances } from '../lib/dashboard-wallet.mjs';
 const server = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 const script = fs.readFileSync(new URL('../script.js', import.meta.url), 'utf8');
 const section = (s,a,b) => s.slice(s.indexOf(a),s.indexOf(b,s.indexOf(a)));
@@ -86,7 +87,8 @@ test('dashboard balance waits do not block trading or publish stale profit prote
   const h=harness();let release,started,protectedCount=0,sent;
   const wait=new Promise(r=>release=r),ready=new Promise(r=>started=r);
   Object.assign(h.c,{request:{method:'GET'},response:{},url:{pathname:'/api/status'},
-    statusPayload:()=>({}),sessionFromRequest:()=>({}),
+    statusPayload:()=>({}),sessionFromRequest:()=>({}),dashboardWalletBalances,
+    supportedProfiles:['frog'],tradeWallet:()=> 'wallet',
     walletBalances:async()=>{started();await wait;return {frog:{address:'wallet',usdc:100}};},
     protectProfit:async()=>{protectedCount++;},send:(_r,_status,p)=>sent=p});
   vm.runInContext('async function status(){'+section(server,'  if (request.method === "GET" && url.pathname === "/api/status")','  if (request.method === "GET" && url.pathname === "/api/business")')+'}',h.c);

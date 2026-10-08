@@ -1,8 +1,8 @@
-const CACHE_NAME = "signalpilot-owner-v14-profit-release";
+const CACHE_NAME = "signalpilot-owner-v15-dashboard-loading";
 const APP_SHELL = [
   "/control-panel.html",
   "/styles.css",
-  "/script.js?v=profit-release-v11",
+  "/script.js?v=dashboard-loading-v12",
   "/manifest.webmanifest",
   "/signalpilot-icon.svg"
 ];

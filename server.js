@@ -4,6 +4,7 @@ import { createRpcReadPool } from "./lib/rpc-read-pool.mjs";
 import { inspectSwapSignature, base58 } from "./lib/swap-signature.mjs";
 import { copyBuyPriceCheck } from "./lib/copy-price-guard.mjs";
 import { profitLockFloor, releaseProfitReserve } from "./lib/profit-release.mjs";
+import { dashboardWalletBalances } from "./lib/dashboard-wallet.mjs";
 import { createGmgnRequestGate, gmgnRetryAt } from "./lib/gmgn-rate-limit.mjs";
 import { validateGrowthSettings, growthSnapshot, growthTradeable, growthTransition } from "./lib/growth-goal.mjs";
 import { availableCachedCash } from "./lib/wallet-budget.mjs";
@@ -3630,14 +3631,22 @@ async function handleApi(request, response, url) {
     const fingerprint = walletBudgetFingerprint(wallet, budgetJournal);
     // Dashboard RPC calls can take seconds. They must not occupy the queue
     // that serializes signing, reservations and submissions.
-    payload.walletBalances = await walletBalances(state).catch((error) => ({ error: error.message || "Balance check failed" }));
-    await withWalletOperation(async () => {
-      const cash = payload.walletBalances.frog;
-      if (fingerprint === walletBudgetFingerprint(wallet, budgetJournal) &&
-          cash && !cash.error && Number.isFinite(cash.usdc)) await protectProfit(state, cash.address, cash.usdc);
-      payload.profitReserves = await readProfitReserves();
-      if (payload.auth?.role === "owner") payload.growth = growthSnapshot(await executionJournal.load());
-    }, -50);
+    const unavailable = Object.fromEntries(supportedProfiles.map(profile => [profile, {
+      address:tradeWallet(state,profile),usdc:null,sol:null,
+      error:'Wallet provider is slow or unavailable. Balance not verified; the next refresh will retry.'
+    }]));
+    payload.walletBalances = await dashboardWalletBalances(() => walletBalances(state), unavailable);
+    payload.profitReserves = budgetReserves;
+    if (payload.auth?.role === "owner") payload.growth = growthSnapshot(budgetJournal);
+    // Publishing the page must not wait behind a signing/submission queue.
+    // Profit protection still runs there, with the same wallet-change check.
+    const cash = payload.walletBalances.frog;
+    if (cash && !cash.error && Number.isFinite(cash.usdc)) {
+      withWalletOperation(async () => {
+        if (fingerprint === walletBudgetFingerprint(wallet, budgetJournal))
+          await protectProfit(state, cash.address, cash.usdc);
+      }, -50).catch(() => {});
+    }
     send(response, 200, payload);
     return true;
   }
