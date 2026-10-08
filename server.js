@@ -3,6 +3,7 @@ import { rpcProvider, monitoredProfiles } from "./lib/rpc-provider.mjs";
 import { createRpcReadPool } from "./lib/rpc-read-pool.mjs";
 import { inspectSwapSignature, base58 } from "./lib/swap-signature.mjs";
 import { copyBuyPriceCheck } from "./lib/copy-price-guard.mjs";
+import { profitLockFloor, releaseProfitReserve } from "./lib/profit-release.mjs";
 import { createGmgnRequestGate, gmgnRetryAt } from "./lib/gmgn-rate-limit.mjs";
 import { validateGrowthSettings, growthSnapshot, growthTradeable, growthTransition } from "./lib/growth-goal.mjs";
 import { availableCachedCash } from "./lib/wallet-budget.mjs";
@@ -85,7 +86,7 @@ async function protectProfit(state, wallet, cash) {
   const goal = (await executionJournal.load()).growthGoal;
   const compounding = goal?.wallet === wallet;
   const principal = profileDepositUsd(state, "frog");
-  const locked = Math.max(prior?.lockedUsd ?? initial, !compounding && principal > 0 ? cash - principal : 0);
+  const locked = Math.max(prior?.lockedUsd ?? initial, !compounding && principal > 0 ? profitLockFloor(cash, principal, prior?.releasedUsd) : 0);
   if (!prior || locked !== prior.lockedUsd) {
     reserves[wallet] = { ...prior, lockedUsd: locked, updatedAt: new Date().toISOString(), history: [...(prior?.history || []), ...(prior && locked > prior.lockedUsd ? [{time:new Date().toISOString(),added:locked-prior.lockedUsd,total:locked}] : [])] };
     await saveProfitReserves();
@@ -3696,6 +3697,38 @@ async function handleApi(request, response, url) {
     }, 100);
   }
 
+  if (request.method === "POST" && url.pathname === "/api/profit/release") {
+    const initial = await readState();
+    if (requireOwner(response, sessionFromRequest(request, initial))) return true;
+    const input = await readBody(request);
+    return withWalletOperation(async () => {
+      try {
+        let state = await readState();
+        const stopped = s => !supportedProfiles.some(p => s.profiles?.[p]?.running);
+        if (!stopped(state)) throw new Error('Stop trading before releasing locked profit.');
+        const wallet = tradeWallet(state);
+        const journal = await executionJournal.load();
+        if (journal.growthGoal) throw new Error('Close the growth plan before releasing locked profit.');
+        if (Object.values(journal.pending || {}).some(p => p.wallet === wallet)) throw new Error('Wait for pending wallet transactions to finish.');
+        const cash = await tokenUiBalance(solanaConnection(state.settings), wallet, usdcMint);
+        state = await readState();
+        if (!stopped(state) || tradeWallet(state) !== wallet) throw new Error('Trading controls changed. Stop trading and review again.');
+        await protectProfit(state, wallet, cash);
+        const reserves = await readProfitReserves();
+        const result = releaseProfitReserve(reserves[wallet], {...input,cash,now:new Date().toISOString()});
+        if (!result.duplicate) {
+          reserves[wallet] = result.reserve;
+          await saveProfitReserves();
+          invalidateWalletBudget(wallet);
+          state.activity = [line(`Owner released $${Number(input.amountUsd).toFixed(2)} of locked profit for trading.`), ...(state.activity || [])].slice(0,20);
+          await saveState(state);
+        }
+        state.profitReserves = reserves;
+        send(response,200,{...statusPayload(state,{role:'owner',id:'owner'}),release:{amountUsd:Number(input.amountUsd),lockedUsd:result.reserve.lockedUsd,duplicate:result.duplicate}});
+      } catch (error) { send(response,409,{error:error.message}); }
+      return true;
+    });
+  }
   if (request.method === "POST" && url.pathname === "/api/purchase-limit") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;

@@ -1,8 +1,8 @@
-const CACHE_NAME = "signalpilot-owner-v13-copy-price-protection";
+const CACHE_NAME = "signalpilot-owner-v14-profit-release";
 const APP_SHELL = [
   "/control-panel.html",
   "/styles.css",
-  "/script.js?v=copy-price-protection-v10",
+  "/script.js?v=profit-release-v11",
   "/manifest.webmanifest",
   "/signalpilot-icon.svg"
 ];

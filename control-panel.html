@@ -107,6 +107,15 @@
           <article><span id="remainingTotalLabel">Priced wallet subtotal</span><strong id="remainingTotal">Checking…</strong><small id="remainingTotalNote">Needs current USDC, SOL and coin prices.</small></article>
         </div>
         <div class="wallet-budget-control">
+          <h3>Release some locked profit</h3>
+          <p>Move only the amount you choose into available trading cash. Released money can be lost in trading. Stop trading before confirming.</p>
+          <label for="releaseProfitAmount">Amount to release ($)</label>
+          <input id="releaseProfitAmount" type="number" min="0.01" step="0.01" inputmode="decimal">
+          <p id="releaseProfitPreview" role="status">Enter an amount to review the remaining locked profit.</p>
+          <button id="releaseProfitButton" type="button">Review and release</button>
+          <p id="releaseProfitStatus" role="status">Releasing does not start trading or change your purchase limit. Your total trading budget still applies.</p>
+        </div>
+        <div class="wallet-budget-control">
           <h3>Amount I allow for trading</h3>
           <p>Saved trading amount: <strong id="savedTradingBudget">Checking…</strong></p>
           <label for="manualDecuDeposit">Use up to this amount ($)</label>
@@ -614,6 +623,6 @@
         <p id="businessMessage" class="message-line"></p>
       </section>
     </main>
-    <script src="./script.js?v=copy-price-protection-v10"></script>
+    <script src="./script.js?v=profit-release-v11"></script>
   </body>
 </html>

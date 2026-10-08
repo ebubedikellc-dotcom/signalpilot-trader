@@ -1795,6 +1795,39 @@ async function saveManualDeposit() {
   } finally { if(button)button.disabled=false; }
 }
 
+function previewProfitRelease() {
+  const wallet=walletBalance('frog').address || latestState.settings?.frogTradeWallet;
+  const locked=Number(latestState.profitReserves?.[wallet]?.lockedUsd);
+  const amount=Number(value('releaseProfitAmount'));
+  setText('releaseProfitPreview',Number.isFinite(locked) && amount>0 && amount<=locked
+    ? `Release ${money(amount)}; keep ${money(locked-amount)} locked. The saved total budget still limits available trading cash.`
+    : 'Enter an amount no greater than the verified locked profit.');
+}
+async function releaseLockedProfit() {
+  const amount=value('releaseProfitAmount').trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(amount) || !(Number(amount)>0)) {
+    setText('releaseProfitStatus','Enter a positive amount with at most two decimal places.'); return;
+  }
+  const wallet=walletBalance('frog').address || latestState.settings?.frogTradeWallet;
+  const locked=Number(latestState.profitReserves?.[wallet]?.lockedUsd);
+  if (!Number.isFinite(locked) || Number(amount)>locked) {
+    setText('releaseProfitStatus','Cannot release more than the verified locked profit.'); return;
+  }
+  if (!window.confirm(`Release ${money(Number(amount))} for trading and keep ${money(locked-Number(amount))} locked? Released money can be lost. Trading will remain stopped.`)) return;
+  const button=$('releaseProfitButton'); button.disabled=true;
+  // Keep this request ID after a connection failure, so a retry cannot release twice.
+  if (button.dataset.amount !== amount) {button.dataset.amount=amount;button.dataset.requestId=crypto.randomUUID();}
+  setText('releaseProfitStatus','Releasing the amount you confirmed…');
+  try {
+    const data=await api('/api/profit/release',{method:'POST',body:JSON.stringify({amountUsd:amount,requestId:button.dataset.requestId})});
+    renderState(data);
+    setText('releaseProfitStatus',`Released ${money(data.release.amountUsd)}. ${money(data.release.lockedUsd)} remains locked. Trading is stopped.`);
+    $('releaseProfitAmount').value=''; delete button.dataset.amount; delete button.dataset.requestId;
+    await refresh();
+  } catch(error) {setText('releaseProfitStatus',`Not confirmed: ${error.message}. Retry the same amount to check safely.`);}
+  finally {button.disabled=false;}
+}
+
 async function saveTradeMode(profile, mode) {
   const prefix = roomPrefix(profile);
   const data = {
@@ -2036,6 +2069,8 @@ on("saveSettingsInline", "click", saveSettings);
 on("saveProfitShare", "click", saveSettings);
 on("saveManualDeposit", "click", saveManualDeposit);
 on("saveDecuDeposit", "click", saveManualDeposit);
+on('releaseProfitAmount','input',previewProfitRelease);
+on('releaseProfitButton','click',releaseLockedProfit);
 on("saveTruenestDeposit", "click", saveManualDeposit);
 on("saveDecuSafety", "click", saveSettings);
 on("saveTruenestSafety", "click", saveSettings);
