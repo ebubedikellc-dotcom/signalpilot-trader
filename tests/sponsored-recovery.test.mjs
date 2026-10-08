@@ -32,3 +32,19 @@ test('legacy recovery identities require every pending identity field and still 
  const j=createTradingJournal(file,'cash'),d=await j.load();assert.equal(d.pending.order.txid,txid);
  await j.reconcile({getParsedTransaction:async()=>({meta:{err:true}})});assert.equal(d.pending.order,undefined);assert.equal(d.checked[txid],true);
 }));
+
+test('missing final sell is recovered only from exact signed chain amounts and is idempotent',async()=>fixture(async file=>{
+ const txid='3'.repeat(88),buy={wallet,profile:'safe',mint:'coin',side:'buy',raw:'100',usd:5,time:1000,txid:'buy-cycle'};
+ await writeFile(file,JSON.stringify({fills:[buy],pending:{},checked:{[txid]:true},notices:{}}));
+ const recovery={kind:'missing-sell-fill',wallet,profile:'safe',mint:'coin',cycle:'buy-cycle',expectedRaw:'100',txid};
+ await writeFile(file+'.recoveries.json',JSON.stringify([recovery]));
+ const j=createTradingJournal(file,'cash'),d=await j.load();assert(d.pending[txid]);
+ const amounts=(mint,amount)=>({owner:wallet,mint,uiTokenAmount:{amount}});
+ const tx={blockTime:2,transaction:{message:{accountKeys:[{pubkey:wallet,signer:true}]}},meta:{err:null,fee:0,preBalances:[1],postBalances:[1],preTokenBalances:[amounts('coin','100'),amounts('cash','0')],postTokenBalances:[amounts('coin','0'),amounts('cash','4000000')]}};
+ await j.reconcile({getParsedTransaction:async()=>({...tx,transaction:{message:{accountKeys:[{pubkey:wallet,signer:false}]}}})});assert.equal(d.fills.length,1);assert(d.pending[txid]);
+ delete d.pending[txid].lastLookup;
+ await j.reconcile({getParsedTransaction:async()=>tx});assert.equal(d.fills.length,2);assert.equal((await j.snapshot()).positions[`${wallet}:safe:coin`].raw,'0');
+ assert.equal((await createTradingJournal(file,'cash').load()).fills.length,2);
+ await writeFile(file+'.recoveries.json',JSON.stringify([{...recovery,cycle:'different-cycle'}]));
+ assert.equal(Object.keys((await createTradingJournal(file,'cash').load()).pending).length,0);
+}));

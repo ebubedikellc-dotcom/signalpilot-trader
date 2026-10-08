@@ -1,4 +1,4 @@
-import {rpcProvider,monitoredProfiles} from '../lib/rpc-provider.mjs';
+import {rpcProvider,monitoredProfiles,directMonitoringEnabled} from '../lib/rpc-provider.mjs';
 import { sellFraction, proportionalAmount, tokenAmounts } from '../lib/position-accounting.mjs';
 import {copyBuyPriceCheck} from '../lib/copy-price-guard.mjs';
 import { canonicalSignalId } from "../lib/direct-signals.mjs";
@@ -176,15 +176,16 @@ test('queued sells run before queued buys after the current operation completes'
  const sell=c.withWalletOperation(async()=>order.push('sell'),100);
  unlock();await Promise.all([running,buy,sell]);assert.deepEqual(order,['running','sell','buy']);
 });
-test('direct alerts use public Solana without spending Helius credits and retain traders with holdings',async()=>{
+test('Helius alerts stay warm while paused and retain traders with holdings',async()=>{
  const callbacks=new Map();const removed=[];let id=0;
- const c=vm.createContext({Map,Set,Date,process:{env:{}},rpcProvider,monitoredProfiles,executionReport:{positions:{old:{profile:'safe',raw:'1'}},pending:{}},supportedProfiles:['safe','frog','truenest'],PublicKey:class{constructor(x){this.value=x}},
+ const c=vm.createContext({Map,Set,Date,process:{env:{}},rpcProvider,monitoredProfiles,directMonitoringEnabled,executionReport:{positions:{old:{profile:'safe',raw:'1'}},pending:{}},supportedProfiles:['safe','frog','truenest'],PublicKey:class{constructor(x){this.value=x}},
  targetWallet:(_,p)=>p,solanaConnection:()=>({onLogs:(wallet,cb)=>{callbacks.set(wallet.value,cb);return ++id},removeOnLogsListener:async n=>removed.push(n)})});
  vm.runInContext(section(server,'let wakeCopyWorker =','const signalFeeds ='),c);
  const state={profiles:{safe:{running:true}},settings:{heliusKey:'test'},strategy:{activeProfile:'safe'}};
  await c.syncLiveSubscriptions(state);assert.equal(callbacks.size,1);
  state.strategy.activeProfile='frog';await c.syncLiveSubscriptions(state);assert.equal(id,2);assert.equal(removed.length,0);
- state.profiles.safe.running=false;await c.syncLiveSubscriptions(state);assert.equal(removed.length,2);
+ state.profiles.safe.running=false;await c.syncLiveSubscriptions(state);assert.equal(removed.length,0);
+ delete state.settings.heliusKey;await c.syncLiveSubscriptions(state);assert.equal(removed.length,2);
 });
 test('sell-first processing keeps its checkpoint and blocks buying a coin already sold in that batch',async()=>{
  const executed=[];

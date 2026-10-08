@@ -1,5 +1,5 @@
 import { createFnzeroRouter, submitFnzeroOrder } from "./lib/fnzero-route.mjs";
-import { rpcProvider, monitoredProfiles } from "./lib/rpc-provider.mjs";
+import { rpcProvider, monitoredProfiles, directMonitoringEnabled } from "./lib/rpc-provider.mjs";
 import { createRpcReadPool } from "./lib/rpc-read-pool.mjs";
 import { inspectSwapSignature, base58 } from "./lib/swap-signature.mjs";
 import { copyBuyPriceCheck } from "./lib/copy-price-guard.mjs";
@@ -3236,7 +3236,8 @@ let wakeCopyWorker = async () => {};
 let wakeSellWorker = async () => {};
 let observationUntil = 0;
 function monitoringEnabled(state) {
-  return supportedProfiles.some((p) => state.profiles?.[p]?.running) || Date.now() < observationUntil;
+  // Keep Helius alerts warm while paused; execution workers still require START.
+  return directMonitoringEnabled(state,process.env,Date.now(),observationUntil);
 }
 const directReadJobs = new Map();
 const directReadSeen = new Set();
