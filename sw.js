@@ -1,8 +1,8 @@
-const CACHE_NAME = "signalpilot-owner-v15-dashboard-loading";
+const CACHE_NAME = "signalpilot-owner-v16-helius-live";
 const APP_SHELL = [
   "/control-panel.html",
   "/styles.css",
-  "/script.js?v=dashboard-loading-v12",
+  "/script.js?v=helius-live-v13",
   "/manifest.webmanifest",
   "/signalpilot-icon.svg"
 ];

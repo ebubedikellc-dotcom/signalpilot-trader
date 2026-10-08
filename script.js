@@ -1254,6 +1254,7 @@ function renderState(state) {
   renderLiveWatch(settings, profiles, trades, strategy);
   renderManualDeposit(settings);
   renderRemainingWallet(settings);
+  setText("heliusProviderStatus", `Wallet checks: ${backend.walletVerificationProvider || "Not checked"}. Live trader alerts: ${backend.directAlertProvider || "Not checked"}.`);
   renderVault(settings, profiles);
   renderTrades(trades);
   renderStockCoinHistory(trades);
@@ -2077,6 +2078,23 @@ on("saveExecutionEngine", "click", async () => {
   } catch(error) { $('speedTestResult').textContent=error.message; }
 });
 on("saveSettingsInline", "click", saveSettings);
+on("saveHelius", "click", async () => {
+  const key = $("heliusKey").value.trim();
+  if (!key) { setText("heliusCheckResult", "Enter your Helius API key first."); return; }
+  try {
+    renderState(await api("/api/settings", {method:"POST",body:JSON.stringify({heliusKey:key})}));
+    setText("heliusCheckResult", "Helius key saved. Check the connection, then run Test speed to check both routes.");
+  } catch(error) { setText("heliusCheckResult", error.message); }
+});
+on("checkHelius", "click", async () => {
+  const button = $("checkHelius"); button.disabled = true;
+  setText("heliusCheckResult", "Checking Helius directly. No trade will be sent…");
+  try {
+    const result = await api("/api/owner/helius-check", {method:"POST",body:"{}"});
+    setText("heliusCheckResult", result.ok ? `${result.message} Wallet read: ${result.elapsedMs} ms. SOL: ${result.sol}.` : `Helius check failed: ${result.error}`);
+  } catch(error) { setText("heliusCheckResult", error.message); }
+  finally { button.disabled = false; }
+});
 on("saveProfitShare", "click", saveSettings);
 on("saveManualDeposit", "click", saveManualDeposit);
 on("saveDecuDeposit", "click", saveManualDeposit);

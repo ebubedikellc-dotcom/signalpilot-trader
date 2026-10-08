@@ -742,6 +742,7 @@ function statusPayload(state, session) {
       marketDataProvider: "Direct Solana alerts + GMGN recovery",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
       walletVerificationProvider: `${rpcProvider(state.settings,process.env).name} RPC with controlled public fallback`,
+      directAlertProvider: rpcProvider(state.settings,process.env,{direct:true}).name,
       rpcReads: Array.from(rpcConnections.values(), entry => ({provider:entry.provider, ...entry.pool.status()})),
       paidHeliusEnabled: rpcProvider(state.settings,process.env).name === "Helius",
       providerRepairHold: state.settings.providerRepairHold === true,
@@ -3890,6 +3891,28 @@ async function handleApi(request, response, url) {
       send(response,200,{...result,discoveryMs,profile,traderWallet:targetWallet(state,profile),mint,side:input.side});
     } catch(error) {send(response,400,{error:error.message});}
     finally {fnzeroTestBusy=false;}
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/owner/helius-check") {
+    const state = await readState();
+    if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    const provider = rpcProvider(state.settings, process.env);
+    if (provider.name !== "Helius") { send(response,400,{error:"Save a Helius API key first."}); return true; }
+    const wallet = tradeWallet(state);
+    if (!solanaAddress(wallet)) { send(response,400,{error:"Connect your trading wallet first."}); return true; }
+    const started = Date.now();
+    try {
+      // Check Helius itself, without silently reporting public fallback as success.
+      const result = await fetch(provider.http,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({jsonrpc:"2.0",id:1,method:"getBalance",params:[wallet,{commitment:"confirmed"}]}),signal:AbortSignal.timeout(8000)});
+      const payload = await result.json();
+      if (!result.ok || payload.error || !Number.isSafeInteger(payload.result?.value) || payload.result.value < 0) {
+        throw new Error(payload.error?.message || `Helius returned ${result.status}; balance not verified.`);
+      }
+      send(response,200,{ok:true,provider:"Helius",elapsedMs:Date.now()-started,sol:payload.result.value/1e9,
+        message:"Helius wallet read passed. Live alerts use Helius WebSocket. This check does not measure buy or sell execution speed."});
+    } catch(error) { send(response,200,{ok:false,provider:"Helius",elapsedMs:Date.now()-started,error:directReadFailure(error,state.settings)}); }
     return true;
   }
 

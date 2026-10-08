@@ -2,15 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {rpcProvider,monitoredProfiles} from '../lib/rpc-provider.mjs';
 test('Alchemy configuration supplies separate HTTP and streaming endpoints',()=>{
- const p=rpcProvider({alchemyKey:'owner-key',heliusKey:'old-key'});
+ const p=rpcProvider({alchemyKey:'owner-key'});
  assert.equal(p.name,'Alchemy');assert.equal(p.http,'https://solana-mainnet.g.alchemy.com/v2/owner-key');
  assert.equal(p.ws,'wss://solana-mainnet.streaming.alchemy.com/v2/owner-key');
  assert.equal(rpcProvider({}, {ALCHEMY_API_KEY:'env-key'}, {direct:true}).name,'Alchemy');
  assert.equal(rpcProvider({alchemyKey:'key'}, {}, {publicOnly:true}).public,true);
 });
-test('direct alerts remain independent of an exhausted Helius credential',()=>{
- assert.equal(rpcProvider({heliusKey:'old-key'},{},{direct:true}).name,'Public Solana');
- assert.equal(rpcProvider({heliusKey:'old-key'}).name,'Helius');
+test('Helius is preferred for both wallet reads and direct trader alerts',()=>{
+ for(const options of [{},{direct:true}]) {
+  const p=rpcProvider({heliusKey:'owner-key',alchemyKey:'other-key'},{},options);
+  assert.equal(p.name,'Helius');
+  assert.equal(p.http,'https://mainnet.helius-rpc.com/?api-key=owner-key');
+  assert.equal(p.ws,'wss://mainnet.helius-rpc.com/?api-key=owner-key');
+ }
+ assert.equal(rpcProvider({}, {HELIUS_API_KEY:'env-key'}, {direct:true}).name,'Helius');
+ assert.equal(rpcProvider({heliusKey:'key'}, {}, {publicOnly:true}).name,'Public Solana');
+ assert.equal(rpcProvider({}, {}, {direct:true}).name,'Public Solana');
 });
 test('selected trader plus previous owners of open or pending holdings are monitored',()=>{
  const state={strategy:{activeProfile:'frog'}},supported=['safe','frog','truenest'];

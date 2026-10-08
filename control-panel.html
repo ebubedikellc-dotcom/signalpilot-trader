@@ -546,8 +546,15 @@
               <div class="form-grid">
                 <label>GMGN API key <input id="gmgnApiKey" type="password" autocomplete="off" placeholder="Paste GMGN official API key here"></label>
                 <label>Helius API key <input id="heliusKey" type="password" autocomplete="off" placeholder="Paste Helius API key here"></label>
+                <div class="inline-save-box">
+                  <button id="saveHelius" class="secondary-action">Save Helius API key</button>
+                  <button id="checkHelius" class="secondary-action">Check Helius connection</button>
+                  <p id="heliusProviderStatus" role="status">Checking selected provider…</p>
+                  <p id="heliusCheckResult" role="status">Connection check reads your wallet balance. It never signs or sends a trade.</p>
+                  <p class="hint">A saved Helius key takes priority for live trader alerts and wallet verification. Buy preparation targets 0.5 seconds, with a 1-second backup deadline. Actual submission and confirmation can take longer. Trader sells remain eligible even when preparation takes longer.</p>
+                </div>
                 <label>Alchemy API key (optional) <input id="alchemyKey" type="password" autocomplete="off" placeholder="Use Alchemy for wallet checks and direct trade alerts"></label>
-                <p class="hint">Direct alerts use Alchemy when configured; otherwise they use public Solana. Public service can be rate-limited. Alchemy usage counts toward your plan allowance.</p>
+                <p class="hint">Alchemy is used when no Helius key is configured. Without either key, direct alerts and wallet checks use shared public Solana, which can be rate-limited.</p>
                 <label>Jupiter / trading route API <input id="routeApi" type="password" autocomplete="off" placeholder="Paste route API or endpoint here"></label>
                 <label>Turnkey organization ID <input id="turnkeyOrgId" autocomplete="off" placeholder="Paste Turnkey organization ID"></label>
                 <label>Turnkey API public key <input id="turnkeyApiPublicKey" autocomplete="off" placeholder="Paste Turnkey API public key"></label>
@@ -623,6 +630,6 @@
         <p id="businessMessage" class="message-line"></p>
       </section>
     </main>
-    <script src="./script.js?v=dashboard-loading-v12"></script>
+    <script src="./script.js?v=helius-live-v13"></script>
   </body>
 </html>
