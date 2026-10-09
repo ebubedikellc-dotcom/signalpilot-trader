@@ -24,7 +24,7 @@
         </div>
         <strong id="selectedTraderLabel">Selected trader: loading…</strong>
         <div class="stuck-sell-control">
-          <button id="openStuckCoinSales" type="button">Sell stuck coins</button>
+          <button id="openStuckCoinSales" type="button">Sell coins manually / View gain &amp; loss</button>
           <small id="stuckCoinSaleStatus" role="status">Check holdings, choose a coin, then review and confirm its sale.</small>
         </div>
         <div class="purchase-limit-control" role="group" aria-label="Purchase limit">
@@ -125,8 +125,8 @@
           <p id="tradingBudgetSaveStatus" role="status">Your saved amount stays unchanged until you save a new one.</p>
         </div>
         <section class="wallet-coins" id="stuckCoinSales" aria-labelledby="walletCoinsTitle" tabindex="-1">
-          <h3 id="walletCoinsTitle">Sell stuck coins / other held coins</h3>
-          <p>Manual selling works while automatic trading is stopped. Review a quote and confirm to convert a held coin to USDC. This does not start buying.</p>
+          <h3 id="walletCoinsTitle">My coins: purchase cost, gain / loss and manual sell</h3>
+          <p>Manual selling works while automatic trading is stopped. Choose Sell manually, review how much USDC you will receive, then confirm to sell all of that coin. This does not start buying.</p>
           <button type="button" id="refreshWalletCoins">Refresh coin values</button>
           <p id="walletCoinsStatus" role="status">Loading wallet coins…</p>
           <div id="walletCoinsList"></div>
@@ -630,6 +630,6 @@
         <p id="businessMessage" class="message-line"></p>
       </section>
     </main>
-    <script src="./script.js?v=fast-copy-v16"></script>
+    <script src="./script.js?v=manual-coins-v18"></script>
   </body>
 </html>

@@ -2280,6 +2280,18 @@ function heldCoinProfile(state, wallet, mint) {
     .filter(p => p.wallet === wallet && p.mint === mint && BigInt(p.raw || "0") > 0n).map(p => p.profile))];
   return profiles.length === 1 ? profiles[0] : state.strategy?.activeProfile || "frog";
 }
+// Only compare the wallet value with a fully matched, verified remaining cost.
+function heldCoinPerformance(state, wallet, coin) {
+  const positions = Object.values(state.executionReport?.positions || {})
+    .filter(p => p.wallet === wallet && p.mint === coin.mint && BigInt(p.raw || "0") > 0n);
+  const raw = positions.reduce((sum, p) => sum + BigInt(p.raw), 0n);
+  const matched = positions.length > 0 && positions.every(p => p.verified === true && Number.isFinite(p.cost) && p.cost >= 0)
+    && raw === BigInt(coin.raw || "0");
+  const cost = matched ? positions.reduce((sum, p) => sum + p.cost, 0) : null;
+  const value = Number.isFinite(coin.estimatedUsd) ? coin.estimatedUsd : null;
+  const gain = cost !== null && value !== null ? value - cost : null;
+  return {cost, gain, percent: gain !== null && cost > 0 ? gain / cost * 100 : null};
+}
 let walletCoinsLoading = false;
 async function loadWalletCoins() {
   if (!$("walletCoinsList") || walletCoinsLoading) return;
@@ -2295,13 +2307,18 @@ async function loadWalletCoins() {
     for (const coin of latestWalletCoins) {
       const card = document.createElement("article");
       card.className = "wallet-coin-card";
+      const performance = heldCoinPerformance(latestState, data.wallet, coin);
+      const gainText = performance.gain === null ? "Unavailable" : `${performance.gain >= 0 ? "+" : "−"}${money(Math.abs(performance.gain))}${performance.percent === null ? "" : ` (${performance.percent >= 0 ? "+" : ""}${performance.percent.toFixed(2)}%)`}`;
       card.innerHTML = `<strong>${escapeHtml(coin.name)} (${escapeHtml(coin.symbol)})</strong>
         <p>Amount: ${escapeHtml(String(coin.amount))}</p>
-        <p>Estimated worth: <strong>${coin.estimatedUsd === null ? "Price unavailable" : money(coin.estimatedUsd)}</strong></p>
+        <p>Cost of coins still held: <strong>${performance.cost === null ? "Purchase cost unavailable" : money(performance.cost)}</strong></p>
+        <p>Current estimated value: <strong>${Number.isFinite(coin.estimatedUsd) ? money(coin.estimatedUsd) : "Price unavailable"}</strong></p>
+        <p>Estimated gain / loss on coins still held: <strong>${gainText}</strong></p>
+        <small>${performance.cost === null ? "The wallet holding does not match verified purchase records, so profit cannot be calculated." : "After partial sells, cost covers only the coins remaining. Gain/loss is unrealized, before sale fees."}</small>
         <small class="coin-mint">${escapeHtml(coin.mint)}</small>`;
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = `Review quote to sell ${coin.symbol}`;
+      button.textContent = `Sell ${coin.symbol} manually`;
       button.disabled = !coin.canSell;
       button.onclick = () => ownerSellToken(heldCoinProfile(latestState, data.wallet, coin.mint), {mint:coin.mint});
       card.append(button);
@@ -2313,7 +2330,7 @@ async function loadWalletCoins() {
     latestWalletCoins = [];
     $("walletCoinsList").replaceChildren();
     setText("walletCoinsStatus", `Unable to check coins: ${error.message}`);
-    setText("stuckCoinSaleStatus", "Holdings unavailable. Press Sell stuck coins to check again.");
+    setText("stuckCoinSaleStatus", "Holdings unavailable. Press Sell coins manually to check again.");
   } finally { walletCoinsLoading = false; $("refreshWalletCoins").disabled = false; }
 }
 $("refreshWalletCoins")?.addEventListener("click", loadWalletCoins);

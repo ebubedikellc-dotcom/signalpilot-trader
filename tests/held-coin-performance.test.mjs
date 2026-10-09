@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import fs from 'node:fs';
+const source=fs.readFileSync(new URL('../script.js',import.meta.url),'utf8');
+const c=vm.createContext({});
+vm.runInContext(source.slice(source.indexOf('function heldCoinPerformance('),source.indexOf('let walletCoinsLoading')),c);
+const position={wallet:'w',mint:'m',raw:'50',verified:true,cost:5};
+const state=p=>({executionReport:{positions:{p}}});
+const coin={mint:'m',raw:'50',estimatedUsd:6};
+test('partial sale uses remaining cost, not original purchase cost',()=>{const r=c.heldCoinPerformance(state(position),'w',coin);assert.equal(r.cost,5);assert.equal(r.gain,1);assert.equal(r.percent,20);});
+test('unmatched, unverified or unknown records cannot imply profit',()=>{for(const p of [{...position,raw:'49'},{...position,verified:false},{...position,wallet:'other'}])assert.equal(c.heldCoinPerformance(state(p),'w',coin).gain,null);});
+test('missing price is unknown, while a verified zero price is a full loss',()=>{assert.equal(c.heldCoinPerformance(state(position),'w',{...coin,estimatedUsd:null}).gain,null);assert.equal(c.heldCoinPerformance(state(position),'w',{...coin,estimatedUsd:0}).percent,-100);});
