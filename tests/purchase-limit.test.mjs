@@ -28,7 +28,7 @@ test('old divergent limits normalize to the owner-facing saved limit and survive
 });
 test('capped modes and all three traders obey the shared ceiling and still copy smaller buys',()=>{
  const h=harness();
- for(const mode of ['limits','exact','loss','trailing','takeback']) {
+ for(const mode of ['limits','exact','loss','trailing','takeback','rise30']) {
   h.state.settings.frogBuyMode=mode;h.c.syncQueueSurviveSettings(h.state.settings);
   for(const profile of ['safe','frog','truenest']) {
    assert.equal(h.c.buyUsdAmount(h.state,profile,50),20);
@@ -49,6 +49,21 @@ test('profit ladder uses the shared ceiling without increasing smaller buys',asy
  }
  const settings=JSON.parse(JSON.stringify(h.state.settings));h.c.syncQueueSurviveSettings(settings);
  assert.equal(settings.frogBuyMode,'ladder');assert.equal(settings.frogSurviveMax,'20');
+});
+test('20% Rise — Sell 30% can be saved and reloaded without changing limits or running state',async()=>{
+ const h=harness();
+ await h.c.handleApi({method:'POST',body:{frogBuyMode:'rise30'}},{},{pathname:'/api/settings'});
+ assert.equal(h.c.output.code,200);
+ const settings=JSON.parse(JSON.stringify(h.state.settings));h.c.syncQueueSurviveSettings(settings);
+ for(const profile of ['safe','frog','truenest'])assert.equal(settings[profile+'BuyMode'],'rise30');
+ assert.equal(settings.frogSurviveMax,'20');assert.equal(settings.frogDeposit,'50');
+ assert(Object.values(h.state.profiles).every(p=>p.running));
+ const c=vm.createContext({Number,value:()=>'',normalizeBuyMode:undefined});
+ vm.runInContext(section(script,'function normalizeBuyMode(', 'let modeFormDirty'),c);
+ assert.equal(c.normalizeBuyMode('rise30'),'rise30');
+ assert.equal(c.buyModeLabel('rise30'),'20% Rise — Sell 30%');
+ assert.match(c.buyModeNote('rise30',10),/30% of the coins still held/);
+ assert.match(c.buyModeNote('rise30',Infinity),/full purchase amount/);
 });
 test('full-amount mode bypasses only the purchase ceiling and survives settings reload for all traders',async()=>{
  const h=harness();

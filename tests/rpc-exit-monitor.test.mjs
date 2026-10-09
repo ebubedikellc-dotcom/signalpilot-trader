@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs';
+import {riseStepExit} from '../lib/position-accounting.mjs';
 const source=fs.readFileSync(new URL('../server.js',import.meta.url),'utf8');
 function harness(reason,held='10') {
  const calls=[],p={verified:true,raw:'10',cost:20,wallet:'w',mint:'coin',profile:'safe',key:'p'};
@@ -15,7 +16,7 @@ function harness(reason,held='10') {
  signSolanaTransaction:async()=>{calls.push('sign');return {};},signerId:()=>'',recordPendingSwap:async()=> 'pending',recordExecutionResponse:async()=>{calls.push('record');}});
  vm.runInContext(source.slice(source.indexOf('async function prepareTradingOrder('),source.indexOf('async function executeCopiedSwap(')),c);
  vm.runInContext(source.slice(source.indexOf('let riskWorking='),source.indexOf('// Read-only market metadata.')),c);
- return {c,calls,d};
+ return {c,calls,d,p};
 }
 test('price watching does not consume a wallet read when no exit is triggered',async()=>{
  const h=harness(null);await h.c.runPositionWatch();assert.deepEqual(h.calls,['/swap/v2/order']);
@@ -58,4 +59,26 @@ test('position or controls changed while quoting discards the quote before signi
   };
   await h.c.runPositionWatch();assert.deepEqual(h.calls,['/swap/v2/order'],change);
  }
+});
+test('rise30 worker quotes 30%, journals the step, and waits for confirmation before another sale',async()=>{
+ const h=harness(null,'1000');Object.assign(h.p,{raw:'1000',cost:100,cycle:'buy1'});
+ h.d.fills=[];h.c.riseStepExit=riseStepExit;h.c.profileBuyMode=()=> 'rise30';
+ let pending=false,info,unit=.12;const amounts=[];
+ h.c.hasPendingMint=async()=>pending;
+ h.c.prepareTradingOrder=async(_,order)=>{amounts.push(order.amount);return {inAmount:order.amount,outAmount:String(Math.round(Number(order.amount)*unit*1e6)),transaction:'quote'};};
+ h.c.executeTradingOrder=async()=>({status:'Success'});
+ h.c.recordPendingSwap=async(value)=>{info=value;pending=true;return 'pending';};
+ await h.c.runPositionWatch();assert.deepEqual(amounts,['1000','300']);assert.equal(info.riseStep.step,1);
+ assert(h.calls.includes('sign'));assert.equal(info.raw,'300');
+ await h.c.runPositionWatch();assert.equal(amounts.length,2,'pending sale must block duplicates');
+ h.d.fills.push({...info,txid:'sale1'});pending=false;Object.assign(h.p,{raw:'700',cost:70});
+ await h.c.runPositionWatch();assert.equal(amounts.length,3,'same price must not sell again');
+ unit=.144;await h.c.runPositionWatch();assert.equal(info.raw,'210');assert.equal(info.riseStep.step,2);
+});
+test('rise30 worker rejects a poor partial quote without signing or advancing',async()=>{
+ const h=harness(null,'1000');Object.assign(h.p,{raw:'1000',cost:100,cycle:'buy1'});
+ h.d.fills=[];h.c.riseStepExit=riseStepExit;h.c.profileBuyMode=()=> 'rise30';
+ h.c.prepareTradingOrder=async(_,order)=>({inAmount:order.amount,outAmount:order.amount==='1000'?'120000000':'30000000',transaction:'quote'});
+ await h.c.runPositionWatch();assert(!h.calls.includes('sign'));assert.equal(h.d.fills.length,0);
+ assert.match(h.d.notices.p,/below the 20% rise target/);
 });
