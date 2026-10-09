@@ -28,6 +28,13 @@ test('disconnected subscriptions and transaction lookups retain active checks',(
   h.context.listenerReady=true;h.context.queuedReads=true;assert.equal(h.status().sleeping,false);
   h.context.queuedReads=false;assert.equal(h.status().sleeping,true);
 });
+test('retained review-only sell history can sleep while actual holdings still keep it awake',()=>{
+  const h=harness();h.advance(120000);
+  h.context.report.pendingSells=[{requiresActiveChecks:false,message:'Review retained history'}];
+  assert.equal(h.status().sleeping,true);
+  h.context.report.positions={p:{raw:'1',verified:false}};
+  assert.equal(h.status().sleeping,false);
+});
 test('old recovery history and invalid future timestamps do not repeatedly wake the bot',()=>{
   const h=harness();const old=h.now();h.advance(120000);
   for(const at of [old-1000,old,NaN,Infinity,h.now()+1000])h.sleep.observeTrade(at);

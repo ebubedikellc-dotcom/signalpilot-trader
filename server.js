@@ -2537,7 +2537,8 @@ async function refreshExecutionReport(state) {
  }
  report.confirmed=d.fills.map(f=>({...f,pnl:report.closed.find(c=>c.txid===f.txid)?.pnl}));
  report.updatedAt=new Date().toISOString();report.partialHistory=true;
- report.pendingSells=Object.values(d.sourceSells || {}).map(j=>({profile:j.profile,message:j.message || 'Waiting to retry'}));
+ report.pendingSells=Object.values(d.sourceSells || {}).map(j=>({profile:j.profile,message:j.message || 'Waiting to retry',
+   requiresActiveChecks:['ready','waiting'].includes(sourceSellRetryState(state,{...j},report))}));
  executionReport=report;
 }
 let riskWorking=false;
