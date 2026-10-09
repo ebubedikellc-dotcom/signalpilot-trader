@@ -3393,7 +3393,7 @@ async function pollSignalFeeds() {
         }
         const checked = source === "GMGN" ? gmgnCache.get(`official:${wallet}`)?.at || Date.now() : Date.now();
         const at = new Date(checked).toISOString();
-        signalFeeds.set(key, { profile, source, wallet, checkedAt: at, error: "", transactions: transactions.map((t) => ({ ...t, detectedAt: at })) });
+        signalFeeds.set(key, { profile, source, wallet, checkedAt: at, error: "", pollIntervalMs:saving.recoveryPollMs, transactions: transactions.map((t) => ({ ...t, detectedAt: at })) });
         wakeSellWorker().catch(() => {});
         wakeCopyWorker().catch(() => {});
       }).catch((error) => {
@@ -3406,7 +3406,7 @@ function feedHealth() {
   return Array.from(signalFeeds.values()).map(({ transactions, ...feed }) => ({
     ...feed, status: feed.source === "Solana live"
       ? feed.error ? "Direct lookup unavailable" : feed.checkedAt ? "Last transaction read" : "Waiting for activity"
-      : feed.error ? (feed.feedPaused ? "Paused" : "Disconnected") : !feed.checkedAt ? "Connecting" : Date.now() - Date.parse(feed.checkedAt) > Math.max(15000, gmgnPollMs * 3) ? "Delayed" : "Connected"
+      : feed.error ? (feed.feedPaused ? "Paused" : "Disconnected") : !feed.checkedAt ? "Connecting" : Date.now() - Date.parse(feed.checkedAt) > Math.max(15000, (feed.pollIntervalMs || gmgnPollMs) * 3) ? "Delayed" : "Connected"
   }));
 }
 async function runCopyWorkerOnce() {
