@@ -1,3 +1,4 @@
+import {createMonitorSleep} from '../lib/monitor-sleep.mjs';
 import {rpcProvider,monitoredProfiles,directMonitoringEnabled} from '../lib/rpc-provider.mjs';
 import { sellFraction, proportionalAmount, tokenAmounts } from '../lib/position-accounting.mjs';
 import {copyBuyPriceCheck} from '../lib/copy-price-guard.mjs';
@@ -152,7 +153,7 @@ test('sold-at-loss is closed; positive wallet quantity is open; absent wallet da
  assert.equal(c.openPositionsFromTrades(trades)[0].held,null);
 });
 test('GMGN is the sole activity feed even with a saved Helius key',async()=>{
- const c=vm.createContext({Date,Map,Set,Promise,monitoredProfiles,executionReport:null,syncLiveSubscriptions:async()=>{},wakeCopyWorker:async()=>{},wakeSellWorker:async()=>{},supportedProfiles:['safe'],
+ const c=vm.createContext({Date,Map,Set,Promise,monitoredProfiles,executionReport:null,syncLiveSubscriptions:async()=>{},monitorSleepStatus:()=>({recoveryPollMs:1000}),wakeCopyWorker:async()=>{},wakeSellWorker:async()=>{},supportedProfiles:['safe'],
  readState:async()=>({profiles:{safe:{running:true}},settings:{heliusKey:'test',gmgnApiKey:'test'}}),
  targetWallet:()=> 'wallet',process:{env:{}},fetchTransactionsForAddress:async()=>[{signature:'new',timestamp:1}],
  fetchGmgnTransactionsForAddress:()=>new Promise(()=>{})});
@@ -178,7 +179,7 @@ test('queued sells run before queued buys after the current operation completes'
 });
 test('Helius alerts stay warm while paused and retain traders with holdings',async()=>{
  const callbacks=new Map();const removed=[];let id=0;
- const c=vm.createContext({Map,Set,Date,process:{env:{}},rpcProvider,monitoredProfiles,directMonitoringEnabled,executionReport:{positions:{old:{profile:'safe',raw:'1'}},pending:{}},supportedProfiles:['safe','frog','truenest'],PublicKey:class{constructor(x){this.value=x}},
+ const c=vm.createContext({Map,Set,Date,process:{env:{}},rpcProvider,monitoredProfiles,directMonitoringEnabled,createMonitorSleep,executionReport:{positions:{old:{profile:'safe',raw:'1'}},pending:{}},supportedProfiles:['safe','frog','truenest'],PublicKey:class{constructor(x){this.value=x}},
  targetWallet:(_,p)=>p,solanaConnection:()=>({onLogs:(wallet,cb)=>{callbacks.set(wallet.value,cb);return ++id},removeOnLogsListener:async n=>removed.push(n)})});
  vm.runInContext(section(server,'let wakeCopyWorker =','const signalFeeds ='),c);
  const state={profiles:{safe:{running:true}},settings:{heliusKey:'test'},strategy:{activeProfile:'safe'}};
@@ -252,7 +253,7 @@ test('restart excludes buys from the stopped period without expiring new session
 });
 test('dashboard status reports poll cadence without referencing a removed buy deadline',()=>{
  const c=vm.createContext({fnzeroRouter:{status:()=>({})},executionReport:null,rpcProvider,process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:500,
- rpcConnections:new Map(),gmgnConnectionCheck:null,observationUntil:0,feedHealth:()=>[],liveSubscriptions:new Map(),customerPublic:x=>x});
+ monitorSleepStatus:()=>({sleeping:false}),rpcConnections:new Map(),gmgnConnectionCheck:null,observationUntil:0,feedHealth:()=>[],liveSubscriptions:new Map(),customerPublic:x=>x});
  vm.runInContext(section(server,'function statusPayload(','async function walletBalances('),c);
  const result=c.statusPayload({settings:{},customers:[],profiles:{safe:{running:false}}},{role:'owner',id:'owner'});
  assert.equal(result.backend.pollIntervalMs,500);assert.equal(result.backend.maxSignalAgeMs,null);

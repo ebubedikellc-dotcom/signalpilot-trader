@@ -1,3 +1,4 @@
+import {createMonitorSleep} from '../lib/monitor-sleep.mjs';
 import test from 'node:test';
 import {directMonitoringEnabled} from '../lib/rpc-provider.mjs';
 import assert from 'node:assert/strict';
@@ -32,16 +33,27 @@ test('canonical transaction identity joins GMGN and direct notifications without
  assert.equal(canonicalSignalId(`gmgn:${signature}`),canonicalSignalId(signature));
  assert.equal(canonicalSignalId('gmgn:timestamp:buy:coin'),'gmgn:timestamp:buy:coin');
 });
-function harness(running=true) {
+function harness(running=true,sleepFactory=createMonitorSleep) {
  const row=fixtures[0],feeds=new Map();let reads=0;
  const state={profiles:{safe:{running}},settings:{}};
  const sub={connection:{getParsedTransaction:async()=>{reads++;return row.transaction}}};
- const c=vm.createContext({Map,Set,Date,Number,Math,setTimeout,clearTimeout,directMonitoringEnabled,directReadRetryMs:10,process:{env:{}},solanaConnection:()=>sub.connection,decodeDirectSwap,signalFeeds:feeds,supportedProfiles:['safe'],readState:async()=>state,targetWallet:()=>row.wallet,sub,wallet:row.wallet});
+ const c=vm.createContext({Map,Set,Date,Number,Math,setTimeout,clearTimeout,createMonitorSleep:sleepFactory,warmTradeableUsdcCache:async()=>{},directMonitoringEnabled,directReadRetryMs:10,process:{env:{}},solanaConnection:()=>sub.connection,decodeDirectSwap,signalFeeds:feeds,supportedProfiles:['safe'],readState:async()=>state,targetWallet:()=>row.wallet,sub,wallet:row.wallet});
  vm.runInContext(section('let wakeCopyWorker =','const signalFeeds ='),c);
  vm.runInContext('liveSubscriptions.set(wallet,sub)',c);
  return {c,sub,state,feeds,row,reads:()=>reads};
 }
 const flush=()=>new Promise(r=>setImmediate(r));
+test('verified push notification wakes sleeping checks and both workers without waiting for polling',async()=>{
+ let now=1000000,warmed=0,wakes=0;
+ const h=harness(true,()=>createMonitorSleep({now:()=>now}));
+ const status=()=>vm.runInContext('monitorSleep.status({report:{positions:{},pending:{}},listenerReady:true})',h.c);
+ now+=120000;assert.equal(status().sleeping,true);
+ h.c.warmTradeableUsdcCache=async()=>{warmed++;};
+ h.c.countWake=()=>{wakes++;};
+ vm.runInContext('wakeCopyWorker=async()=>countWake();wakeSellWorker=async()=>countWake()',h.c);
+ h.c.queueDirectRead(h.row.wallet,h.row.signature,h.sub);await flush();
+ assert.equal(status().sleeping,false);assert.equal(warmed,1);assert.equal(wakes,2);
+});
 test('duplicate notifications fetch once and deliver directly without a history feed',async()=>{
  const h=harness();h.c.queueDirectRead(h.row.wallet,h.row.signature,h.sub);h.c.queueDirectRead(h.row.wallet,h.row.signature,h.sub);await flush();
  assert.equal(h.reads(),1);assert.equal(h.feeds.get('safe:Solana live').transactions[0].signature,h.row.signature);

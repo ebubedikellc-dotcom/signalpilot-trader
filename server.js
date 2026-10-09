@@ -1,5 +1,6 @@
 import { createFnzeroRouter, submitFnzeroOrder } from "./lib/fnzero-route.mjs";
 import { rpcProvider, monitoredProfiles, directMonitoringEnabled } from "./lib/rpc-provider.mjs";
+import { createMonitorSleep } from "./lib/monitor-sleep.mjs";
 import { createRpcReadPool } from "./lib/rpc-read-pool.mjs";
 import { inspectSwapSignature, base58 } from "./lib/swap-signature.mjs";
 import { copyBuyPriceCheck } from "./lib/copy-price-guard.mjs";
@@ -750,6 +751,7 @@ function statusPayload(state, session) {
       liveTradingEnv,
       productionExecution,
       workerIntervalMs,
+      creditSaving: monitorSleepStatus(state),
       maxSignalAgeMs: null,
       pollIntervalMs: 500,
       observationUntil: observationUntil > Date.now() ? new Date(observationUntil).toISOString() : null,
@@ -1789,7 +1791,8 @@ async function warmTradeableUsdcCache() {
     const profile = supportedProfiles.includes(state.strategy?.activeProfile) ? state.strategy.activeProfile : "frog";
     if (!state.profiles?.[profile]?.running || state.strategy?.paused) return;
     const wallet = tradeWallet(state, profile);
-    if (!wallet || tradeableUsdcCacheAge(state, profile, wallet) < budgetWarmMaxAgeMs) return;
+    const saving = monitorSleepStatus(state);
+    if (!wallet || tradeableUsdcCacheAge(state, profile, wallet) < (saving.walletRefreshMs ?? budgetWarmMaxAgeMs)) return;
     const connection = solanaConnection(state.settings, { priority: -10 });
     // The network wait must never occupy the trading wallet queue.
     await publishWalletBudget(connection, state, profile, wallet, true);
@@ -3226,6 +3229,14 @@ async function processSignalTransactions(state, profile, transactions, newest, c
 let wakeCopyWorker = async () => {};
 let wakeSellWorker = async () => {};
 let observationUntil = 0;
+const monitorSleep = createMonitorSleep();
+function monitorSleepStatus(state) {
+  const wallets = monitoredProfiles(state, executionReport, supportedProfiles).map(p=>targetWallet(state,p)).filter(Boolean);
+  // An SDK connection exists before its socket connects. Never sleep on a
+  // disconnected listener: retain the normal GMGN recovery polling then.
+  const listenerReady = wallets.length>0 && wallets.every(wallet=>liveSubscriptions.get(wallet)?.connection?._rpcWebSocketConnected === true);
+  return monitorSleep.status({report:executionReport,listenerReady,queuedReads:directReadJobs.size>0});
+}
 function monitoringEnabled(state) {
   // Keep Helius alerts warm while paused; execution workers still require START.
   return directMonitoringEnabled(state,process.env,Date.now(),observationUntil);
@@ -3307,7 +3318,11 @@ async function readDirectTransaction(job) {
     directReadSeen.add(job.key);
     if (directReadSeen.size > 1024) directReadSeen.delete(directReadSeen.values().next().value);
     directReadJobs.delete(job.key);
-    if (decoded) { wakeSellWorker().catch(() => {}); wakeCopyWorker().catch(() => {}); }
+    if (decoded) {
+      monitorSleep.observeTrade();
+      warmTradeableUsdcCache().catch(() => {});
+      wakeSellWorker().catch(() => {}); wakeCopyWorker().catch(() => {});
+    }
   } catch (error) {
     for (const profile of supportedProfiles.filter((p) => targetWallet(state,p) === job.wallet)) {
       const key = `${profile}:Solana live`;
@@ -3357,6 +3372,7 @@ async function pollSignalFeeds() {
   const state = await readState();
   await syncLiveSubscriptions(state);
   if (!supportedProfiles.some((p) => state.profiles?.[p]?.running)) return;
+  const saving = monitorSleepStatus(state);
   for (const profile of monitoredProfiles(state, executionReport, supportedProfiles)) {
     const wallet = targetWallet(state, profile);
     if (!wallet) continue;
@@ -3365,11 +3381,16 @@ async function pollSignalFeeds() {
     if (state.settings.gmgnApiKey || process.env.GMGN_API_KEY) sources.push(["GMGN", () => fetchGmgnTransactionsForAddress(state.settings, wallet)]);
     for (const [source, fetcher] of sources) {
       const key = `${profile}:${source}`;
-      if (feedRequests.has(key) || Date.now() - (feedStartedAt.get(key) || 0) < (source === "GMGN" ? 1000 : 500)) continue;
+      if (feedRequests.has(key) || Date.now() - (feedStartedAt.get(key) || 0) < (source === "GMGN" ? saving.recoveryPollMs : 500)) continue;
       feedStartedAt.set(key, Date.now());
       feedRequests.add(key);
       if (!signalFeeds.has(key)) signalFeeds.set(key, { profile, source, wallet, checkedAt: null, error: "", transactions: [] });
       Promise.resolve().then(fetcher).then((transactions) => {
+        // Recovery responses include history. Re-reading old trades must not
+        // wake the intensive checks indefinitely, nor do incoming transfers.
+        for (const transaction of transactions) {
+          if (primarySwapLeg(transaction, profile, state)) monitorSleep.observeTrade(Number(transaction.timestamp)*1000);
+        }
         const checked = source === "GMGN" ? gmgnCache.get(`official:${wallet}`)?.at || Date.now() : Date.now();
         const at = new Date(checked).toISOString();
         signalFeeds.set(key, { profile, source, wallet, checkedAt: at, error: "", transactions: transactions.map((t) => ({ ...t, detectedAt: at })) });

@@ -35,11 +35,21 @@ function harness() {
     profileDepositUsd:()=>100,tokenUiBalance:async()=>100,
     protectProfit:async()=>reserves.wallet.lockedUsd,readState:async()=>state,
     supportedProfiles:['safe'],tradeWallet:()=> 'wallet',solanaConnection:()=>({}),
-    usdcMint:"USDC",budgetWarmMaxAgeMs:5000});
+    usdcMint:"USDC",budgetWarmMaxAgeMs:5000,monitorSleepStatus:()=>({walletRefreshMs:null})});
   vm.runInContext(section(server,'const walletJobs =','async function readProfitReserves'),c);
   vm.runInContext(section(server,'const tradeableUsdcCache =','function profileTraderBankrollUsd'),c);
   return {c,journal,reserves,state};
 }
+test('idle warming skips RPC until the slow refresh while fresh trade preparation still reads',async()=>{
+  const h=harness();let reads=0;
+  h.c.tokenUiBalance=async()=>{reads++;return 100;};
+  await h.c.profileTradeableUsdc({},h.state,'safe','wallet');
+  h.c.monitorSleepStatus=()=>({walletRefreshMs:60000});
+  await h.c.warmTradeableUsdcCache();assert.equal(reads,1);
+  h.c.invalidateWalletBudget('wallet');
+  await h.c.prepareProfileTradeableUsdc({},h.state,'safe','wallet',10000);
+  assert.equal(reads,2);
+});
 test('pending and confirmed buys reduce a warmed budget and locked profit stays excluded',async()=>{
   const h=harness();assert.equal(await h.c.profileTradeableUsdc({},h.state,'safe','wallet'),40);
   h.journal.pending.a={wallet:'wallet',side:'buy',reservedUsd:25};

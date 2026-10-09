@@ -1152,10 +1152,11 @@ function renderState(state) {
   const strategy = latestState.strategy || {};
   const feedRows = backend.feeds || [];
   const checkedConnection = backend.gmgnConnectionCheck;
+  const savingLabel = backend.creditSaving ? `${backend.creditSaving.mode}. ${backend.creditSaving.sleeping ? 'Transaction listener stays on; active checks wake automatically. ' : ''}` : '';
   const idleConnection = checkedConnection
     ? `${checkedConnection.message} Checked ${new Date(checkedConnection.checkedAt).toLocaleString()}.`
     : "Feeds not checked while trading is stopped. GMGN connection is not yet verified.";
-  setText("feedConnectionStatus", (backend.observationUntil ? "Read-only connection check — trading remains stopped. " : "") + (feedRows.length ? feedRows.map((f) => `${profileName(f.profile)} ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`).join(" · ") : backend.observationUntil ? "Waiting for wallet activity." : idleConnection));
+  setText("feedConnectionStatus", savingLabel + (backend.observationUntil ? "Read-only connection check — trading remains stopped. " : "") + (feedRows.length ? feedRows.map((f) => `${profileName(f.profile)} ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`).join(" · ") : backend.observationUntil ? "Waiting for wallet activity." : idleConnection));
   renderExecutionReport();
   const liveTradingEnv = backend.liveTradingEnv === true;
   const productionExecution = backend.productionExecution === true || backend.liveTrading === true;
