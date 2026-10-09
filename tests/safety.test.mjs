@@ -482,14 +482,14 @@ test('sell replay checks verified copied holdings but never signs an exit',async
  await assert.rejects(h.c.executeCopiedSwapLocked('safe',h.sell,h.state,false,undefined,true),/holding differs/);
 });
 
-test('an expensive copy buy is blocked before signing and its sell lane remains eligible',async()=>{
+test('owner-authorized expensive copy buy can submit and its sell lane remains eligible',async()=>{
  const h=executionHarness(),original=h.c.jupiterJson;let signs=0;
  h.c.signSolanaTransaction=async()=>{signs++;return {signedTransactionBase64:'signed'};};
  h.c.jupiterJson=async(...args)=>{const r=await original(...args);if(args[1]?.query?.inputMint==='USDC')return {...r,outAmount:'100'};return r;};
  const buy=await h.c.executeCopiedSwap('safe',h.buy,h.state);
- assert.match(buy.status,/entry can cost/);assert.equal(signs,0);assert.equal(h.submitted.length,0);
+ assert.equal(buy.status,'Submitted - confirmation pending');assert.equal(signs,1);assert.equal(h.submitted.length,1);
  const sell=await h.c.executeCopiedSwap('safe',h.sell,h.state);
- assert.equal(sell.status,'Submitted - confirmation pending');assert.equal(signs,1);assert.equal(h.submitted.length,1);
+ assert.equal(sell.status,'Submitted - confirmation pending');assert.equal(signs,2);assert.equal(h.submitted.length,2);
 });
 test('a missing verified source entry blocks a buy instead of treating its price as zero',async()=>{
  const h=executionHarness();h.c.verifyCopySource=async()=>({leg:h.buy.leg,sourceTx:{blockTime:1,meta:{}}});

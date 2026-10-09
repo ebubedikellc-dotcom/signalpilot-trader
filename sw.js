@@ -1,8 +1,8 @@
-const CACHE_NAME = "signalpilot-owner-v17-highest-buy";
+const CACHE_NAME = "signalpilot-owner-v18-entry-price-off";
 const APP_SHELL = [
   "/control-panel.html",
   "/styles.css",
-  "/script.js?v=highest-buy-v14",
+  "/script.js?v=entry-price-off-v15",
   "/manifest.webmanifest",
   "/signalpilot-icon.svg"
 ];

@@ -2241,7 +2241,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   let entryPriceCheck;
   if (leg.action === 'buy') {
     const sourceAmount=tokenAmounts(verified.sourceTx,targetWallet(state,profile),outputMint);
-    entryPriceCheck=copyBuyPriceCheck({sourceRaw:String(sourceAmount.after-sourceAmount.before),sourceUsd:sourceBuyUsd,inputRaw:copyAmount.amount,order});
+    entryPriceCheck=copyBuyPriceCheck({sourceRaw:String(sourceAmount.after-sourceAmount.before),sourceUsd:sourceBuyUsd,inputRaw:copyAmount.amount,order,maxWorseBps:null});
     if(!entryPriceCheck.allowed)return {status:entryPriceCheck.message,detectedAt,entryPriceCheck};
   }
 
