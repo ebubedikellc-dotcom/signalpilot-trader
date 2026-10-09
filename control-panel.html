@@ -34,7 +34,7 @@
             <button id="savePurchaseLimit" type="button">Save limit</button>
           </div>
           <small id="purchaseLimitStatus" role="status" aria-live="polite">Enter a maximum buy amount, or leave blank to copy the trader’s full amount within your available trading funds. Smaller buys keep their actual amount.</small>
-          <small>The 5% entry-price restriction is off. Copies can buy at a worse price than the trader paid. Your highest-buy limit, available funds and source verification still apply.</small>
+          <small>The 5% entry-price restriction is off. Copies can buy at a worse price than the trader paid. Your highest-buy limit, available funds and source verification still apply. Buy and sell target: 0.5 seconds; backup: 1 second. Valid trades submit as soon as ready, including after 1 second.</small>
         </div>
         <div id="traderPicker" hidden>
           <label>Who should I copy? <select id="selectedTrader"><option value="safe">Frog</option><option value="frog">Deku</option><option value="truenest">Trunoest</option></select></label>
@@ -630,6 +630,6 @@
         <p id="businessMessage" class="message-line"></p>
       </section>
     </main>
-    <script src="./script.js?v=entry-price-off-v15"></script>
+    <script src="./script.js?v=fast-copy-v16"></script>
   </body>
 </html>

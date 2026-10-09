@@ -414,31 +414,40 @@ test('FnZero learning cannot delay a Jupiter fallback order',async()=>{
  const order=await h.c.prepareTradingOrder(h.state,{inputMint:'USDC',outputMint:'COIN',amount:'100',taker:'wallet'});
  assert.equal(order.executionEngine,'jupiter');assert.equal(learned,1);assert.match(order.fnzeroFallbackReason,/background/);
 });
-test('blocked buys retain stage timings and never submit',async()=>{
- const h=executionHarness();h.c.maxBuyReactionMs=-1;h.buy.detectedAt=new Date(Date.now()-1200).toISOString();
- const result=await h.c.executeCopiedSwap('safe',h.buy,h.state);
- assert.match(result.status,/speed target missed/);assert(Number.isFinite(result.timingsMs.signing));
- assert(result.timingsMs.detectionToDecision>=1000);assert.equal(h.submitted.length,0);
-});
-
-test('buy target and one-second backup submit once, with an inclusive deadline',async()=>{
+test('buy target and backup are measured without cancelling a valid slower copy',async()=>{
  for (const elapsed of [500,501,1000,1001]) {
-  const h=executionHarness(); let clock=Date.now();
+  const h=executionHarness();let clock=Date.now();
   h.c.Date=class extends Date {static now(){return clock;}};
   h.c.signSolanaTransaction=async()=>{clock+=elapsed;return {signedTransactionBase64:'signed',signWith:'wallet'};};
   const result=await h.c.executeCopiedSwap('safe',h.buy,h.state);
-  if(elapsed>1000) {assert.match(result.status,/1000ms backup deadline/);assert.equal(h.submitted.length,0);}
-  else {assert.equal(h.submitted.length,1);assert.equal(result.speedWindow,elapsed<=500?'0.5 s target':'1 s backup');}
+  assert.equal(h.submitted.length,1);
+  assert.equal(result.speedWindow,elapsed<=500?'0.5 s target':elapsed<=1000?'1 s backup':'Buy continued after 1 s');
+  assert.equal(result.timingsMs.signing,elapsed);
  }
 });
-test('journal delays cannot send a buy after its backup deadline',async()=>{
- const h=executionHarness();let clock=Date.now(),saved=0;
- h.c.Date=class extends Date {static now(){return clock;}};
- const journal={pending:{test:{}}};h.c.executionJournal={load:async()=>journal,save:async()=>{saved++;}};
- h.c.recordPendingSwap=async()=>{clock+=1001;return 'test';};
- const result=await h.c.executeCopiedSwap('safe',h.buy,h.state);
- assert.match(result.status,/1000ms backup deadline/);assert.equal(h.submitted.length,0);
- assert.equal(journal.pending.test,undefined);assert.equal(saved,1);
+test('journal delay does not cancel a valid buy, but a source sell during persistence does',async()=>{
+ for(const sold of [false,true]) {
+  const h=executionHarness();let clock=Date.now(),saved=0;
+  h.c.Date=class extends Date {static now(){return clock;}};
+  const journal={pending:{test:{}}};h.c.executionJournal={load:async()=>journal,save:async()=>{saved++;}};
+  h.c.recordPendingSwap=async()=>{clock+=1001;if(sold) h.c.signalFeeds.set('safe:Helius',{profile:'safe',wallet:'wallet',transactions:[{timestamp:h.buy.timestamp+1,leg:{action:'sell',inputMint:'COIN'}}]});return 'test';};
+  const result=await h.c.executeCopiedSwap('safe',h.buy,h.state);
+  if(sold) {assert.match(result.status,/already sold/);assert.equal(h.submitted.length,0);assert.equal(journal.pending.test,undefined);assert.equal(saved,1);}
+  else {assert.equal(h.submitted.length,1);assert.equal(result.speedWindow,'Buy continued after 1 s');assert.equal(saved,0);}
+ }
+});
+test('cold funds cache still starts unsigned routing before source verification and never signs without funds',async()=>{
+ const h=executionHarness();let release,quotes=0,signs=0;
+ const wait=new Promise(r=>release=r),verify=h.c.verifyCopySource,quote=h.c.jupiterJson;
+ h.c.profileSurviveMaxUsd=()=>50;h.c.cachedProfileTradeableUsdcValue=()=>null;h.c.tradeFundsFastMaxAgeMs=10000;
+ h.c.verifyCopySource=async(...args)=>{await wait;return verify(...args);};
+ h.c.jupiterJson=async(...args)=>{quotes++;return quote(...args);};
+ h.c.profileTradeableUsdc=async()=>0;
+ h.c.signSolanaTransaction=async()=>{signs++;throw new Error('must not sign');};
+ const resultPromise=h.c.executeCopiedSwap('safe',h.buy,h.state);
+ await new Promise(r=>setImmediate(r));assert.equal(quotes,1);assert.equal(signs,0);
+ release();const result=await resultPromise;
+ assert.match(result.status,/no tradeable USDC/);assert.equal(signs,0);assert.equal(h.submitted.length,0);
 });
 test('sell uses the backup window and remains eligible after one second',async()=>{
  for(const elapsed of [750,1500]) {

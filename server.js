@@ -101,7 +101,7 @@ const budgetWarmMaxAgeMs = Number(process.env.BUDGET_WARM_MAX_AGE_MS || 5000);
 const tradeFundsFastMaxAgeMs = Number(process.env.TRADE_FUNDS_FAST_MAX_AGE_MS || 10000);
 const directReadRetryMs = Number(process.env.DIRECT_READ_RETRY_MS || 150);
 // Aim for 500 ms; allow a 1000 ms buy deadline without waiting or retrying.
-const maxBuyReactionMs = 1000;
+// Timing windows are targets; valid copies submit as soon as ready.
 const maxSignalAgeMs = Number(process.env.MAX_SIGNAL_AGE_MS || 5000);
 const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
 const sessionMaxAge = 60 * 60 * 24 * 30;
@@ -2070,7 +2070,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     const budget = cachedProfileTradeableUsdcValue(state, profile, speculativeWallet, tradeFundsFastMaxAgeMs);
     const hintedUsd = expectedLeg.inputMint === usdcMint ? Number(expectedLeg.amount)/1e6 : Number(expectedLeg.sourceUsd || 0);
     const anticipatedUsd = hintedUsd > 0 ? buyUsdAmount(state, profile, hintedUsd) : profileSurviveMaxUsd(state, profile);
-    if (budget !== null && anticipatedUsd > 0 && anticipatedUsd <= budget) {
+    if (Number.isFinite(anticipatedUsd) && anticipatedUsd > 0 && (budget === null || anticipatedUsd <= budget)) {
       speculativeBuyAmount = usdcRawFromUsd(anticipatedUsd);
       speculativeBuyOrder = prepareTradingOrder(state, {inputMint:usdcMint,
         outputMint:expectedLeg.outputMint,amount:speculativeBuyAmount,taker:speculativeWallet,swapMode:"ExactIn"})
@@ -2302,17 +2302,6 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     const signedAt = Date.now();
     reason = await checkControls();
     if (reason) return { status: reason, detectedAt };
-    const buySpeedLimitMs = typeof maxBuyReactionMs === "number" ? maxBuyReactionMs : 1000;
-    if (leg.action === "buy" && Date.now() - preparationStartedAt > buySpeedLimitMs) {
-      return { status: `Buy blocked: speed target missed ${Date.now() - preparationStartedAt}ms exceeded ${buySpeedLimitMs}ms backup deadline; no late buy sent`, detectedAt,
-        timingsMs: {
-          sourceVerification:sourceVerifiedAt-preparationStartedAt,
-          sizingAndFunds:sizingReadyAt-sourceVerifiedAt, swapQuote:quoteReadyAt-sizingReadyAt,
-          walletQueue:walletAcquiredAt-quoteReadyAt, finalChecks:fundsCheckedAt-walletAcquiredAt,
-          signing:signedAt-fundsCheckedAt, controlsAfterSigning:Date.now()-signedAt,
-          detectionToDecision:Date.now()-Date.parse(detectedAt), preparationToDecision:Date.now()-preparationStartedAt
-        } };
-    }
 
   const submittedAt = new Date().toISOString();
   const journalKey = await recordPendingSwap({wallet,profile,mint:leg.action === "buy" ? outputMint : inputMint,side:leg.action,source:canonicalSignalId(transaction.signature)},signed,order);
@@ -2321,10 +2310,12 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     return {status:"Skipped - trading stopped by owner"};
   }
   const executionStartedAt = Date.now();
-  // Include journal persistence in the deadline. Keep exits eligible when slow.
-  if (leg.action === "buy" && executionStartedAt - preparationStartedAt > buySpeedLimitMs) {
+  // Recheck after journal persistence too: a source sell or owner stop can
+  // arrive while signing or disk writes are pending. Never submit a stale buy.
+  const finalControlReason = await checkControls();
+  if (finalControlReason) {
     const d = await executionJournal.load(); delete d.pending[journalKey]; await executionJournal.save();
-    return {status:`Buy blocked: speed target missed ${executionStartedAt-preparationStartedAt}ms exceeded ${buySpeedLimitMs}ms backup deadline; no late buy sent`,detectedAt};
+    return {status:finalControlReason,detectedAt};
   }
   const executed = await executeTradingOrder(state, signed, order, journalKey);
 
@@ -2333,7 +2324,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   return {
     status: "Submitted - confirmation pending",
     speedWindow: executionStartedAt - preparationStartedAt <= 500 ? "0.5 s target" :
-      executionStartedAt - preparationStartedAt <= 1000 ? "1 s backup" : "Exit continued after 1 s",
+      executionStartedAt - preparationStartedAt <= 1000 ? "1 s backup" : (leg.action === "buy" ? "Buy continued after 1 s" : "Exit continued after 1 s"),
     detectedAt,
     submittedAt,
     verifiedAt: verified.verifiedAt,
