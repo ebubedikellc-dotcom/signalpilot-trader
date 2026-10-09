@@ -2220,7 +2220,13 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     if (amount !== warmedOrderAmount) warmedOrderPromise = null;
     if (BigInt(amount) === 0n) return {status:"Skipped - proportional amount below one token unit"};
     inputMint = leg.inputMint; outputMint = usdcMint;
-    copyAmount = {amount,note:"Copy the verified proportion sold by the original trader"};
+    const soldRaw = BigInt(fraction.sold), beforeRaw = BigInt(fraction.before);
+    const soldPercent = Number(soldRaw * 1000000n / beforeRaw) / 10000;
+    const remainingRaw = beforeRaw - soldRaw;
+    copyAmount = {amount,
+      sourceSale: {soldRaw:String(soldRaw), beforeRaw:String(beforeRaw), remainingRaw:String(remainingRaw), soldPercent},
+      note: `The trader sold ${remainingRaw === 0n ? "ALL (100%)" : `${soldPercent}%`} of this coin; ${remainingRaw === 0n ? "none" : `${Number(remainingRaw * 1000000n / beforeRaw) / 10000}%`} remained immediately after that sale. Your copy follows the same proportion.`
+    };
 
   }
 
@@ -2357,6 +2363,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     outputSymbol: leg.outputSymbol,
     copySizing: profileCopySizing(state, profile),
     copySizingNote: copyAmount.note,
+    sourceSale: copyAmount.sourceSale,
     copiedSourceAmount: String(leg.amount),
     copiedTradeAmount: copyAmount.amount,
     signedWith: signed.signWith,

@@ -1,8 +1,8 @@
-const CACHE_NAME = "signalpilot-owner-v21-manual-coins";
+const CACHE_NAME = "signalpilot-owner-v22-sale-fractions";
 const APP_SHELL = [
   "/control-panel.html",
   "/styles.css",
-  "/script.js?v=manual-coins-v18",
+  "/script.js?v=sale-fractions-v19",
   "/manifest.webmanifest",
   "/signalpilot-icon.svg"
 ];

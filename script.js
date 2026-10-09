@@ -1061,7 +1061,7 @@ function renderWatchTape(profile, trades = []) {
     li.className = pnl >= 0 ? "tape-win" : "tape-loss";
     li.innerHTML = `
       <strong>${escapeHtml(trade.action || "Copied signal")}</strong>
-      <span>${escapeHtml(trade.token || "-")} - ${tradeAmountLabel(trade)} - ${escapeHtml(trade.status || "Observed")}</span>
+      <span>${escapeHtml(trade.tradedToken || trade.token || "-")} - ${tradeAmountLabel(trade)} - ${escapeHtml(trade.status || "Observed")}</span>
       ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
       ${stages ? `<span>${escapeHtml(stages)}</span>` : ""}
       ${trade.execution?.speedWindow ? `<span>${escapeHtml(trade.execution.speedWindow)}</span>` : ""}
