@@ -28,7 +28,7 @@ test('old divergent limits normalize to the owner-facing saved limit and survive
 });
 test('capped modes and all three traders obey the shared ceiling and still copy smaller buys',()=>{
  const h=harness();
- for(const mode of ['limits','exact','loss','trailing','takeback','rise30','protected']) {
+ for(const mode of ['limits','exact','loss','trailing','takeback','rise30','protected','riskrun']) {
   h.state.settings.frogBuyMode=mode;h.c.syncQueueSurviveSettings(h.state.settings);
   for(const profile of ['safe','frog','truenest']) {
    assert.equal(h.c.buyUsdAmount(h.state,profile,50),20);
@@ -79,6 +79,22 @@ test('Protected Frog Copy can be saved and keeps the shared purchase ceiling',as
  assert.equal(c.normalizeBuyMode('protected'),'protected');
  assert.equal(c.buyModeLabel('protected'),'Protected Frog Copy');
  assert.match(c.buyModeNote('protected',10),/skip late buy entries/);
+});
+test('High Risk Profit Run can be saved and keeps the highest-buy cap',async()=>{
+ const h=harness();
+ await h.c.handleApi({method:'POST',body:{frogBuyMode:'riskrun'}},{},{pathname:'/api/settings'});
+ assert.equal(h.c.output.code,200);
+ const settings=JSON.parse(JSON.stringify(h.state.settings));h.c.syncQueueSurviveSettings(settings);
+ for(const profile of ['safe','frog','truenest'])assert.equal(settings[profile+'BuyMode'],'riskrun');
+ assert.equal(settings.frogSurviveMax,'20');
+ assert.equal(h.c.buyUsdAmount(h.state,'safe',50),20);
+ assert.equal(h.c.buyUsdAmount(h.state,'safe',3),3);
+ const c=vm.createContext({Number,value:()=>'',normalizeBuyMode:undefined});
+ vm.runInContext(section(script,'function normalizeBuyMode(', 'let modeFormDirty'),c);
+ assert.equal(c.normalizeBuyMode('riskrun'),'riskrun');
+ assert.equal(c.buyModeLabel('riskrun'),'High Risk Profit Run');
+ assert.match(c.buyModeNote('riskrun',10),/highest-buy limit/);
+ assert.match(c.buyModeNote('riskrun',10),/5% below your remaining cost/);
 });
 test('full-amount mode bypasses only the purchase ceiling and survives settings reload for all traders',async()=>{
  const h=harness();
