@@ -13,6 +13,7 @@ import { createTradingJournal } from "./lib/trading-journal.mjs";
 import { gaslessMinimumError, prepareWalletPaidSell, submitWalletPaidSell } from "./lib/jupiter-sell-route.mjs";
 import { currentExitNotices } from "./lib/exit-status.mjs";
 import { createQuotePacer } from "./lib/quote-pacer.mjs";
+import { sourceAmountsFromSwap } from "./lib/trader-amounts.mjs";
 import { sellFraction, proportionalAmount, exitReason, trailingExit, takeBackExit, profitLadderExit, riseStepExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
 import { decodeDirectSwap, verifySourceSignal, canonicalSignalId } from "./lib/direct-signals.mjs";
 import { createServer } from "node:http";
@@ -1996,7 +1997,7 @@ async function verifyCopySource(profile, transaction, state) {
   const sourceTx = await connection.getParsedTransaction(signature, {commitment:'confirmed',maxSupportedTransactionVersion:1});
   const decoded = verifySourceSignal(sourceTx, targetWallet(state,profile), signature, expected, transaction.detectedAt);
   const leg = primarySwapLeg(decoded, profile, state);
-  return {sourceTx,leg,verifiedAt:new Date().toISOString()};
+  return {sourceTx,leg,sourceAmounts:sourceAmountsFromSwap(decoded),verifiedAt:new Date().toISOString()};
 }
 
 // Poll cadence is not a buy-expiration deadline. A known source exit cancels a pending buy.
@@ -2397,6 +2398,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     copySizing: profileCopySizing(state, profile),
     copySizingNote: copyAmount.note,
     sourceSale: copyAmount.sourceSale,
+    sourceAmounts: verified.sourceAmounts,
     copiedSourceAmount: String(leg.amount),
     copiedTradeAmount: copyAmount.amount,
     signedWith: signed.signWith,
@@ -2840,6 +2842,7 @@ function tradeFromTransaction(profile, transaction, state) {
     amount: tradeAmount(transaction),
     sourceUsd,
     sourceReceivedUsd,
+    sourceAmounts: sourceAmountsFromSwap(transaction),
     traderPnlUsd: leg?.action === "buy" ? -Math.abs(sourceUsd) : sourceReceivedUsd,
     pnl: 0,
     status
@@ -3188,6 +3191,15 @@ function shouldLogNoSignal(state, profile) {
 
 async function processSignalTransactions(state, profile, transactions, newest, checkpointField, sourceLabel, options = {}) {
   if (!newest) return [];
+  // Enrich retained tape entries from feeds already fetched; no extra RPC or
+  // quote calls, and no replay of old trades.
+  for(const transaction of transactions) {
+    const previous=(state.trades || []).find(t=>canonicalSignalId(t.signature || t.id)===canonicalSignalId(transaction.signature));
+    if(previous && !previous.sourceAmounts?.verified) {
+      const amounts=sourceAmountsFromSwap(transaction);
+      if(amounts && (!previous.sourceAmounts || amounts.verified))previous.sourceAmounts=amounts;
+    }
+  }
 
   if (!state.profiles[profile][checkpointField] && !options.realtime) {
     state.profiles[profile][checkpointField] = newest;

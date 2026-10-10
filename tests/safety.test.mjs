@@ -1,3 +1,4 @@
+import {sourceAmountsFromSwap} from '../lib/trader-amounts.mjs';
 import {createMonitorSleep} from '../lib/monitor-sleep.mjs';
 import {rpcProvider,monitoredProfiles,directMonitoringEnabled} from '../lib/rpc-provider.mjs';
 import { sellFraction, proportionalAmount, tokenAmounts } from '../lib/position-accounting.mjs';
@@ -190,7 +191,7 @@ test('Helius alerts stay warm while paused and retain traders with holdings',asy
 });
 test('sell-first processing keeps its checkpoint and blocks buying a coin already sold in that batch',async()=>{
  const executed=[];
- const c=vm.createContext({canonicalSignalId,Set,Number,Date,queueSourceObservation:()=>{},queueSourceSell:async()=>{},supportedProfiles:['safe'],copyableSignal:()=>true,
+ const c=vm.createContext({sourceAmountsFromSwap,canonicalSignalId,Set,Number,Date,queueSourceObservation:()=>{},queueSourceSell:async()=>{},supportedProfiles:['safe'],copyableSignal:()=>true,
  primarySwapLeg:t=>t.leg,tradeFromTransaction:(_,t)=>({signature:t.signature}),
  liveTradingAllowed:()=>true,executeCopiedSwap:async(_,t)=>{executed.push(t.signature);return {status:'Executed'}},
  autoSellStuckTokenAfterSellSignal:async()=>null,applyAutoSwitchStrategy:()=>{},line:x=>x,profileLabel:p=>p,shouldLogNoSignal:()=>false});
@@ -261,7 +262,7 @@ test('dashboard status reports poll cadence without referencing a removed buy de
 });
 test('first direct notification is processed once even when GMGN later reports the same transaction',async()=>{
  let executions=0;const signature='A'.repeat(88);
- const c=vm.createContext({canonicalSignalId,Set,Number,Date,queueSourceObservation:()=>{},queueSourceSell:async()=>{},supportedProfiles:['safe'],copyableSignal:()=>true,
+ const c=vm.createContext({sourceAmountsFromSwap,canonicalSignalId,Set,Number,Date,queueSourceObservation:()=>{},queueSourceSell:async()=>{},supportedProfiles:['safe'],copyableSignal:()=>true,
  primarySwapLeg:t=>t.leg,tradeFromTransaction:(_,t)=>({signature:t.signature}),liveTradingAllowed:()=>true,
  executeCopiedSwap:async()=>{executions++;return {status:'Executed'}},applyAutoSwitchStrategy:()=>{},line:x=>x,profileLabel:p=>p,shouldLogNoSignal:()=>false});
  vm.runInContext(section(server,'async function processSignalTransactions(','let wakeCopyWorker ='),c);

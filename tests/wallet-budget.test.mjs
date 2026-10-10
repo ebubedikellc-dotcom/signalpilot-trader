@@ -113,6 +113,7 @@ test('trading tape renders actual submission and blocked-decision timings withou
   const c=vm.createContext({Number,Math,$:()=>tape,profileName:()=> 'Frog',profileTradeMatches:()=>true,
     document:{createElement:()=>({})},escapeHtml:s=>String(s),money:n=>String(n)});
   vm.runInContext(section(script,'function tradeAmountLabel(','function solAmount('),c);
+  vm.runInContext(section(script,'function traderTapeAmount(','function walletBalance('),c);
   vm.runInContext(section(script,'function renderWatchTape(','function renderLiveWatch('),c);
   c.renderWatchTape('frog',[{execution:{timingsMs:{sourceVerification:12,signing:45,detectionToSubmit:510}}},
     {execution:{timingsMs:{detectionToDecision:1000}}},{status:'Observed'}]);

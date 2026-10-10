@@ -99,6 +99,24 @@ function solAmount(value) {
   return `${amount.toLocaleString("en-US", { maximumFractionDigits: 6 })} SOL`;
 }
 
+function traderTapeAmount(trade={},label='Trader') {
+  if(!/^(Buy|Sell) signal$/i.test(trade.action || ''))return '';
+  const sell=/sell/i.test(trade.action),amounts=trade.execution?.sourceAmounts || trade.sourceAmounts;
+  const a=sell?amounts?.received:amounts?.paid;
+  const units={'So11111111111111111111111111111111111111112':'SOL','EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v':'USDC','Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB':'USDT'};
+  let amount='Amount unavailable';
+  if(a && units[a.mint] && /^[1-9]\d*$/.test(a.raw) && Number.isInteger(a.decimals) && a.decimals>=0 && a.decimals<=30) {
+    const padded=a.raw.padStart(a.decimals+1,'0'),whole=a.decimals?padded.slice(0,-a.decimals):padded;
+    const fraction=a.decimals?padded.slice(-a.decimals).replace(/0+$/,''):'';
+    amount=`${whole.replace(/\B(?=(\d{3})+(?!\d))/g,',')}${fraction?'.'+fraction:''} ${units[a.mint]}`;
+  } else {
+    const usd=Number(sell?trade.sourceReceivedUsd:trade.sourceUsd);
+    if(Number.isFinite(usd) && usd>0)amount=`${money(usd)} (feed report)`;
+  }
+  const fraction=trade.execution?.sourceSale?.soldPercent;
+  return `${label} ${sell?'received from this sale':'paid for this buy'}: ${amount}${a?amounts.verified?' · verified on chain':' · feed report':''}${sell && Number.isFinite(fraction)?` · Sold ${fraction.toLocaleString('en-US',{maximumFractionDigits:2})}% of his holding`:''}`;
+}
+
 function walletBalance(profile) {
   return latestState.walletBalances?.[profile] || {};
 }
@@ -1063,6 +1081,7 @@ function renderWatchTape(profile, trades = []) {
     li.innerHTML = `
       <strong>${escapeHtml(trade.action || "Copied signal")}</strong>
       <span>${escapeHtml(trade.tradedToken || trade.token || "-")} - ${tradeAmountLabel(trade)} - ${escapeHtml(trade.status || "Observed")}</span>
+      ${traderTapeAmount(trade,label) ? `<span>${escapeHtml(traderTapeAmount(trade,label))}</span>` : ""}
       ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
       ${stages ? `<span>${escapeHtml(stages)}</span>` : ""}
       ${trade.execution?.speedWindow ? `<span>${escapeHtml(trade.execution.speedWindow)}</span>` : ""}
