@@ -154,7 +154,7 @@ test('sold-at-loss is closed; positive wallet quantity is open; absent wallet da
  assert.equal(c.openPositionsFromTrades(trades)[0].held,null);
 });
 test('GMGN is the sole activity feed even with a saved Helius key',async()=>{
- const c=vm.createContext({Date,Map,Set,Promise,monitoredProfiles,executionReport:null,syncLiveSubscriptions:async()=>{},monitorSleepStatus:()=>({recoveryPollMs:1000}),wakeCopyWorker:async()=>{},wakeSellWorker:async()=>{},supportedProfiles:['safe'],
+ const c=vm.createContext({Date,Map,Set,Promise,monitoredProfiles,executionReport:null,syncLiveSubscriptions:async()=>{},monitorSleepStatus:()=>({recoveryPollMs:500}),wakeCopyWorker:async()=>{},wakeSellWorker:async()=>{},supportedProfiles:['safe'],
  readState:async()=>({profiles:{safe:{running:true}},settings:{heliusKey:'test',gmgnApiKey:'test'}}),
  targetWallet:()=> 'wallet',process:{env:{}},fetchTransactionsForAddress:async()=>[{signature:'new',timestamp:1}],
  fetchGmgnTransactionsForAddress:()=>new Promise(()=>{})});
@@ -253,11 +253,11 @@ test('restart excludes buys from the stopped period without expiring new session
  state.profiles.safe.running=true;c.beginTradingSession(state);assert.equal(state.strategy.buySessionStartedAt,start);
 });
 test('dashboard status reports poll cadence without referencing a removed buy deadline',()=>{
- const c=vm.createContext({fnzeroRouter:{status:()=>({})},executionReport:null,rpcProvider,process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:500,
+ const c=vm.createContext({fnzeroRouter:{status:()=>({})},executionReport:null,rpcProvider,process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:250,feedPollLoopMs:250,
  monitorSleepStatus:()=>({sleeping:false}),rpcConnections:new Map(),gmgnConnectionCheck:null,observationUntil:0,feedHealth:()=>[],liveSubscriptions:new Map(),customerPublic:x=>x});
  vm.runInContext(section(server,'function statusPayload(','async function walletBalances('),c);
  const result=c.statusPayload({settings:{},customers:[],profiles:{safe:{running:false}}},{role:'owner',id:'owner'});
- assert.equal(result.backend.pollIntervalMs,500);assert.equal(result.backend.maxSignalAgeMs,null);
+ assert.equal(result.backend.pollIntervalMs,250);assert.equal(result.backend.maxSignalAgeMs,null);
  assert.equal(result.profiles.safe.running,false);
 });
 test('first direct notification is processed once even when GMGN later reports the same transaction',async()=>{

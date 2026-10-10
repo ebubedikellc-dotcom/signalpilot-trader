@@ -16,8 +16,8 @@ test('all wallets are serialized and simultaneous duplicate reads share one requ
   assert.equal(a, duplicate);
   await Promise.all([a, duplicate, h.gate.run('deku', fetch), h.gate.run('trunoest', fetch)]);
   assert.equal(starts.length, 3);
-  assert.ok(starts[1] - starts[0] >= 1500);
-  assert.ok(starts[2] - starts[1] >= 1500);
+  assert.ok(starts[1] - starts[0] >= 500);
+  assert.ok(starts[2] - starts[1] >= 500);
 });
 
 test('429 cancels queued network requests and respects the longest reset before one recovery', async () => {

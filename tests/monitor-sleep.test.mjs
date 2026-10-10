@@ -13,7 +13,7 @@ test('idle flat wallet sleeps, keeps recovery, and verified activity wakes it im
   h.advance(120000);assert.equal(h.status().sleeping,true);
   assert.equal(h.status().walletRefreshMs,60000);assert.equal(h.status().recoveryPollMs,30000);
   h.sleep.observeTrade();assert.equal(h.status().sleeping,false);
-  assert.equal(h.status().walletRefreshMs,null);assert.equal(h.status().recoveryPollMs,1000);
+  assert.equal(h.status().walletRefreshMs,null);assert.equal(h.status().recoveryPollMs,500);
 });
 test('open holdings, pending transactions, queued exits and closing growth plans cannot sleep',()=>{
   for(const report of [null,{positions:{p:{raw:'1'}}},{pending:{p:{side:'buy'}}},

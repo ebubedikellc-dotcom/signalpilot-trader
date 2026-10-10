@@ -101,7 +101,8 @@ async function protectProfit(state, wallet, cash) {
   state.profitReserves = reserves;
   return locked;
 }
-const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 500);
+const workerIntervalMs = Number(process.env.WORKER_INTERVAL_MS || 250);
+const feedPollLoopMs = Number(process.env.FEED_POLL_LOOP_MS || 250);
 const budgetWarmIntervalMs = Number(process.env.BUDGET_WARM_INTERVAL_MS || 500);
 const budgetWarmMaxAgeMs = Number(process.env.BUDGET_WARM_MAX_AGE_MS || 5000);
 const tradeFundsFastMaxAgeMs = Number(process.env.TRADE_FUNDS_FAST_MAX_AGE_MS || 10000);
@@ -120,7 +121,7 @@ const supportedProfiles = ["safe", "frog", "truenest"];
 const protectedCapStrategyVersion = "decu-50-cap-v1";
 const surviveBuyUsd = 5;
 const defaultBuyMode = "limits";
-const gmgnPollMs = Math.max(2000, Number(process.env.GMGN_POLL_MS) || 2000);
+const gmgnPollMs = Math.max(500, Number(process.env.GMGN_POLL_MS) || 500);
 const usdcDecimals = 6;
 const tokenProgramId = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const associatedTokenProgramId = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -745,7 +746,7 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "exact-copy-options-v1",
+      appVersion: "fast-half-second-checks-v1",
       fnzero: isOwner ? fnzeroRouter.status() : undefined,
       marketDataProvider: "Direct Solana alerts + GMGN recovery",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
@@ -758,9 +759,10 @@ function statusPayload(state, session) {
       liveTradingEnv,
       productionExecution,
       workerIntervalMs,
+      feedPollLoopMs,
       creditSaving: monitorSleepStatus(state),
       maxSignalAgeMs: null,
-      pollIntervalMs: 500,
+      pollIntervalMs: feedPollLoopMs,
       observationUntil: observationUntil > Date.now() ? new Date(observationUntil).toISOString() : null,
       feeds: feedHealth(),
       frogBrain: typeof analyzeFrogBrain === "function" ? analyzeFrogBrain(state.trades || [], "safe") : null,
@@ -3570,7 +3572,7 @@ function startCopyWorker() {
   setInterval(() => { runPositionWatch().catch(() => {}); }, 2000);
   runPositionWatch().catch(() => {});
   setInterval(() => { warmTradeableUsdcCache().catch(() => {}); }, budgetWarmIntervalMs);
-  setInterval(() => { pollSignalFeeds().catch(() => {}); pumpDirectReads(); },500);
+  setInterval(() => { pollSignalFeeds().catch(() => {}); pumpDirectReads(); }, feedPollLoopMs);
   setInterval(() => { wakeCopyWorker().catch(() => {}); },workerIntervalMs);
 }
 
