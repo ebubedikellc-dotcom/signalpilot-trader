@@ -12,6 +12,7 @@ import { availableCachedCash } from "./lib/wallet-budget.mjs";
 import { createTradingJournal } from "./lib/trading-journal.mjs";
 import { gaslessMinimumError, prepareWalletPaidSell, submitWalletPaidSell } from "./lib/jupiter-sell-route.mjs";
 import { currentExitNotices } from "./lib/exit-status.mjs";
+import { createQuotePacer } from "./lib/quote-pacer.mjs";
 import { sellFraction, proportionalAmount, exitReason, trailingExit, takeBackExit, profitLadderExit, riseStepExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
 import { decodeDirectSwap, verifySourceSignal, canonicalSignalId } from "./lib/direct-signals.mjs";
 import { createServer } from "node:http";
@@ -1880,6 +1881,7 @@ async function signSolanaTransaction(state, preferredSigner, wallet, unsignedTra
 
 const jupiterQuoteCooldowns = new Map();
 const jupiterQuoteActivity = new Map();
+const jupiterQuotePacer = createQuotePacer({now:()=>Date.now(),sleep:ms=>new Promise(resolve=>setTimeout(resolve,ms))});
 async function jupiterJson(pathname, { apiKey, method = "GET", query, body, background = false } = {}) {
   const url = new URL(`https://api.jup.ag${pathname}`);
   Object.entries(query || {}).forEach(([key, value]) => {
@@ -1906,6 +1908,7 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body, back
         error.rateLimited = true;
         throw error;
       }
+      if(isQuote)await jupiterQuotePacer.acquire(quoteKey,{background,priority:query?.taker && query.outputMint==='EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'?100:50});
       const response = await fetch(url, {
         method,
         headers: {
@@ -1929,6 +1932,7 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body, back
             jupiterQuoteCooldowns.set(quoteKey, Math.max(jupiterQuoteCooldowns.get(quoteKey) || 0,
               Date.now() + (Number.isFinite(delay) && delay > 0 ? delay : 1000)));
             activity.backgroundRetryAt=Math.max(jupiterQuoteCooldowns.get(quoteKey),Date.now()+Math.min(30000,1000*2**activity.rateLimits));
+            jupiterQuotePacer.slow(quoteKey,jupiterQuoteCooldowns.get(quoteKey));
           }
         }
         error.retryable = response.status === 429 || response.status >= 500 || /failed to get quotes/i.test(error.message);
