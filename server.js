@@ -747,7 +747,7 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "high-risk-profit-run-v3",
+      appVersion: "high-risk-profit-run-v4",
       fnzero: isOwner ? fnzeroRouter.status() : undefined,
       marketDataProvider: "Direct Solana alerts + GMGN recovery",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
@@ -3475,7 +3475,6 @@ async function syncLiveSubscriptionsOnce(state) {
       if (event.err) return;
       sub.lastNotificationAt = new Date().toISOString();
       monitorSleep.observeTrade();
-      observationUntil = Math.max(observationUntil, Date.now() + 45000);
       queueDirectRead(wallet,event.signature,sub);
     }, process.env.DIRECT_SUBSCRIPTION_COMMITMENT || "processed");
     liveSubscriptions.set(wallet,sub);
@@ -3644,7 +3643,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "high-risk-profit-run-v3",
+      appVersion: "high-risk-profit-run-v4",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
