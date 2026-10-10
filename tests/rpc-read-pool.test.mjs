@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs';
 import {createRpcReadPool} from '../lib/rpc-read-pool.mjs';
+import {currentExitNotices} from '../lib/exit-status.mjs';
 test('method-specific transaction limit does not block fresh sell balances and adapts its pace',async()=>{
  const h=harness();let transactions=0;
  await assert.rejects(h.pool.run('getParsedTransaction',['first'],async()=>{
@@ -61,7 +62,7 @@ test('configured verification provider is restored and connections are reused',(
 });
 test('failure of optional trader statistics does not abort wallet report or duplicate sponsored pending entries',async()=>{
  const d={pending:{'jupiter:r':{txid:'tx',wallet:'w'}},checked:{},fills:[],sourceFills:[]};let reconciled=0;
- const c=vm.createContext({Object,Date,Boolean,Number,executionReport:null,solanaConnection:()=>({}),executionJournal:{load:async()=>d,save:async()=>{},reconcile:async()=>{reconciled++;},snapshot:async()=>({positions:{coin:{raw:'4',verified:true}}})},updateSourceReports:async()=>{throw new Error('source statistics rate-limited');},growthSnapshot:()=>null,buildPositions:()=>({closed:[]}),supportedProfiles:[],tradeWallet:()=> 'w',profileFromTrade:()=> 'frog',canonicalSignalId:x=>x});
+ const c=vm.createContext({Object,Date,Boolean,Number,currentExitNotices,executionReport:null,solanaConnection:()=>({}),executionJournal:{load:async()=>d,save:async()=>{},reconcile:async()=>{reconciled++;},snapshot:async()=>({positions:{coin:{raw:'4',verified:true}}})},updateSourceReports:async()=>{throw new Error('source statistics rate-limited');},growthSnapshot:()=>null,buildPositions:()=>({closed:[]}),supportedProfiles:[],tradeWallet:()=> 'w',profileFromTrade:()=> 'frog',canonicalSignalId:x=>x});
  vm.runInContext(source.slice(source.indexOf('async function refreshExecutionReport'),source.indexOf('let riskWorking')),c);
  await c.refreshExecutionReport({settings:{},trades:[{execution:{txid:'tx',action:'buy'}}]});
  assert.equal(reconciled,1);assert.equal(c.executionReport.positions.coin.raw,'4');assert.match(c.executionReport.sourceReportError,/rate-limited/);assert.equal(Object.keys(d.pending).length,1);

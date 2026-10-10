@@ -31,10 +31,10 @@ test('both exact-copy modes wait for the source sale unless the growth plan is c
  }
 });
 test('triggered exit still requires fresh holdings before signing and submitting',async()=>{
- const h=harness('profit');await h.c.runPositionWatch();assert.deepEqual(h.calls,['/swap/v2/order','balance','sign','/swap/v2/execute','record']);
+ const h=harness('profit');await h.c.runPositionWatch();assert.deepEqual(h.calls,['/swap/v2/order','/swap/v2/order','balance','sign','/swap/v2/execute','record']);
 });
 test('insufficient fresh holdings block the triggered sale',async()=>{
- const h=harness('profit','0');await h.c.runPositionWatch();assert.deepEqual(h.calls,['/swap/v2/order','balance']);assert.match(h.d.notices.p,/reconciliation/);
+ const h=harness('profit','0');await h.c.runPositionWatch();assert.deepEqual(h.calls,['/swap/v2/order','/swap/v2/order','balance']);assert.match(h.d.notices.p,/reconciliation/);
 });
 
 test('a waiting routine price quote leaves the wallet available to an urgent copy sell',async()=>{
@@ -81,4 +81,12 @@ test('rise30 worker rejects a poor partial quote without signing or advancing',a
  h.c.prepareTradingOrder=async(_,order)=>({inAmount:order.amount,outAmount:order.amount==='1000'?'120000000':'30000000',transaction:'quote'});
  await h.c.runPositionWatch();assert(!h.calls.includes('sign'));assert.equal(h.d.fills.length,0);
  assert.match(h.d.notices.p,/below the 20% rise target/);
+});
+test('routine price checks use a quote without a taker, transaction or FnZero learning',async()=>{
+ const h=harness(null);const requests=[];let learns=0;
+ (await h.c.readState()).settings.executionEngine='fnzero';
+ h.c.fnzeroRouter={prepare:async()=>{throw Error('should not prepare a route for watching');},learn:async()=>{learns++;}};
+ h.c.jupiterJson=async(_path,options)=>{requests.push(options);return {outAmount:'25000000',inAmount:'10'};};
+ await h.c.runPositionWatch();assert.equal(requests.length,1);assert.equal(requests[0].query.taker,undefined);
+ assert.equal(requests[0].background,true);assert.equal(learns,0);assert.match(h.d.notices.p,/Watching/);
 });

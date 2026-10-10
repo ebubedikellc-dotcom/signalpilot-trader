@@ -10,6 +10,8 @@ import { createGmgnRequestGate, gmgnRetryAt } from "./lib/gmgn-rate-limit.mjs";
 import { validateGrowthSettings, growthSnapshot, growthTradeable, growthTransition } from "./lib/growth-goal.mjs";
 import { availableCachedCash } from "./lib/wallet-budget.mjs";
 import { createTradingJournal } from "./lib/trading-journal.mjs";
+import { gaslessMinimumError, prepareWalletPaidSell, submitWalletPaidSell } from "./lib/jupiter-sell-route.mjs";
+import { currentExitNotices } from "./lib/exit-status.mjs";
 import { sellFraction, proportionalAmount, exitReason, trailingExit, takeBackExit, profitLadderExit, riseStepExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
 import { decodeDirectSwap, verifySourceSignal, canonicalSignalId } from "./lib/direct-signals.mjs";
 import { createServer } from "node:http";
@@ -1877,19 +1879,27 @@ async function signSolanaTransaction(state, preferredSigner, wallet, unsignedTra
 }
 
 const jupiterQuoteCooldowns = new Map();
-async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {}) {
+const jupiterQuoteActivity = new Map();
+async function jupiterJson(pathname, { apiKey, method = "GET", query, body, background = false } = {}) {
   const url = new URL(`https://api.jup.ag${pathname}`);
   Object.entries(query || {}).forEach(([key, value]) => {
     if (value !== undefined && value !== null && String(value) !== "") url.searchParams.set(key, String(value));
   });
   // Only unsigned quote requests are retried; execution outcomes may be uncertain.
-  const attempts = method === "GET" && pathname === "/swap/v2/order" ? 3 : 1;
+  const quoteKey = apiKey || "keyless";
+  const isQuote = method === "GET" && ["/swap/v2/order","/swap/v2/build"].includes(pathname);
+  const activity=jupiterQuoteActivity.get(quoteKey) || {foreground:0,lastForeground:0,rateLimits:0,backgroundRetryAt:0};
+  jupiterQuoteActivity.set(quoteKey,activity);
+  if(isQuote && background && (activity.foreground>0 || Date.now()<activity.backgroundRetryAt || Date.now()-activity.lastForeground<1000)) {
+    throw new Error('Price check deferred while live trade routes take priority');
+  }
+  if(isQuote && !background){activity.foreground++;activity.lastForeground=Date.now();}
+  const attempts = isQuote && !background ? 3 : 1;
+  try {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       // Respect quote quota without holding a wallet lock through a cooldown.
       // Signed execution uses its own endpoint and must never be retried here.
-      const quoteKey = apiKey || "keyless";
-      const isQuote = method === "GET" && pathname === "/swap/v2/order";
       const retryAt = jupiterQuoteCooldowns.get(quoteKey) || 0;
       if (isQuote && retryAt > Date.now()) {
         const error = new Error(`Jupiter quotes rate-limited; retry after ${Math.ceil((retryAt - Date.now()) / 1000)}s`);
@@ -1912,11 +1922,13 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {
         if (response.status === 429) {
           error.rateLimited = true;
           if (isQuote) {
+            activity.rateLimits=Math.min(activity.rateLimits+1,5);
             const header = response.headers.get("retry-after");
             const seconds = header === null ? NaN : Number(header);
             const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
             jupiterQuoteCooldowns.set(quoteKey, Math.max(jupiterQuoteCooldowns.get(quoteKey) || 0,
               Date.now() + (Number.isFinite(delay) && delay > 0 ? delay : 1000)));
+            activity.backgroundRetryAt=Math.max(jupiterQuoteCooldowns.get(quoteKey),Date.now()+Math.min(30000,1000*2**activity.rateLimits));
           }
         }
         error.retryable = response.status === 429 || response.status >= 500 || /failed to get quotes/i.test(error.message);
@@ -1927,6 +1939,7 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {
         error.executionResponse = payload;
         throw error;
       }
+      if(isQuote && Date.now()>activity.backgroundRetryAt)activity.rateLimits=0;
       return payload;
     } catch (error) {
       const retryable = error.retryable || /fetch failed|timeout|timed out|ECONNRESET/i.test(error.message);
@@ -1934,6 +1947,7 @@ async function jupiterJson(pathname, { apiKey, method = "GET", query, body } = {
       await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
     }
   }
+  } finally { if(isQuote && !background){activity.foreground--;activity.lastForeground=Date.now();} }
 }
 
 async function tokenBalanceRaw(connection, owner, mint) {
@@ -2001,14 +2015,25 @@ function buySignalError(profile, transaction, state) {
   return "";
 }
 
-async function prepareTradingOrder(state, query) {
+async function prepareTradingOrder(state, query, {quoteOnly=false,background=false}={}) {
   let fallbackReason = '';
-  if (state.settings.executionEngine === 'fnzero') {
+  if (!quoteOnly && state.settings.executionEngine === 'fnzero') {
     try { return await fnzeroRouter.prepare({connection:solanaConnection(state.settings,{priority:query.inputMint===usdcMint ? 50 : 100}),query}); }
     catch(error) { fallbackReason = error.message; }
   }
-  const order = await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(state.settings),query});
-  if (state.settings.executionEngine === 'fnzero' && typeof fnzeroRouter.learn === "function") {
+  let order;
+  try {
+    order = await jupiterJson('/swap/v2/order',{apiKey:jupiterApiKey(state.settings),query:quoteOnly?{...query,taker:undefined}:query,background});
+    if(!quoteOnly && !order.transaction && gaslessMinimumError(order))throw new Error(order.errorMessage);
+  } catch(error) {
+    if(quoteOnly || query.outputMint!==usdcMint || query.inputMint===usdcMint || !query.taker || !gaslessMinimumError(error))throw error;
+    // A rejected unsigned sponsored route has not moved funds. Keep the exact
+    // sale amount and use a simulated wallet-paid route; never do this after send.
+    order=await prepareWalletPaidSell({connection:solanaConnection(state.settings,{priority:100}),query,
+      request:(pathname,params)=>jupiterJson(pathname,{apiKey:jupiterApiKey(state.settings),query:params})});
+    return {...order,...(fallbackReason?{fnzeroFallbackReason:fallbackReason}:{})};
+  }
+  if (!quoteOnly && state.settings.executionEngine === 'fnzero' && typeof fnzeroRouter.learn === "function") {
     try {
       // Learn for the next trade without delaying this already-built order.
       void fnzeroRouter.learn({
@@ -2022,6 +2047,9 @@ async function prepareTradingOrder(state, query) {
   return {...order, executionEngine:'jupiter', ...(fallbackReason ? {fnzeroFallbackReason:fallbackReason} : {})};
 }
 async function executeTradingOrder(state, signed, order, pendingKey) {
+  if (order.executionEngine === 'jupiter-rpc') {
+    return submitWalletPaidSell(solanaConnection(state.settings,{priority:100}),signed.signedTransactionBase64,order);
+  }
   if (order.executionEngine === 'fnzero') {
     return submitFnzeroOrder(solanaConnection(state.settings,{priority:100}), signed.signedTransactionBase64, order);
   }
@@ -2547,6 +2575,9 @@ async function refreshExecutionReport(state) {
  report.updatedAt=new Date().toISOString();report.partialHistory=true;
  report.pendingSells=Object.values(d.sourceSells || {}).map(j=>({profile:j.profile,message:j.message || 'Waiting to retry',
    requiresActiveChecks:['ready','waiting'].includes(sourceSellRetryState(state,{...j},report))}));
+ const noticeGroups=currentExitNotices(report,d.sourceSells || {});
+ report.notices=noticeGroups.current;
+ report.previousNotices=noticeGroups.previous;
  executionReport=report;
 }
 let riskWorking=false;
@@ -2572,7 +2603,7 @@ async function runPositionWatch() {
     const quotePosition={...quotedPosition};
     // A read-only price quote must not block a Frog sell or an urgent buy check.
     // Revalidate its position and controls inside the lock before using it.
-    let order=await prepareTradingOrder(quoteState,{inputMint:quotePosition.mint,outputMint:usdcMint,amount:quotePosition.raw,taker:quotePosition.wallet,swapMode:'ExactIn'});
+    let order=await prepareTradingOrder(quoteState,{inputMint:quotePosition.mint,outputMint:usdcMint,amount:quotePosition.raw,swapMode:'ExactIn'},{quoteOnly:true,background:true});
     await withWalletOperation(async()=>{
      const current=await readState();
      if(emergencyStopRequested || !supportedProfiles.some(p=>current.profiles[p].running) || !liveTradingAllowed(current,position.profile))return;
@@ -2580,7 +2611,7 @@ async function runPositionWatch() {
      if(!p || BigInt(p.raw)<=0n || await hasPendingMint(p.wallet,p.mint))return;
      if(current.strategy.controlRevision!==quoteRevision || p.cycle!==quotePosition.cycle || p.raw!==quotePosition.raw || p.cost!==quotePosition.cost || p.wallet!==quotePosition.wallet)return;
      const connection=solanaConnection(current.settings,{fastRead:true});
-     if(!order.outAmount || order.inAmount!==p.raw || !order.transaction)throw new Error('Sell value unavailable; missing data is not a zero price');
+     if(!order.outAmount || order.inAmount!==p.raw)throw new Error('Sell value unavailable; missing data is not a zero price');
      const proceeds=Number(order.outAmount)/1e6,mode=profileBuyMode(current,p.profile);
      let reason, salePosition=p;
      const growth = growthSnapshot(d);
@@ -2603,8 +2634,6 @@ async function runPositionWatch() {
       reason=mark.reason;
       if(reason && mark.raw && mark.raw!==p.raw) {
        salePosition={...p,raw:mark.raw};
-       order=await prepareTradingOrder(current,{inputMint:p.mint,outputMint:usdcMint,amount:mark.raw,taker:p.wallet,swapMode:'ExactIn'});
-       if(!order.outAmount || order.inAmount!==mark.raw || !order.transaction)throw new Error('Partial sale value unavailable; missing data is not a zero price');
       }
      }else if(mode==='ladder') {
       d.profitLadders ||= {};
@@ -2615,8 +2644,6 @@ async function runPositionWatch() {
       reason=mark.reason;
       if(reason && mark.raw && mark.raw!==p.raw) {
        salePosition={...p,raw:mark.raw};
-       order=await prepareTradingOrder(current,{inputMint:p.mint,outputMint:usdcMint,amount:mark.raw,taker:p.wallet,swapMode:'ExactIn'});
-       if(!order.outAmount || order.inAmount!==mark.raw || !order.transaction)throw new Error('Profit Ladder partial sale value unavailable; missing data is not a zero price');
       }
      }else if(mode==='rise30') {
       d.riseSteps ||= {};
@@ -2627,9 +2654,6 @@ async function runPositionWatch() {
       reason=mark.reason;
       if(reason) {
        salePosition={...p,raw:mark.raw,riseStep:{cycle:p.cycle,step:mark.step,triggerUnit:mark.triggerUnit}};
-       order=await prepareTradingOrder(current,{inputMint:p.mint,outputMint:usdcMint,amount:mark.raw,taker:p.wallet,swapMode:'ExactIn'});
-       if(!order.outAmount || order.inAmount!==mark.raw || !order.transaction)throw new Error('30% sale quote unavailable; the price step has not advanced');
-       if(Number(order.outAmount)/1e6 < mark.triggerUnit*Number(mark.raw)-1e-9)throw new Error('30% sale quote is below the 20% rise target; waiting for a fresh quote');
       }
      }else reason=exitReason(mode,p.cost,proceeds);
      const noticeProceeds=Number(order.outAmount || 0)/1e6 || proceeds;
@@ -2638,6 +2662,12 @@ async function runPositionWatch() {
      const riseTrigger=mode==='rise30' && d.riseSteps?.[p.key] ? `; 30% sale step ${d.riseSteps[p.key].step} at estimated holding value $${d.riseSteps[p.key].triggerValue.toFixed(2)}${d.riseSteps[p.key].dust ? '; holding too small to sell 30%' : ''}` : '';
      d.notices[p.key]=`${reason || 'Watching'}: estimated sale $${noticeProceeds.toFixed(2)}, remaining cost $${p.cost.toFixed(2)}${mode==='trailing' && d.trailingStops?.[p.key] ? `; trailing sell trigger $${d.trailingStops[p.key].trigger.toFixed(2)}` : ''}${takeBackTrigger}${ladderTrigger}${riseTrigger}`;
      if(!reason){await executionJournal.save();return;}
+     // Build an executable transaction only when this mode actually calls for a
+     // sale. Routine price watching cannot trip sponsored-swap minimums or learn
+     // unused FnZero routes on every tick.
+     order=await prepareTradingOrder(current,{inputMint:p.mint,outputMint:usdcMint,amount:salePosition.raw,taker:p.wallet,swapMode:'ExactIn'});
+     if(!order.outAmount || order.inAmount!==salePosition.raw || !order.transaction)throw new Error('Sale route unavailable; the price step has not advanced');
+     if(mode==='rise30' && salePosition.riseStep && Number(order.outAmount)/1e6 < salePosition.riseStep.triggerUnit*Number(salePosition.raw)-1e-9)throw new Error('30% sale quote is below the 20% rise target; waiting for a fresh quote');
      // Price monitoring uses the journal; verify fresh holdings only when an exit fires.
      const held=await tokenBalanceRaw(connection,p.wallet,p.mint);
      if(BigInt(held||'0')<BigInt(p.raw))throw new Error('Wallet balance changed; holding needs reconciliation');

@@ -10,7 +10,7 @@ function harness(header='2') {
   Date:class extends Date {static now(){return now;}},
   setTimeout:fn=>fn(),fetch:async()=>{calls++;return {ok:status===200,status,headers:{get:()=>header},json:async()=>status===200?{status:'Success'}:{}};}});
  vm.runInContext(snippet,context);
- return {quote:key=>context.jupiterJson('/swap/v2/order',{apiKey:key}),execute:()=>context.jupiterJson('/swap/v2/execute',{method:'POST'}),calls:()=>calls,advance:ms=>now+=ms,success:()=>status=200};
+ return {quote:(key,options={})=>context.jupiterJson('/swap/v2/order',{apiKey:key,...options}),build:key=>context.jupiterJson('/swap/v2/build',{apiKey:key}),execute:()=>context.jupiterJson('/swap/v2/execute',{method:'POST'}),calls:()=>calls,advance:ms=>now+=ms,success:()=>status=200};
 }
 test('429 is not burst-retried; other quote requests respect Retry-After and resume afterward',async()=>{
  const h=harness();await assert.rejects(h.quote(),/429/);assert.equal(h.calls(),1);
@@ -41,4 +41,24 @@ test('execute error retains its structured receipt without retrying the signed o
   await assert.rejects(c.jupiterJson('/swap/v2/execute',{method:'POST'}),error=>error.executionResponse===payload);
   assert.equal(calls,1);
  }
+});
+test('background price checks back off longer after quota errors while real routes resume',async()=>{
+ const h=harness('1');await assert.rejects(h.quote(),/429/);
+ h.advance(1000);h.success();
+ await assert.rejects(h.quote(undefined,{background:true}),/deferred/);assert.equal(h.calls(),1);
+ await h.build();assert.equal(h.calls(),2);
+ h.advance(1001);await h.quote(undefined,{background:true});assert.equal(h.calls(),3);
+});
+test('build and order share cooldown, but background work cannot hold up a live route',async()=>{
+ const h=harness('2');await assert.rejects(h.quote(),/429/);
+ await assert.rejects(h.build(),/rate-limited/);assert.equal(h.calls(),1);
+ let release,calls=0;
+ const c=vm.createContext({URL,AbortSignal,Map,Number,Math,JSON,Object,Error,Date,setTimeout,
+  fetch:async()=>{calls++;await new Promise(resolve=>release=resolve);return {ok:true,status:200,json:async()=>({outAmount:'1'})};}});
+ vm.runInContext(snippet,c);
+ const live=c.jupiterJson('/swap/v2/order');
+ await assert.rejects(c.jupiterJson('/swap/v2/order',{background:true}),/deferred/);assert.equal(calls,1);
+ release();await live;
+ await assert.rejects(c.jupiterJson('/swap/v2/order',{background:true}),/deferred/);assert.equal(calls,1);
+ const anotherLive=c.jupiterJson('/swap/v2/order');assert.equal(calls,2);release();await anotherLive;
 });

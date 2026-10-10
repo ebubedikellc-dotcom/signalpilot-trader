@@ -2211,7 +2211,14 @@ function renderExecutionReport() {
  if($("exitStatusList")) {
    $("exitStatusList").replaceChildren();
    const messages=[...Object.values(r?.notices || {}),...(r?.pendingSells || []).map(x=>`${profileName(x.profile)}: ${x.message}`)];
-   for(const msg of messages.length?messages:["No verified exit checks yet. Trading remains off until you press Start."]) {const li=document.createElement("li");li.textContent=msg;$("exitStatusList").appendChild(li);}
+   const running=Object.values(latestState.profiles || {}).some(p=>p.running);
+   for(const msg of messages.length?messages:[running?"Automatic selling is enabled. No current exit errors reported; sells follow your selected mode and the trader's verified sales.":"Automatic trading is stopped."]) {const li=document.createElement("li");li.textContent=msg;$("exitStatusList").appendChild(li);}
+   setText("exitStatusUpdated",r?.updatedAt ? `Checked ${new Date(r.updatedAt).toLocaleString()}. Current holdings and pending sales only.` : "Waiting for a verified exit check.");
+ }
+ if($("previousExitStatusList")) {
+   $("previousExitStatusList").replaceChildren();
+   const old=Object.values(r?.previousNotices || {}).slice(-20).reverse();
+   for(const msg of old.length?old:["No previous messages."]) {const li=document.createElement("li");li.textContent=msg;$("previousExitStatusList").appendChild(li);}
  }
  if($("confirmedProfitLog")) {
    $("confirmedProfitLog").replaceChildren();
