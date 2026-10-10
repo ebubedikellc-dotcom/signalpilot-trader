@@ -22,6 +22,13 @@ test('open holdings, pending transactions, queued exits and closing growth plans
     assert.equal(h.status().sleeping,false);
   }
 });
+test('active live trading keeps 0.5 second recovery checks awake',()=>{
+  const h=harness();h.advance(120000);
+  h.context.activeTrading=true;
+  assert.equal(h.status().sleeping,false);
+  assert.equal(h.status().walletRefreshMs,null);
+  assert.equal(h.status().recoveryPollMs,500);
+});
 test('disconnected subscriptions and transaction lookups retain active checks',()=>{
   const h=harness();h.advance(120000);
   h.context.listenerReady=false;assert.equal(h.status().sleeping,false);

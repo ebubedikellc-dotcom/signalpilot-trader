@@ -747,7 +747,7 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "high-risk-profit-run-v2",
+      appVersion: "high-risk-profit-run-v3",
       fnzero: isOwner ? fnzeroRouter.status() : undefined,
       marketDataProvider: "Direct Solana alerts + GMGN recovery",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
@@ -3346,10 +3346,11 @@ let observationUntil = 0;
 const monitorSleep = createMonitorSleep();
 function monitorSleepStatus(state) {
   const wallets = monitoredProfiles(state, executionReport, supportedProfiles).map(p=>targetWallet(state,p)).filter(Boolean);
+  const activeTrading = supportedProfiles.some(p=>state.profiles?.[p]?.running);
   // An SDK connection exists before its socket connects. Never sleep on a
   // disconnected listener: retain the normal GMGN recovery polling then.
   const listenerReady = wallets.length>0 && wallets.every(wallet=>liveSubscriptions.get(wallet)?.connection?._rpcWebSocketConnected === true);
-  return monitorSleep.status({report:executionReport,listenerReady,queuedReads:directReadJobs.size>0});
+  return monitorSleep.status({report:executionReport,listenerReady,queuedReads:directReadJobs.size>0,activeTrading});
 }
 function monitoringEnabled(state) {
   // Keep Helius alerts warm while paused; execution workers still require START.
@@ -3473,6 +3474,8 @@ async function syncLiveSubscriptionsOnce(state) {
     sub.id = connection.onLogs(new PublicKey(wallet), event => {
       if (event.err) return;
       sub.lastNotificationAt = new Date().toISOString();
+      monitorSleep.observeTrade();
+      observationUntil = Math.max(observationUntil, Date.now() + 45000);
       queueDirectRead(wallet,event.signature,sub);
     }, process.env.DIRECT_SUBSCRIPTION_COMMITMENT || "processed");
     liveSubscriptions.set(wallet,sub);
@@ -3641,7 +3644,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "high-risk-profit-run-v2",
+      appVersion: "high-risk-profit-run-v3",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
