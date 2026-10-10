@@ -91,6 +91,15 @@ test('Protected Frog Copy uses the ladder loss guard for independent exits',asyn
  assert(h.calls.includes('sign'));
  assert.match(h.d.notices.p,/5% loss guard/);
 });
+test('High Risk Profit Run uses the ladder loss guard for independent exits',async()=>{
+ const h=harness(null,'1000');Object.assign(h.p,{raw:'1000',cost:100,cycle:'buy1'});
+ h.c.profileBuyMode=()=> 'riskrun';
+ h.c.profitLadderExit=profitLadderExit;
+ h.c.prepareTradingOrder=async(_,order)=>({inAmount:order.amount,outAmount:order.amount==='1000'?'95000000':'95000000',transaction:'quote'});
+ await h.c.runPositionWatch();
+ assert(h.calls.includes('sign'));
+ assert.match(h.d.notices.p,/5% loss guard/);
+});
 test('routine price checks use a quote without a taker, transaction or FnZero learning',async()=>{
  const h=harness(null);const requests=[];let learns=0;
  (await h.c.readState()).settings.executionEngine='fnzero';
