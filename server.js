@@ -381,6 +381,7 @@ function syncQueueSurviveSettings(settings = {}) {
 
 function normalizeBuyMode(mode) {
   if (mode === "protected") return "protected";
+  if (mode === "riskrun") return "riskrun";
   if (mode === "rise30") return "rise30";
   if (mode === "ladder") return "ladder";
   if (mode === "exactFull") return "exactFull";
@@ -746,7 +747,7 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "fast-half-second-checks-v1",
+      appVersion: "high-risk-profit-run-v1",
       fnzero: isOwner ? fnzeroRouter.status() : undefined,
       marketDataProvider: "Direct Solana alerts + GMGN recovery",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
@@ -2659,10 +2660,10 @@ async function runPositionWatch() {
       if(reason && mark.raw && mark.raw!==p.raw) {
        salePosition={...p,raw:mark.raw};
       }
-     }else if(mode==='ladder' || mode==='protected') {
+     }else if(mode==='ladder' || mode==='protected' || mode==='riskrun') {
       d.profitLadders ||= {};
       const mark=profitLadderExit(p,proceeds,d.profitLadders[p.key],20,5);
-      if(!mark)throw new Error(`${mode==='protected'?'Protected Frog Copy':'Profit Ladder'} needs a valid sell quote and verified purchase`);
+      if(!mark)throw new Error(`${mode==='protected'?'Protected Frog Copy':mode==='riskrun'?'High Risk Profit Run':'Profit Ladder'} needs a valid sell quote and verified purchase`);
       d.profitLadders[p.key]=mark;
       await executionJournal.save();
       reason=mark.reason;
@@ -2682,7 +2683,7 @@ async function runPositionWatch() {
      }else reason=exitReason(mode,p.cost,proceeds);
      const noticeProceeds=Number(order.outAmount || 0)/1e6 || proceeds;
      const takeBackTrigger=mode==='takeback' && d.takeBackStops?.[p.key]?.trigger ? `; protection sell trigger $${d.takeBackStops[p.key].trigger.toFixed(2)}` : '';
-     const ladderTrigger=(mode==='ladder' || mode==='protected') && d.profitLadders?.[p.key]?.baselineUnit ? `; next 20% ladder near $${(d.profitLadders[p.key].baselineUnit*Number(p.raw)*1.2).toFixed(2)}` : '';
+     const ladderTrigger=(mode==='ladder' || mode==='protected' || mode==='riskrun') && d.profitLadders?.[p.key]?.baselineUnit ? `; next 20% ladder near $${(d.profitLadders[p.key].baselineUnit*Number(p.raw)*1.2).toFixed(2)}` : '';
      const riseTrigger=mode==='rise30' && d.riseSteps?.[p.key] ? `; 30% sale step ${d.riseSteps[p.key].step} at estimated holding value $${d.riseSteps[p.key].triggerValue.toFixed(2)}${d.riseSteps[p.key].dust ? '; holding too small to sell 30%' : ''}` : '';
      d.notices[p.key]=`${reason || 'Watching'}: estimated sale $${noticeProceeds.toFixed(2)}, remaining cost $${p.cost.toFixed(2)}${mode==='trailing' && d.trailingStops?.[p.key] ? `; trailing sell trigger $${d.trailingStops[p.key].trigger.toFixed(2)}` : ''}${takeBackTrigger}${ladderTrigger}${riseTrigger}`;
      if(!reason){await executionJournal.save();return;}
@@ -3614,7 +3615,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "manual-sale-attribution-v10",
+      appVersion: "high-risk-profit-run-v1",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
@@ -4029,7 +4030,7 @@ async function handleApi(request, response, url) {
     const input = await readBody(request);
     if (input.executionEngine !== undefined && !["jupiter","fnzero"].includes(input.executionEngine)) {send(response,400,{error:"Choose Jupiter or FnZero."});return true;}
     if (input.frogBuyMode !== undefined) {
-      if (!["limits", "exact", "exactFull", "loss", "trailing", "takeback", "ladder", "rise30", "protected"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
+      if (!["limits", "exact", "exactFull", "loss", "trailing", "takeback", "ladder", "rise30", "protected", "riskrun"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
     }
     if (input.frogSurviveMax !== undefined && input.frogSurviveMax !== "" && !(Number(input.frogSurviveMax)>0 && Number.isFinite(Number(input.frogSurviveMax)))) { send(response, 400, {error:"Enter a positive maximum purchase amount."}); return true; }
     if (input.trailingStopPercent !== undefined && !(Number.isFinite(Number(input.trailingStopPercent)) && Number(input.trailingStopPercent)>0 && Number(input.trailingStopPercent)<100)) {
