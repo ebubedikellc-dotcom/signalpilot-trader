@@ -433,6 +433,8 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .watch-tape span { overflow-wrap: anywhere; }
 .watch-tape em { color: var(--muted); font-style: normal; font-size: .82rem; }
 .watch-tape .tape-loss strong { color: var(--red); }
+#watchTape li { grid-template-columns: 1fr; gap: 6px; align-items: start; }
+#watchTape li > span { line-height: 1.45; }
 .open-holdings-panel {
   border-color: rgba(246,201,92,.5);
   background: linear-gradient(145deg, rgba(246,201,92,.13), rgba(46,230,166,.08)), rgba(0,0,0,.22);
