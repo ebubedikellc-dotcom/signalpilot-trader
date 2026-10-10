@@ -832,14 +832,15 @@ function queueSurviveMode(settings = {}) {
   return queueBuyMode(settings) === "survive";
 }
 
-function normalizeBuyMode(mode) { return mode === "rise30" ? "rise30" : mode === "ladder" ? "ladder" : mode === "exactFull" ? "exactFull" : mode === "takeback" ? "takeback" : mode === "trailing" ? "trailing" : mode === "exact" ? "exact" : mode === "loss" ? "loss" : "limits"; }
+function normalizeBuyMode(mode) { return mode === "protected" ? "protected" : mode === "rise30" ? "rise30" : mode === "ladder" ? "ladder" : mode === "exactFull" ? "exactFull" : mode === "takeback" ? "takeback" : mode === "trailing" ? "trailing" : mode === "exact" ? "exact" : mode === "loss" ? "loss" : "limits"; }
 function queueBuyMode(settings = {}) { return normalizeBuyMode(settings.frogBuyMode); }
-function buyModeLabel(mode) { return mode === "rise30" ? "20% Rise — Sell 30%" : mode === "ladder" ? "Profit Ladder + Loss Guard" : mode === "exactFull" ? "Exact Copy — Trader’s Full Amount" : mode === "takeback" ? "Take My Money Back" : mode === "trailing" ? "Trailing Stops" : mode === "exact" ? "Exact Copy — My Purchase Limit" : mode === "loss" ? "Loss Protection" : "Profit & Loss Limits"; }
+function buyModeLabel(mode) { return mode === "protected" ? "Protected Frog Copy" : mode === "rise30" ? "20% Rise — Sell 30%" : mode === "ladder" ? "Profit Ladder + Loss Guard" : mode === "exactFull" ? "Exact Copy — Trader’s Full Amount" : mode === "takeback" ? "Take My Money Back" : mode === "trailing" ? "Trailing Stops" : mode === "exact" ? "Exact Copy — My Purchase Limit" : mode === "loss" ? "Loss Protection" : "Profit & Loss Limits"; }
 function surviveMax(settings = {}) { if (settings.frogSurviveMax === "") return Infinity; const amount = Number(settings.frogSurviveMax || 5); return amount > 0 ? amount : 5; }
 function buyModeNote(mode, max = 5, trailing = value("trailingStopPercent") || "10") {
   if (!Number.isFinite(max)) return `Copy the trader’s full purchase amount within your available trading budget. ${buyModeNote(mode, 1000000000, trailing).split(". ").slice(1).join(". ")}`;
+  if (mode === "protected") return `Buy at most $${max}; skip late buy entries over 1 second; do not open another coin while a copied coin is still held. Use the 20% profit ladder and 5% loss guard, but still sell when Frog sells first. This protects first; it can skip trades and losses are still possible.`;
   if (mode === "rise30") return `Copy smaller trader buys as they are; cap larger buys at $${max}. At a 20% rise from your average purchase price, try to sell 30% of the coins still held into USDC and keep 70%. Repeat at each further 20% rise from the previous trigger: $1 → $1.20 → $1.44. Each step advances after a confirmed sale. Checks use available sell quotes; prices and fees can affect execution. Trader sells still copy the same proportion of your remaining holding. This option has no separate loss stop.`;
-  if (mode === "ladder") return `Copy smaller trader buys as they are; cap larger buys at $${max}. At each fresh 20% rise, try to sell only the profit and leave the rest running. If it falls 5% from the latest ladder level, or falls 5% below your remaining cost, try to sell the rest. Trader sells still sell your matching holding first.`;
+  if (mode === "ladder") return `Copy smaller trader buys as they are; cap larger buys at $${max}. At each fresh 20% rise, try to sell 30% of the coin and leave 70% running. If it falls 5% from the latest ladder level, or falls 5% below your remaining cost, try to sell the rest. Trader sells still sell your matching holding first.`;
   if (mode === "takeback") return `Buy at most $${max} each time; copy smaller buys. If the coin reaches about 60% profit, sell only enough to recover the main money. Leave the rest to run, but sell it if it falls about 30% from its highest watched value, or when the trader sells first.`;
   if (mode === "trailing") return `Buy at most $${max} each time; copy smaller buys. Try to sell after a ${trailing}% fall from the highest value observed since tracking began, or when the trader sells first. The selling point moves up, never down with the price. Losses are still possible; sale prices are not guaranteed.`;
   if (mode === "exactFull") return "Copy the trader’s full purchase amount in USDC equivalent, without your per-purchase limit. Skip if your available trading budget cannot cover it. Locked profit stays protected. Copy the proportion the trader sells; no independent profit or loss exit. Execution prices may differ.";
@@ -1091,6 +1092,59 @@ function renderWatchTape(profile, trades = []) {
   });
 }
 
+function brainReadinessLabel(value = "") {
+  if (value === "training-ready") return "Ready for paper decisions";
+  if (value === "learning") return "Learning from Frog";
+  return "Collecting data";
+}
+
+function brainBuySizeLabel(size = {}) {
+  if (!size?.unit || !Number.isFinite(Number(size.median))) return "Unknown";
+  return `${Number(size.median).toLocaleString(undefined, { maximumFractionDigits: size.unit === "SOL" ? 6 : 2 })} ${size.unit}`;
+}
+
+function renderFrogBrain(brain = {}) {
+  setText("frogBrainStatus", brain.summary || "Learning from Frog. It is not self-trading yet.");
+  setText("frogBrainConfidence", `${Math.round(Number(brain.confidence || 0))}%`);
+  setText("frogBrainReadiness", brainReadinessLabel(brain.readiness));
+  setText("frogBrainSignals", String(brain.sample?.signals || 0));
+  setText("frogBrainSamples", `${brain.sample?.roundTripTokens || 0} closed coin pattern${brain.sample?.roundTripTokens === 1 ? "" : "s"} learned.`);
+  setText("frogBrainBuySize", brainBuySizeLabel(brain.buySize));
+  setText("frogBrainHoldTime", Number.isFinite(Number(brain.holding?.medianMinutes))
+    ? `Median hold: ${brain.holding.medianMinutes} minutes`
+    : "Holding time not known yet.");
+  setText("frogBrainNext", brain.nextStep || "Keep learning before self-trading is allowed.");
+
+  const list = $("frogBrainRules");
+  if (!list) return;
+  list.innerHTML = "";
+  const rules = Array.isArray(brain.rules) && brain.rules.length ? brain.rules : ["Waiting for Frog trades to teach the brain."];
+  rules.slice(0, 5).forEach((rule) => {
+    const li = document.createElement("li");
+    li.textContent = rule;
+    list.appendChild(li);
+  });
+
+  const smart = brain.smartMove || {};
+  setText("frogSmartMoveTitle", smart.name || "Frog Smart Move");
+  const timing = [
+    Number.isFinite(Number(smart.buyTimingMs)) ? `buy ${Math.round(Number(smart.buyTimingMs))}ms` : "",
+    Number.isFinite(Number(smart.sellTimingMs)) ? `sell ${Math.round(Number(smart.sellTimingMs))}ms` : ""
+  ].filter(Boolean).join(" · ");
+  setText("frogSmartMoveStatus", `${smart.status === "ready-to-paper-trade" ? "Ready to mark clean entries" : "Watching timing and protecting capital"}${timing ? ` · ${timing}` : ""}`);
+  setText("frogSmartMoveRecommendation", smart.recommendation || "Keep copying small until the brain has enough clean wins and losses.");
+  const smartRules = $("frogSmartMoveRules");
+  if (smartRules) {
+    smartRules.innerHTML = "";
+    const rules = Array.isArray(smart.rules) && smart.rules.length ? smart.rules : ["Use Profit Ladder + Loss Guard while Frog is being studied."];
+    rules.slice(0, 4).forEach((rule) => {
+      const li = document.createElement("li");
+      li.textContent = rule;
+      smartRules.appendChild(li);
+    });
+  }
+}
+
 function renderLiveWatch(settings = {}, profiles = {}, trades = [], strategy = {}) {
   const profile = ["safe", "frog", "truenest"].includes(strategy.activeProfile) ? strategy.activeProfile : (profiles.frog?.running || !profiles.truenest?.running ? "frog" : "truenest");
   const label = profileName(profile);
@@ -1141,6 +1195,7 @@ function renderLiveWatch(settings = {}, profiles = {}, trades = [], strategy = {
   renderOpenPositions("watchOpenPositions", "watchOpenValue", trades, profile);
   renderStockCoins("watchStockCoins", trades, profile);
   renderClosedTradesList("watchClosedTrades", trades, profile);
+  renderFrogBrain(latestState.backend?.frogBrain);
 
   const points = chartPointsFromTrades(trades, profile, profit);
   const path = $("watchChartPath");

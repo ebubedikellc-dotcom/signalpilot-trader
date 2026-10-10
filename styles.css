@@ -435,6 +435,18 @@ dd { margin: 7px 0 0; font-weight: 800; }
 .watch-tape .tape-loss strong { color: var(--red); }
 #watchTape li { grid-template-columns: 1fr; gap: 6px; align-items: start; }
 #watchTape li > span { line-height: 1.45; }
+.brain-card { display: grid; gap: 12px; }
+.brain-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.brain-grid article { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.06); }
+.brain-grid span, .brain-grid small { display: block; color: var(--muted); line-height: 1.35; }
+.brain-grid strong { display: block; margin: 5px 0; font-size: 1.35rem; }
+#frogBrainRules { display: grid; gap: 7px; margin: 0; padding-left: 20px; }
+#frogBrainNext { margin: 0; color: var(--muted); }
+.smart-move-panel { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(49, 130, 206, .12); }
+.smart-move-panel span { color: var(--muted); }
+.smart-move-panel p { margin: 0; }
+.smart-move-panel ul { display: grid; gap: 6px; margin: 0; padding-left: 20px; }
+@media (max-width: 720px) { .brain-grid { grid-template-columns: 1fr; } }
 .open-holdings-panel {
   border-color: rgba(246,201,92,.5);
   background: linear-gradient(145deg, rgba(246,201,92,.13), rgba(46,230,166,.08)), rgba(0,0,0,.22);

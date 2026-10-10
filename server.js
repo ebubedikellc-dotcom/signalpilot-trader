@@ -14,6 +14,7 @@ import { gaslessMinimumError, prepareWalletPaidSell, submitWalletPaidSell } from
 import { currentExitNotices } from "./lib/exit-status.mjs";
 import { createQuotePacer } from "./lib/quote-pacer.mjs";
 import { sourceAmountsFromSwap } from "./lib/trader-amounts.mjs";
+import { analyzeFrogBrain } from "./lib/frog-brain.mjs";
 import { sellFraction, proportionalAmount, exitReason, trailingExit, takeBackExit, profitLadderExit, riseStepExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
 import { decodeDirectSwap, verifySourceSignal, canonicalSignalId } from "./lib/direct-signals.mjs";
 import { createServer } from "node:http";
@@ -378,6 +379,7 @@ function syncQueueSurviveSettings(settings = {}) {
 }
 
 function normalizeBuyMode(mode) {
+  if (mode === "protected") return "protected";
   if (mode === "rise30") return "rise30";
   if (mode === "ladder") return "ladder";
   if (mode === "exactFull") return "exactFull";
@@ -761,6 +763,7 @@ function statusPayload(state, session) {
       pollIntervalMs: 500,
       observationUntil: observationUntil > Date.now() ? new Date(observationUntil).toISOString() : null,
       feeds: feedHealth(),
+      frogBrain: typeof analyzeFrogBrain === "function" ? analyzeFrogBrain(state.trades || [], "safe") : null,
       liveNotifications: Array.from(liveSubscriptions, ([wallet, sub]) => ({ wallet, provider:sub.provider, lastNotificationAt: sub.lastNotificationAt, status: sub.lastNotificationAt ? "Notification received" : "Registered; awaiting notification" }))
     },
     auth: session ? { role: session.role, id: session.id } : null
@@ -2161,6 +2164,13 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     if (!dryRun && profileSellOnly(state, profile)) {
       return { status: "Skipped - Sell Only mode is ON, new buys are blocked" };
     }
+    if (!dryRun && profileBuyMode(state, profile) === "protected") {
+      const ageMs = Date.now() - Date.parse(detectedAt);
+      if (Number.isFinite(ageMs) && ageMs > 1000) return { status: "Buy blocked: Protected Frog Copy skips late entries over 1 second" };
+      if (await hasProtectedOpenPosition(state, profile, wallet)) {
+        return { status: "Buy blocked: Protected Frog Copy waits for the current coin to exit first" };
+      }
+    }
     const valueSourceBuy = async () => {
     let sourceUsd = Number(leg.sourceUsd || 0);
     if (!sourceUsd && isQuoteMint(leg.inputMint)) {
@@ -2420,6 +2430,12 @@ async function hasPendingMint(wallet,mint) {
   const d=await executionJournal.load();
   return Object.values(d.pending).some(p=>p.wallet===wallet && p.mint===mint);
 }
+async function hasProtectedOpenPosition(state, profile, wallet) {
+  if (profileBuyMode(state, profile) !== "protected") return false;
+  const d = await executionJournal.load();
+  const {positions} = buildPositions(d.fills || []);
+  return Object.values(positions).some((p) => p.wallet === wallet && p.profile === profile && p.verified && BigInt(p.raw || "0") > 0n);
+}
 async function recordPendingSwap(info,signed,order) {
   const d=await executionJournal.load(),txid=transactionSignature(signed,info.wallet,order);
   const key=txid || `jupiter:${order.requestId}`;
@@ -2641,10 +2657,10 @@ async function runPositionWatch() {
       if(reason && mark.raw && mark.raw!==p.raw) {
        salePosition={...p,raw:mark.raw};
       }
-     }else if(mode==='ladder') {
+     }else if(mode==='ladder' || mode==='protected') {
       d.profitLadders ||= {};
       const mark=profitLadderExit(p,proceeds,d.profitLadders[p.key],20,5);
-      if(!mark)throw new Error('Profit Ladder needs a valid sell quote and verified purchase');
+      if(!mark)throw new Error(`${mode==='protected'?'Protected Frog Copy':'Profit Ladder'} needs a valid sell quote and verified purchase`);
       d.profitLadders[p.key]=mark;
       await executionJournal.save();
       reason=mark.reason;
@@ -2664,7 +2680,7 @@ async function runPositionWatch() {
      }else reason=exitReason(mode,p.cost,proceeds);
      const noticeProceeds=Number(order.outAmount || 0)/1e6 || proceeds;
      const takeBackTrigger=mode==='takeback' && d.takeBackStops?.[p.key]?.trigger ? `; protection sell trigger $${d.takeBackStops[p.key].trigger.toFixed(2)}` : '';
-     const ladderTrigger=mode==='ladder' && d.profitLadders?.[p.key]?.baselineUnit ? `; next 20% ladder near $${(d.profitLadders[p.key].baselineUnit*Number(p.raw)*1.2).toFixed(2)}` : '';
+     const ladderTrigger=(mode==='ladder' || mode==='protected') && d.profitLadders?.[p.key]?.baselineUnit ? `; next 20% ladder near $${(d.profitLadders[p.key].baselineUnit*Number(p.raw)*1.2).toFixed(2)}` : '';
      const riseTrigger=mode==='rise30' && d.riseSteps?.[p.key] ? `; 30% sale step ${d.riseSteps[p.key].step} at estimated holding value $${d.riseSteps[p.key].triggerValue.toFixed(2)}${d.riseSteps[p.key].dust ? '; holding too small to sell 30%' : ''}` : '';
      d.notices[p.key]=`${reason || 'Watching'}: estimated sale $${noticeProceeds.toFixed(2)}, remaining cost $${p.cost.toFixed(2)}${mode==='trailing' && d.trailingStops?.[p.key] ? `; trailing sell trigger $${d.trailingStops[p.key].trigger.toFixed(2)}` : ''}${takeBackTrigger}${ladderTrigger}${riseTrigger}`;
      if(!reason){await executionJournal.save();return;}
@@ -4011,7 +4027,7 @@ async function handleApi(request, response, url) {
     const input = await readBody(request);
     if (input.executionEngine !== undefined && !["jupiter","fnzero"].includes(input.executionEngine)) {send(response,400,{error:"Choose Jupiter or FnZero."});return true;}
     if (input.frogBuyMode !== undefined) {
-      if (!["limits", "exact", "exactFull", "loss", "trailing", "takeback", "ladder", "rise30"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
+      if (!["limits", "exact", "exactFull", "loss", "trailing", "takeback", "ladder", "rise30", "protected"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
     }
     if (input.frogSurviveMax !== undefined && input.frogSurviveMax !== "" && !(Number(input.frogSurviveMax)>0 && Number.isFinite(Number(input.frogSurviveMax)))) { send(response, 400, {error:"Enter a positive maximum purchase amount."}); return true; }
     if (input.trailingStopPercent !== undefined && !(Number.isFinite(Number(input.trailingStopPercent)) && Number(input.trailingStopPercent)>0 && Number(input.trailingStopPercent)<100)) {

@@ -42,7 +42,7 @@
           <small>Choose while stopped. Your selection stays until you change it.</small>
         </div>
         <details id="tradingOptions" class="mode-picker"><summary id="selectedModeLabel">Trading options</summary>
-          <label>Trading mode <select id="queueBuyMode"><option value="limits">Profit &amp; Loss Limits</option><option value="exact">Exact Copy — My Purchase Limit</option><option value="exactFull">Exact Copy — Trader’s Full Amount</option><option value="loss">Loss Protection</option><option value="trailing">Trailing Stops</option><option value="takeback">Take My Money Back</option><option value="ladder">Profit Ladder + Loss Guard</option><option value="rise30">20% Rise — Sell 30%</option></select></label>
+          <label>Trading mode <select id="queueBuyMode"><option value="protected">Protected Frog Copy</option><option value="limits">Profit &amp; Loss Limits</option><option value="exact">Exact Copy — My Purchase Limit</option><option value="exactFull">Exact Copy — Trader’s Full Amount</option><option value="loss">Loss Protection</option><option value="trailing">Trailing Stops</option><option value="takeback">Take My Money Back</option><option value="ladder">Profit Ladder + Loss Guard</option><option value="rise30">20% Rise — Sell 30%</option></select></label>
           <label id="trailingStopLabel" hidden>Sell after a fall from the highest value (%) <input id="trailingStopPercent" type="number" min="0.1" max="99.9" step="0.1" value="10"></label>
           <p id="modeExplanation"></p>
           <div class="mode-picker-actions">
@@ -281,6 +281,42 @@
                   </svg>
                 </div>
               </div>
+
+              <section class="watch-tape brain-card" aria-labelledby="frogBrainTitle">
+                <div class="chart-head">
+                  <strong id="frogBrainTitle">Frog Brain</strong>
+                  <span id="frogBrainStatus">Learning from Frog. It is not self-trading yet.</span>
+                </div>
+                <div class="brain-grid">
+                  <article>
+                    <span>Confidence</span>
+                    <strong id="frogBrainConfidence">0%</strong>
+                    <small id="frogBrainReadiness">Collecting data</small>
+                  </article>
+                  <article>
+                    <span>Signals learned</span>
+                    <strong id="frogBrainSignals">0</strong>
+                    <small id="frogBrainSamples">No round trips yet.</small>
+                  </article>
+                  <article>
+                    <span>Usual buy size</span>
+                    <strong id="frogBrainBuySize">Unknown</strong>
+                    <small id="frogBrainHoldTime">Holding time not known.</small>
+                  </article>
+                </div>
+                <ul id="frogBrainRules">
+                  <li>Waiting for Frog trades to teach the brain.</li>
+                </ul>
+                <p id="frogBrainNext">Keep learning before self-trading is allowed.</p>
+                <div class="smart-move-panel">
+                  <strong id="frogSmartMoveTitle">Frog Smart Move</strong>
+                  <span id="frogSmartMoveStatus">Watching timing and protecting capital.</span>
+                  <p id="frogSmartMoveRecommendation">Keep copying small until the brain has enough clean wins and losses.</p>
+                  <ul id="frogSmartMoveRules">
+                    <li>Use Profit Ladder + Loss Guard while Frog is being studied.</li>
+                  </ul>
+                </div>
+              </section>
 
               <div class="watch-tape">
                 <div class="chart-head">
@@ -630,6 +666,6 @@
         <p id="businessMessage" class="message-line"></p>
       </section>
     </main>
-    <script src="./script.js?v=trader-amounts-v22"></script>
+    <script src="./script.js?v=frog-brain-v1"></script>
   </body>
 </html>

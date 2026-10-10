@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs';
-import {riseStepExit} from '../lib/position-accounting.mjs';
+import {profitLadderExit,riseStepExit} from '../lib/position-accounting.mjs';
 const source=fs.readFileSync(new URL('../server.js',import.meta.url),'utf8');
 function harness(reason,held='10') {
  const calls=[],p={verified:true,raw:'10',cost:20,wallet:'w',mint:'coin',profile:'safe',key:'p'};
@@ -81,6 +81,15 @@ test('rise30 worker rejects a poor partial quote without signing or advancing',a
  h.c.prepareTradingOrder=async(_,order)=>({inAmount:order.amount,outAmount:order.amount==='1000'?'120000000':'30000000',transaction:'quote'});
  await h.c.runPositionWatch();assert(!h.calls.includes('sign'));assert.equal(h.d.fills.length,0);
  assert.match(h.d.notices.p,/below the 20% rise target/);
+});
+test('Protected Frog Copy uses the ladder loss guard for independent exits',async()=>{
+ const h=harness(null,'1000');Object.assign(h.p,{raw:'1000',cost:100,cycle:'buy1'});
+ h.c.profileBuyMode=()=> 'protected';
+ h.c.profitLadderExit=profitLadderExit;
+ h.c.prepareTradingOrder=async(_,order)=>({inAmount:order.amount,outAmount:order.amount==='1000'?'95000000':'95000000',transaction:'quote'});
+ await h.c.runPositionWatch();
+ assert(h.calls.includes('sign'));
+ assert.match(h.d.notices.p,/5% loss guard/);
 });
 test('routine price checks use a quote without a taker, transaction or FnZero learning',async()=>{
  const h=harness(null);const requests=[];let learns=0;

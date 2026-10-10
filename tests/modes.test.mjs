@@ -43,19 +43,19 @@ test('profit ladder takes repeated profit and guards the remaining position',()=
  const first=profitLadderExit(p,120,wait);
  assert.equal(first.reason,'20% profit ladder');
  assert.equal(first.partial,true);
- assert(BigInt(first.raw)>0n);
- assert(BigInt(first.raw)<BigInt(p.raw));
+ assert.equal(first.raw,'300000');
  assert.equal(Math.round(first.baselineUnit*1e6),120);
  const retry=profitLadderExit(p,120,first);
  assert.equal(retry.reason,'20% profit ladder');
  assert.equal(retry.raw,first.raw);
- const remaining={...p,raw:'833333',cost:83.33};
+ const remaining={...p,raw:'700000',cost:70};
  const afterSale=profitLadderExit(remaining,100,first);
  assert.equal(afterSale.reason,null);
  const second=profitLadderExit(remaining,120,afterSale);
  assert.equal(second.reason,'20% profit ladder');
  assert.equal(second.partial,true);
- const afterSecondSale={...p,raw:'578703',cost:57.86};
+ assert.equal(second.raw,'210000');
+ const afterSecondSale={...p,raw:'490000',cost:49};
  const protectedExit=profitLadderExit(afterSecondSale,74,second);
  assert.equal(protectedExit.reason,'5% profit guard');
  assert.equal(protectedExit.raw,afterSecondSale.raw);
@@ -141,7 +141,9 @@ test('5% ladder loss guard triggers at the boundary and sells the entire remaini
   const exit=profitLadderExit(p,quote);
   assert.equal(exit.reason,'5% loss guard');assert.equal(exit.raw,p.raw);assert.equal(exit.partial,false);
  }
- assert.equal(profitLadderExit(p,6).reason,'20% profit ladder');
+ const ladder=profitLadderExit(p,6);
+ assert.equal(ladder.reason,'20% profit ladder');
+ assert.equal(ladder.raw,'300000');
  assert.equal(profitLadderExit(p,NaN),null);
 });
 test('5% guard protects the latest profit ladder level after a partial sale',()=>{
