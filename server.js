@@ -747,7 +747,7 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "high-risk-profit-run-v1",
+      appVersion: "high-risk-profit-run-v2",
       fnzero: isOwner ? fnzeroRouter.status() : undefined,
       marketDataProvider: "Direct Solana alerts + GMGN recovery",
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
@@ -2280,7 +2280,7 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
   const sizingReadyAt = Date.now();
   const warmedOrder = warmedOrderPromise ? await warmedOrderPromise : null;
   if (warmedOrder?.speedPilotError) throw warmedOrder.speedPilotError;
-  const order = warmedOrder || await prepareTradingOrder(state, {
+  let order = warmedOrder || await prepareTradingOrder(state, {
     inputMint, outputMint, amount:copyAmount.amount, taker:wallet, swapMode:"ExactIn"
   });
 
@@ -2354,18 +2354,18 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
         preparationToReady: fundsCheckedAt - preparationStartedAt
       }
     };
-    const signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
-    const signedAt = Date.now();
+    let signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
+    let signedAt = Date.now();
     reason = await checkControls();
     if (reason) return { status: reason, detectedAt };
 
-  const submittedAt = new Date().toISOString();
-  const journalKey = await recordPendingSwap({wallet,profile,mint:leg.action === "buy" ? outputMint : inputMint,side:leg.action,source:canonicalSignalId(transaction.signature)},signed,order);
+  let submittedAt = new Date().toISOString();
+  let journalKey = await recordPendingSwap({wallet,profile,mint:leg.action === "buy" ? outputMint : inputMint,side:leg.action,source:canonicalSignalId(transaction.signature)},signed,order);
   if (emergencyStopRequested) {
     const d=await executionJournal.load();delete d.pending[journalKey];await executionJournal.save();
     return {status:"Skipped - trading stopped by owner"};
   }
-  const executionStartedAt = Date.now();
+  let executionStartedAt = Date.now();
   // Recheck after journal persistence too: a source sell or owner stop can
   // arrive while signing or disk writes are pending. Never submit a stale buy.
   const finalControlReason = await checkControls();
@@ -2373,10 +2373,36 @@ async function executeCopiedSwapLocked(profile, transaction, state, walletLocked
     const d = await executionJournal.load(); delete d.pending[journalKey]; await executionJournal.save();
     return {status:finalControlReason,detectedAt};
   }
-  const executed = await executeTradingOrder(state, signed, order, journalKey);
-
-  const executionReturnedAt = Date.now();
-  await recordExecutionResponse(journalKey,executed);
+  let executed, executionReturnedAt;
+  try {
+    executed = await executeTradingOrder(state, signed, order, journalKey);
+    executionReturnedAt = Date.now();
+    await recordExecutionResponse(journalKey,executed);
+  } catch (error) {
+    const retryableFailedBuy = leg.action === "buy" && executed && executed.status && executed.status !== "Success" && !executed.signature && !executed.txid;
+    if (!retryableFailedBuy) throw error;
+    const d = await executionJournal.load();
+    delete d.pending[journalKey];
+    d.notices[journalKey] = "First Jupiter execute failed before a transaction id; retrying once with a fresh route.";
+    await executionJournal.save();
+    order = await prepareTradingOrder(state, {inputMint, outputMint, amount:copyAmount.amount, taker:wallet, swapMode:"ExactIn"});
+    if (!order.transaction) throw error;
+    signed = await signSolanaTransaction(state, signer, wallet, order.transaction);
+    signedAt = Date.now();
+    reason = await checkControls();
+    if (reason) return { status: reason, detectedAt };
+    submittedAt = new Date().toISOString();
+    journalKey = await recordPendingSwap({wallet,profile,mint:outputMint,side:"buy",source:canonicalSignalId(transaction.signature)},signed,order);
+    executionStartedAt = Date.now();
+    const retryControlReason = await checkControls();
+    if (retryControlReason) {
+      const retryJournal = await executionJournal.load(); delete retryJournal.pending[journalKey]; await executionJournal.save();
+      return {status:retryControlReason,detectedAt};
+    }
+    executed = await executeTradingOrder(state, signed, order, journalKey);
+    executionReturnedAt = Date.now();
+    await recordExecutionResponse(journalKey,executed);
+  }
   return {
     status: "Submitted - confirmation pending",
     speedWindow: executionStartedAt - preparationStartedAt <= 500 ? "0.5 s target" :
@@ -3615,7 +3641,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "high-risk-profit-run-v1",
+      appVersion: "high-risk-profit-run-v2",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
