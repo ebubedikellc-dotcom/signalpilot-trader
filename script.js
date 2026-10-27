@@ -1774,6 +1774,23 @@ async function saveCustomerPlan() {
   }
 }
 
+async function submitDepositRequest() {
+  try {
+    const amount = Number(value("depositAmount"));
+    const asset = value("depositCurrency") || "USDC";
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter the amount you sent.");
+    const result = await api("/api/customer/deposit", {
+      method: "POST",
+      body: JSON.stringify({ amount, asset, plan: value("customerPlan") })
+    });
+    setText("customerDepositStatus", `Deposit request received: ${money(amount)} ${asset}. The owner will verify the payment and credit your balance.`);
+    showBusinessMessage("Deposit submitted for verification.");
+    if (result.customer) renderCustomer(result.customer);
+  } catch (error) {
+    showBusinessMessage(error.message, true);
+  }
+}
+
 async function requestWithdrawal() {
   try {
     const path = activeCustomerToken
@@ -2201,6 +2218,7 @@ on("copyReferralLink", "click", copyReferralLink);
 on("openCustomerLink", "click", openCustomerLink);
 on("ownerCreateCustomer", "click", ownerCreateCustomer);
 on("saveCustomerPlan", "click", saveCustomerPlan);
+on("confirmDeposit", "click", submitDepositRequest);
 on("requestWithdraw", "click", requestWithdrawal);
 on("logoutButton", "click", logout);
 on("installOwnerApp", "click", installOwnerApp);
