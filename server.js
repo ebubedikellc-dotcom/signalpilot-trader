@@ -3804,80 +3804,6 @@ async function handleApi(request, response, url) {
     return true;
   }
 
-  if (request.method === "POST" && url.pathname === "/api/customer/deposit") {
-    const state = await readState();
-    const session = sessionFromRequest(request, state);
-    if (session?.role !== "customer") {
-      send(response, 401, { error: "Customer login required." });
-      return true;
-    }
-    const customer = state.customers.find((item) => item.id === session.id);
-    if (!customer || customer.status === "paused") {
-      send(response, 404, { error: "Customer account is not active." });
-      return true;
-    }
-    const body = await readBody(request);
-    const amount = Number(body.amount || 0);
-    const asset = String(body.asset || "USDC").toUpperCase();
-    if (!Number.isFinite(amount) || amount <= 0 || !["USDC", "SOL"].includes(asset)) {
-      send(response, 400, { error: "Enter a valid amount and choose USDC or SOL." });
-      return true;
-    }
-    if (body.plan === "frog" || body.plan === "truenest" || body.plan === "both") customer.plan = body.plan;
-    const deposit = {
-      id: randomUUID(),
-      customerId: customer.id,
-      customerEmail: customer.email || "",
-      customerName: customer.name || "",
-      amount,
-      asset,
-      plan: customer.plan,
-      status: "pending",
-      createdAt: new Date().toISOString()
-    };
-    state.deposits.push(deposit);
-    state.activity = [line(`Deposit submitted by ${customer.email || customer.name}: ${amount} ${asset}.`), ...(state.activity || [])].slice(0, 20);
-    await saveState(state);
-    send(response, 200, { deposit, customer: customerPublic(customer, state) });
-    return true;
-  }
-
-  const ownerDepositMatch = url.pathname.match(/^\/api\/owner\/deposit\/([^/]+)$/);
-  if (request.method === "POST" && ownerDepositMatch) {
-    const state = await readState();
-    if (requireOwner(response, sessionFromRequest(request, state))) return true;
-    const deposit = state.deposits.find((item) => item.id === ownerDepositMatch[1]);
-    if (!deposit) {
-      send(response, 404, { error: "Deposit request not found." });
-      return true;
-    }
-    const body = await readBody(request);
-    if (body.action === "approve" && deposit.status !== "approved") {
-      const customer = state.customers.find((item) => item.id === deposit.customerId);
-      if (!customer) {
-        send(response, 404, { error: "Customer not found." });
-        return true;
-      }
-      customer.deposited = Number(customer.deposited || 0) + Number(deposit.amount || 0);
-      deposit.status = "approved";
-      deposit.reviewedAt = new Date().toISOString();
-    } else if (body.action === "reject") {
-      deposit.status = "rejected";
-      deposit.reviewedAt = new Date().toISOString();
-    } else if (body.action !== "approve") {
-      send(response, 400, { error: "Choose approve or reject." });
-      return true;
-    }
-    await saveState(state);
-    send(response, 200, {
-      summary: businessSummary(state),
-      customers: state.customers.map((item) => customerPublic(item, state)),
-      deposits: state.deposits,
-      withdrawals: state.withdrawals
-    });
-    return true;
-  }
-
   if (request.method === "POST" && url.pathname === "/api/growth/settings") {
     const initial = await readState();
     if (requireOwner(response, sessionFromRequest(request, initial))) return true;
@@ -4680,9 +4606,9 @@ async function handleApi(request, response, url) {
 }
 
 function serveFile(response, pathname) {
-  const safePath = pathname === "/control-panel"
+  const safePath = pathname === "/" || pathname === "/control-panel"
     ? "/control-panel.html"
-    : pathname === "/" || pathname.startsWith("/player/") || pathname.startsWith("/join/")
+    : pathname.startsWith("/player/")
       ? "/index.html"
       : pathname;
   const filePath = path.normalize(path.join(__dirname, safePath));
