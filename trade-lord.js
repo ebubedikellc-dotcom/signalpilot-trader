@@ -1,17 +1,23 @@
+import {createSpeechPlaylist} from './trade-lord-player.js?v=1';
+import {createTradingClassroom} from './trade-lord-study.js?v=1';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const short=value=>value?`${value.slice(0,5)}…${value.slice(-5)}`:'—';
 const number=value=>value===null||value===undefined?'—':Number(value.toFixed(3)).toLocaleString();
 const date=value=>value?new Date(value).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'Not yet';
 let state=null,view='overview',refreshing=false,chatSignature='',speechDirty=false;
+const speechPlaylist=createSpeechPlaylist({saveSettings:async playlistRepeat=>{state=await api('/settings','POST',{speech:{playlistRepeat}});render();}});
+const tradingClassroom=createTradingClassroom({saveSettings:async study=>{state=await api('/settings','POST',{study});render();}});
 function notify(message,error=false){const n=$('#notice');n.textContent=message;n.classList.toggle('error',error);n.hidden=false;}
 async function api(path='',method='GET',body){
   const response=await fetch('/api/trade-lord'+path,{method,credentials:'same-origin',cache:'no-store',headers:body!==undefined?{'Content-Type':'application/json'}:{},...(body!==undefined?{body:JSON.stringify(body)}:{})});
   const data=await response.json();
-  if(!response.ok){if(response.status===401){$('#workspace').hidden=true;$('#login').hidden=false;}throw new Error(data.error||'The request did not complete. Please try again.');}return data;
+  if(!response.ok){if(response.status===401){speechPlaylist.pause();tradingClassroom.stop();$('#workspace').hidden=true;$('#login').hidden=false;}throw new Error(data.error||'The request did not complete. Please try again.');}return data;
 }
 function go(next){
   if(!['overview','chat','traders','knowledge','speech'].includes(next))next='overview';view=next;
+  if(next!=='speech')speechPlaylist.pause();
+  if(next!=='knowledge')tradingClassroom.stop();
   $$('[data-panel]').forEach(el=>el.hidden=el.dataset.panel!==view);
   $$('[data-view]').forEach(el=>{if(el.dataset.view===view)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
   history.replaceState(null,'','#'+view);window.scrollTo({top:0,behavior:'instant'});
@@ -62,7 +68,7 @@ function render(){
   if(document.activeElement!==$('#replay-cost'))$('#replay-cost').value=state.costBps/100;
   $('#knowledge-list').innerHTML=state.notes.slice().sort((a,b)=>(a.origin==='owner'?-1:1)-(b.origin==='owner'?-1:1)).map(n=>`<article class="knowledge-card"><span class="eyebrow">${esc(n.category)} · ${n.origin==='foundation'?'FOUNDATION':'YOUR LESSON'}</span><h3>${esc(n.title)}</h3><p>${esc(n.body)}</p>${n.source?`<small>Source: ${esc(n.source)}</small>`:''}${n.origin==='owner'?`<div><button class="danger-link" data-remove-note="${n.id}">Remove lesson</button></div>`:''}</article>`).join('');
   $$('[data-remove-note]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{state=await api('/knowledge/'+b.dataset.removeNote,'DELETE',{});render();notify('Lesson removed.');}catch(e){notify(e.message,true);}finally{b.disabled=false;}});
-  renderChat();renderSpeech();
+  renderChat();renderSpeech();tradingClassroom.configure(state.tradingSources,state.study);
 }
 async function refresh(quiet=false){
   if(refreshing)return;refreshing=true;
@@ -111,6 +117,7 @@ function voiceStatus(){const p=speechValues(),voice=chooseVoice(p),same=voice?.l
 function refreshVoices(){const select=$('#speech-voice'),selected=speechDirty?select.value:state?.speech?.voiceURI||'';select.replaceChildren(new Option('Choose automatically',''));for(const v of availableVoices())select.add(new Option(`${v.name} · ${v.lang}`,v.voiceURI));if([...select.options].some(o=>o.value===selected))select.value=selected;else if(selected){select.add(new Option('Saved voice unavailable on this device',selected));select.value=selected;}voiceStatus();}
 function say(message,settings){if(!('speechSynthesis' in window)){notify('This browser cannot read aloud. Text chat is available.',true);return;}const p=settings||speechValues(),utterance=new SpeechSynthesisUtterance(message),voice=chooseVoice(p);utterance.lang=voice?.lang||p.replyLocale;utterance.rate=p.rate;if(voice)utterance.voice=voice;utterance.onerror=e=>{if(!['canceled','interrupted'].includes(e.error))notify('The device voice could not play. Try another voice in Speech.',true);};speechSynthesis.cancel();speechSynthesis.speak(utterance);}
 function renderSpeech(){
+  speechPlaylist.configure(state.speechSources,state.speech.playlistRepeat);
   if(!speechDirty){const f=$('#speech-form').elements,p=state.speech;f.listenLocale.value=p.listenLocale;f.replyLocale.value=p.replyLocale;f.rate.value=p.rate;f.readAloud.checked=p.readAloud;refreshVoices();}
   $('#speak').checked=state.speech.readAloud;
   $('#speech-source-count').textContent=state.speechSources.length+' references';

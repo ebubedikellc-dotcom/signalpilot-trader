@@ -75,11 +75,14 @@ test('owner API enforces auth, origin, limits and no trade execution routes',asy
 });
 test('speech preferences survive restart, reject invalid settings atomically and do not start training',async t=>{
   const {service,directory}=await setup(t);
-  await service.settings({speech:{listenLocale:'en-NG',replyLocale:'en-GB',rate:0.8,readAloud:true}});
+  assert.equal(service.snapshot().speech.playlistRepeat,'all');
+  await service.settings({speech:{listenLocale:'en-NG',replyLocale:'en-GB',rate:0.8,readAloud:true,playlistRepeat:'one'}});
   await assert.rejects(service.settings({enabled:false,speech:{listenLocale:'made-up'}}),/Nigerian English/);
   assert.equal(service.snapshot().enabled,true);
   const fresh=await createTradeLord({directory,env:{}});
   assert.equal(fresh.snapshot().speech.rate,0.8);assert.equal(fresh.snapshot().speech.readAloud,true);
+  assert.equal(fresh.snapshot().speech.playlistRepeat,'one');
+  await assert.rejects(fresh.settings({speech:{playlistRepeat:'forever'}}),/Repeat all/);
   assert.equal(fresh.snapshot().speechTraining.audioImported,0);assert.equal(fresh.snapshot().speechTraining.weightsTrained,false);
   assert.equal(fresh.snapshot().speechSources.filter(s=>s.kind==='YouTube reference').length,13);
   await fresh.addNote({title:'My expression: my own side',body:'When I say my own side, I mean the owner control panel.',category:'Speech',rightsConfirmed:true});
