@@ -4680,9 +4680,9 @@ async function handleApi(request, response, url) {
 }
 
 function serveFile(response, pathname) {
-  const safePath = pathname === "/" || pathname === "/control-panel"
+  const safePath = pathname === "/control-panel"
     ? "/control-panel.html"
-    : pathname.startsWith("/player/")
+    : pathname === "/" || pathname.startsWith("/player/") || pathname.startsWith("/join/")
       ? "/index.html"
       : pathname;
   const filePath = path.normalize(path.join(__dirname, safePath));
