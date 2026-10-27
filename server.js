@@ -15,6 +15,7 @@ import { currentExitNotices } from "./lib/exit-status.mjs";
 import { createQuotePacer } from "./lib/quote-pacer.mjs";
 import { sourceAmountsFromSwap } from "./lib/trader-amounts.mjs";
 import { analyzeFrogBrain } from "./lib/frog-brain.mjs";
+import { createTradeLord, handleTradeLordApi } from "./lib/trade-lord.mjs";
 import { sellFraction, proportionalAmount, exitReason, trailingExit, takeBackExit, profitLadderExit, riseStepExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
 import { decodeDirectSwap, verifySourceSignal, canonicalSignalId } from "./lib/direct-signals.mjs";
 import { createServer } from "node:http";
@@ -118,6 +119,27 @@ const usdtMint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 const legacyFrogWallet = "4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh";
 const decuWallet = "4vw54BmAogeRV3vPKWyFet5yf8DTLcREzdSzx4rw9Ud9";
 const supportedProfiles = ["safe", "frog", "truenest"];
+let tradeLordService;
+function getTradeLord() {
+  if (!tradeLordService) tradeLordService = (async () => {
+    const state = await readState();
+    return createTradeLord({
+      directory: path.join(dataDir, "trade-lord"),
+      seedTeachers: supportedProfiles.map(profile => ({ name: ({safe:"Frog",frog:"Deku",truenest:"Trunoest"})[profile], wallet: targetWallet(state,profile) })),
+      validateAddress: wallet => { try { return new PublicKey(wallet).toBase58() === wallet; } catch { return false; } },
+      decode: decodeDirectSwap,
+      readers: async wallet => {
+        const current = await readState();
+        const connection = solanaConnection(current.settings, {priority:-10});
+        return {
+          signatures: options => connection.getSignaturesForAddress(new PublicKey(wallet),options,"confirmed"),
+          transaction: signature => connection.getParsedTransaction(signature,{commitment:"confirmed",maxSupportedTransactionVersion:1})
+        };
+      }
+    });
+  })();
+  return tradeLordService;
+}
 const protectedCapStrategyVersion = "decu-50-cap-v1";
 const surviveBuyUsd = 5;
 const defaultBuyMode = "limits";
@@ -3419,6 +3441,8 @@ async function readDirectTransaction(job) {
       return;
     }
     const decoded = decodeDirectSwap(tx, job.wallet, job.signature, job.observedAt);
+    // Fan out verified public observations only. Training cannot invoke the copier.
+    if (decoded) Promise.resolve().then(() => getTradeLord()).then(service => service.record(job.wallet,decoded,"existing-live-feed").catch(() => service.reportError())).catch(() => {});
     const at = new Date().toISOString();
     for (const profile of supportedProfiles.filter((p) => targetWallet(current,p) === job.wallet)) {
       const key = `${profile}:Solana live`;
@@ -3606,6 +3630,10 @@ function startCopyWorker() {
 }
 
 async function handleApi(request, response, url) {
+  if (url.pathname.startsWith("/api/trade-lord")) {
+    const state = await readState();
+    return handleTradeLordApi({request,response,url,isOwner:sessionFromRequest(request,state)?.role === "owner",service:getTradeLord});
+  }
   if (request.method === 'POST' && url.pathname === '/api/gmgn/check') {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
@@ -4608,6 +4636,8 @@ async function handleApi(request, response, url) {
 function serveFile(response, pathname) {
   const safePath = pathname === "/" || pathname === "/control-panel"
     ? "/control-panel.html"
+    : pathname === "/trade-lord" || pathname === "/trade-lord/"
+      ? "/trade-lord.html"
     : pathname.startsWith("/player/")
       ? "/index.html"
       : pathname;
@@ -4639,4 +4669,5 @@ createServer(async (request, response) => {
 }).listen(port, host, () => {
   console.log(`SignalPilot site running on ${host}:${port}`);
   startCopyWorker();
+  if (process.env.TRADE_LORD_DISABLED !== "true") getTradeLord().then(service => service.start()).catch(() => console.error("Trade Lord memory unavailable; observer did not start."));
 });
