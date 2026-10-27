@@ -81,10 +81,13 @@ test('speech preferences survive restart, reject invalid settings atomically and
   const fresh=await createTradeLord({directory,env:{}});
   assert.equal(fresh.snapshot().speech.rate,0.8);assert.equal(fresh.snapshot().speech.readAloud,true);
   assert.equal(fresh.snapshot().speechTraining.audioImported,0);assert.equal(fresh.snapshot().speechTraining.weightsTrained,false);
-  assert.equal(fresh.snapshot().speechSources.filter(s=>s.kind==='YouTube reference').length,10);
+  assert.equal(fresh.snapshot().speechSources.filter(s=>s.kind==='YouTube reference').length,13);
   await fresh.addNote({title:'My expression: my own side',body:'When I say my own side, I mean the owner control panel.',category:'Speech',rightsConfirmed:true});
   const reply=await fresh.chat({message:'Do you understand my Nigerian English speech?'});
   assert.match(reply.text,/No videos or audio have been imported/);assert.match(reply.text,/owner control panel/);assert.equal(reply.engine,'evidence');
+  await fresh.settings({speech:{listenLocale:'en-US',replyLocale:'en-US'}});
+  const us=await createTradeLord({directory,env:{}});
+  assert.equal(us.snapshot().speech.listenLocale,'en-US');assert.equal(us.snapshot().speech.replyLocale,'en-US');
   await assert.rejects(fresh.settings({speech:{rate:0}}),/Speech speed/);
   await assert.rejects(fresh.settings({speech:{readAloud:'yes'}}),/true or false/);
 });
