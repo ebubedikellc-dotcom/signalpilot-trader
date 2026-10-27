@@ -1,20 +1,19 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#172c24"><meta name="description" content="Talk to Trade Lord, your personal trading research assistant."><title>Trade Lord</title><link rel="stylesheet" href="/trade-lord.css?v=4"><script type="module" src="/trade-lord.js?v=4"></script></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#172c24"><meta name="description" content="Talk to Trade Lord for free. Explore trading ideas with no account or subscription required."><title>Trade Lord</title><link rel="stylesheet" href="/trade-lord.css?v=4"><script type="module" src="/trade-lord.js?v=5"></script></head>
 <body>
-  <header class="top"><a href="/trade-lord" class="brand"><span class="brand-mark">♜</span> TRADE LORD</a><a href="/control-panel/trade-lord" class="settings-link">Owner settings ↗</a></header>
+  <header class="top"><a href="/trade-lord" class="brand"><span class="brand-mark">♜</span> TRADE LORD</a><a id="owner-settings" href="/control-panel/trade-lord" class="settings-link" hidden>Owner settings ↗</a></header>
   <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
   <main>
-    <section id="login" class="login-card" hidden><span class="eyebrow">YOUR PERSONAL ASSISTANT</span><h1>Meet Trade Lord.</h1><p>Use your existing owner account.</p><form id="login-form"><label>Owner email<input name="email" type="email" autocomplete="email" required></label><button class="primary" type="submit">Open Trade Lord ↗</button></form></section>
-    <div id="workspace" class="conversation" hidden>
+    <div id="workspace" class="conversation">
       <section class="presence" aria-labelledby="greeting">
-        <span class="eyebrow">A CONVERSATION. A CLEARER VIEW.</span>
+        <span class="eyebrow">FREE TO USE. NO SUBSCRIPTION.</span>
         <div id="lord-face" class="face" data-state="idle" role="img" aria-label="Trade Lord is ready"><div class="face-ring"></div><div class="face-core"><svg viewBox="0 0 180 160" aria-hidden="true"><path class="face-outline" d="M45 43Q90 13 135 43L144 104Q123 141 90 143Q57 141 36 104Z"/><path class="face-crown" d="M64 27 70 13 90 23 110 13 116 27"/><g class="eyes"><path d="M56 73h19M105 73h19"/></g><path class="mouth" d="M71 105Q90 116 109 105"/></svg></div><span class="face-spark one"></span><span class="face-spark two"></span></div>
-        <h1 id="greeting">I’m here. What’s on your mind?</h1><p id="presence-status" role="status">Ask a question, share an idea, or tell me what to remember.</p>
+        <h1 id="greeting">I’m here. What’s on your mind?</h1><p id="presence-status" role="status">Ask a question or share an idea. No account needed.</p>
         <button id="talk" class="talk-button" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v3M9 21h6"/></svg><span>Talk to me</span></button><small id="voice-hint">Or type your message below.</small>
       </section>
-      <section class="dialogue" aria-label="Your conversation"><div id="chat-messages" class="messages" role="log" aria-live="polite"></div><div id="suggestions" class="suggestions"><button data-ask="What have you learned about my traders?">What have you learned?</button><button data-ask="Explain slippage simply.">Explain a trading idea</button></div>
+      <section class="dialogue" aria-label="Your conversation"><div id="chat-messages" class="messages" role="log" aria-live="polite"></div><div id="suggestions" class="suggestions"><button id="first-question" data-ask="What can you help me with?">What can you help with?</button><button data-ask="Explain slippage simply.">Explain a trading idea</button></div>
         <form id="chat-form" class="composer"><label class="sr-only" for="chat-input">Message Trade Lord</label><textarea id="chat-input" rows="2" maxlength="2000" placeholder="Talk to Trade Lord…" required></textarea><button class="send" type="submit" aria-label="Send message">↑</button></form>
-        <div class="conversation-options"><label><input id="speak" type="checkbox"> Speak replies</label><button id="stop-voice" type="button">Stop voice</button><span id="engine">Checking connection…</span></div><p class="footnote">You can say “Remember that…” to save a lesson, or “Pause observation”. Trade Lord cannot place trades or move money.</p>
+        <div class="conversation-options"><label><input id="speak" type="checkbox"> Speak replies</label><button id="stop-voice" type="button">Stop voice</button><button id="clear-chat" type="button">Clear conversation</button><span id="engine">Checking connection…</span></div><p id="access-note" class="footnote">This conversation stays in this browser tab. Trade Lord cannot place trades or move money.</p>
       </section>
     </div>
   </main><footer>TRADE LORD <span>Your knowledge. One conversation.</span></footer>

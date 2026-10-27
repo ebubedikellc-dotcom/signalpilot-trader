@@ -1,6 +1,14 @@
 # Trade Lord
 
-Conversation face: `/trade-lord`. Private training controls: `/control-panel/trade-lord`, linked from the existing owner control panel. Uses the existing SignalPilot owner session. No login changes are included in this feature.
+Open conversation face: `/trade-lord`. Visitors need no account, payment, ChatGPT sign-in or subscription. Private training controls stay at `/control-panel/trade-lord`, linked from the existing owner control panel and protected by the existing SignalPilot owner session. SignalPilot trading login is unchanged. Source remains on GitHub; the application is configured for Render hosting.
+
+## Free public access and private owner memory
+
+- `/api/trade-lord/public` exposes only public assistant status and default speech preferences. `/api/trade-lord/public/chat` answers visitors from bundled general lessons and, when configured, the site's own Ollama model.
+- Visitor chat does not read owner notes, uploaded video passages, wallet observations, owner chat history or private settings. It cannot save training or pause/resume observation. Existing private content is not published by opening the conversation page.
+- Visitor history and voice preference live only in that browser tab's session storage. Recent messages are sent to the site's backend to answer the current question; they are not persisted in owner memory. Clear conversation removes the tab's history. Up to eight recent messages go to the configured model. The public route permits two concurrent responses and 30 requests per minute across the instance to bound server load.
+- A previously signed-in owner retains their private conversation, saved video knowledge and owner actions on the same face. The owner link is hidden from unsigned visitors. Uploads and the control panel remain private.
+- There is no OpenAI API integration or ChatGPT account requirement in this application. The optional Render connector is only a development tool for managing hosting from a chat; it is not a runtime dependency. Free visitor access does not remove Render hosting or other infrastructure costs.
 
 ## What runs
 
@@ -13,7 +21,7 @@ Conversation face: `/trade-lord`. Private training controls: `/control-panel/tra
 
 ## Conversational language model
 
-Without a model, the interface explicitly says **Saved-knowledge answers · full conversation model not connected**. Answers are generated from deterministic statistics and relevant saved lessons. This is not general-purpose AI conversation, and no model weights are trained.
+Without a model, the interface explicitly says **Written-lesson answers · full conversation model not connected**. Owner answers use deterministic statistics and relevant saved lessons. Public answers use only bundled general lessons. This is not general-purpose AI conversation, and no model weights are trained.
 
 A separately hosted Ollama model can be connected using server environment variables:
 
