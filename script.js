@@ -1527,7 +1527,45 @@ function renderCustomer(customer) {
   renderAddresses(customer.depositAddresses || []);
 }
 
+function renderOwnerDeposits(deposits = []) {
+  const wrap = $("ownerDepositRequests");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const rows = [...deposits].reverse();
+  if (!rows.length) {
+    wrap.innerHTML = '<p class="muted">No deposit request yet.</p>';
+    return;
+  }
+  rows.forEach((deposit) => {
+    const card = document.createElement("article");
+    card.className = "address-card";
+    card.innerHTML = `
+      <strong>${escapeHtml(deposit.customerName || deposit.customerEmail || "Customer")}</strong>
+      <span>${money(deposit.amount)} · ${escapeHtml(deposit.asset || "USDC")} · ${escapeHtml(deposit.status || "pending")}</span>
+      <small>${escapeHtml(deposit.customerEmail || "")} ${deposit.createdAt ? "· " + escapeHtml(new Date(deposit.createdAt).toLocaleString()) : ""}</small>
+      ${deposit.status === "pending" ? '<div class="hero-actions"><button class="primary-action approve-deposit" type="button">Approve and credit</button><button class="secondary-action reject-deposit" type="button">Reject</button></div>' : ""}
+    `;
+    card.querySelector(".approve-deposit")?.addEventListener("click", () => reviewDeposit(deposit.id, "approve"));
+    card.querySelector(".reject-deposit")?.addEventListener("click", () => reviewDeposit(deposit.id, "reject"));
+    wrap.appendChild(card);
+  });
+}
+
+async function reviewDeposit(id, action) {
+  try {
+    const result = await api(`/api/owner/deposit/${encodeURIComponent(id)}`, {
+      method: "POST",
+      body: JSON.stringify({ action })
+    });
+    renderOwner({ owner: { email: value("ownerEmail") }, ...result });
+    showBusinessMessage(action === "approve" ? "Deposit approved and customer balance credited." : "Deposit rejected.");
+  } catch (error) {
+    showBusinessMessage(error.message, true);
+  }
+}
+
 function renderOwner(data) {
+  renderOwnerDeposits(data.deposits || []);
   setText("ownerIdentity", `Logged in as ${data.owner?.email || "owner"}.`);
   setText("ownerCustomerCount", data.summary?.customers || 0);
   setText("ownerTotalDeposits", money(data.summary?.deposited));
