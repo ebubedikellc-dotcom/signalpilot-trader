@@ -1,111 +1,155 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SignalPilot Trader</title>
-  <meta name="description" content="Log in to your SignalPilot account, deposit crypto, view your balance and request withdrawals.">
-  <link rel="stylesheet" href="./styles.css?v=customer-login-v1">
-</head>
-<body data-page="customer">
-  <main class="app-shell public-shell">
-    <header class="topbar public-hero">
-      <div>
-        <p class="eyebrow">SignalPilot Trader</p>
-        <h1>Log in to enter SignalPilot.</h1>
-        <p class="lede">Your account keeps your deposit wallet, balance, trading plan and withdrawals in one place.</p>
-      </div>
-      <div class="system-card">
-        <span class="system-label">Customer access</span>
-        <strong>Simple and private</strong>
-        <small>Log in first. Then deposit and manage your account from your dashboard.</small>
-      </div>
-    </header>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SignalPilot Trader</title>
+    <meta name="description" content="SignalPilot customer trading dashboard for deposits, plans, balances, and withdrawals.">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2309161f'/%3E%3Cpath d='M14 41h36' stroke='%232ee6a6' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M18 37l9-12 9 8 10-15' fill='none' stroke='%23f6c95c' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='48' cy='18' r='5' fill='%232ee6a6'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body data-page="customer">
+    <main class="app-shell public-shell">
+      <header class="topbar public-hero">
+        <div>
+          <p class="eyebrow">SignalPilot Trader</p>
+          <h1>Your private trading link.</h1>
+          <p class="lede">No password and no email login. Open the private link the owner gives you, deposit there, watch your balance and profit there, and withdraw from there.</p>
+          <div class="hero-actions">
+            <a class="link-action" href="#customerPortalTitle">Open my link</a>
+            <a class="secondary-link" href="/control-panel">Owner control panel</a>
+          </div>
+        </div>
+        <div class="system-card">
+          <span class="system-label">Simple access</span>
+          <strong>One link, one account</strong>
+          <small>Your link is your private door. Keep it safe because it opens your balance, deposit wallet, and withdrawal room.</small>
+        </div>
+      </header>
 
-    <section class="business-portal customer-entry" aria-labelledby="customerPortalTitle">
-      <div class="section-title">
-        <div><p class="eyebrow">Customer Login</p><h2 id="customerPortalTitle">Enter your account</h2></div>
-        <button id="logoutButton" class="secondary-action hidden" type="button">Log out</button>
-      </div>
-
-      <div id="authPanel" class="auth-grid customer-auth-grid">
-        <article class="login-card">
-          <span class="login-badge">Log in</span>
-          <h3>Welcome back</h3>
-          <label>Email <input id="customerLoginEmail" type="email" autocomplete="email" placeholder="you@example.com"></label>
-          <label>Password <input id="customerLoginPassword" type="password" autocomplete="current-password" placeholder="Your password"></label>
-          <button id="customerLogin" class="primary-action" type="button">Log in</button>
-        </article>
-
-        <article class="login-card" id="createAccount">
-          <span class="login-badge">New customer</span>
-          <h3>Create an account</h3>
-          <label>Full name <input id="signupName" autocomplete="name" placeholder="Your name"></label>
-          <label>Email <input id="signupEmail" type="email" autocomplete="email" placeholder="you@example.com"></label>
-          <label>Password <input id="signupPassword" type="password" autocomplete="new-password" placeholder="At least 6 characters"></label>
-          <button id="customerSignup" class="primary-action" type="button">Create my account</button>
-          <p id="referralSignupCard" class="muted hidden">Your referral invitation is active.</p>
-        </article>
-      </div>
-
-      <div id="customerPanel" class="customer-dashboard hidden">
-        <div class="dashboard-head">
-          <div><span class="login-badge">My Dashboard</span><h3 id="customerWelcome">My account</h3><p>Deposit, view your balance and request a withdrawal here.</p></div>
+      <section class="business-portal customer-entry" aria-labelledby="customerPortalTitle">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Customer Access</p>
+            <h2 id="customerPortalTitle">Open your private trading room</h2>
+          </div>
+          <button id="logoutButton" class="secondary-action hidden" type="button">Log out</button>
         </div>
 
-        <div class="metric-grid customer-summary">
-          <article><span>Deposited</span><strong id="customerDeposited">$0.00</strong></article>
-          <article><span>Withdrawable</span><strong id="customerWithdrawable">$0.00</strong></article>
-          <article><span>Status</span><strong id="customerStatus">Active</strong></article>
-        </div>
-        <div class="customer-profit-line">
-          <span>Gain: <strong id="customerProfit">$0.00</strong></span>
-          <span>Business share: <strong id="customerOwnerShare">$0.00</strong></span>
-          <span>Referral earned: <strong id="customerReferralRewards">$0.00</strong></span>
-          <span>You keep: <strong id="customerNetProfit">$0.00</strong></span>
-        </div>
-        <p id="customerShareRule" class="share-rule"></p>
-        <p id="customerReferredBy" class="share-rule"></p>
-
-        <div class="customer-tools">
-          <article class="tool-card deposit-card">
-            <span class="login-badge">Deposit</span>
-            <h4>Add money</h4>
-            <p class="muted">Choose the amount and coin. We will show the wallet to pay.</p>
-            <label>Amount in USD <input id="depositAmount" type="number" min="1" step="0.01" inputmode="decimal" placeholder="100"></label>
-            <label>Pay with
-              <select id="depositCurrency"><option value="USDC">USDC on Solana</option><option value="SOL">SOL</option></select>
-            </label>
-            <label>Trading plan
-              <select id="customerPlan"><option value="frog">Decu Win</option><option value="truenest">Risk Win</option><option value="both">Auto-switch</option></select>
-            </label>
-            <button id="saveCustomerPlan" class="primary-action" type="button">Show payment wallet</button>
-            <div id="depositAddresses" class="deposit-addresses"></div>
-            <button id="confirmDeposit" class="secondary-action" type="button">I have sent this deposit</button>
-            <p id="customerDepositStatus" class="muted">Your balance is credited after the payment is verified.</p>
+        <div id="authPanel" class="auth-grid customer-auth-grid">
+          <article class="login-card" id="customerLoginCard">
+            <span class="login-badge">Private Link</span>
+            <h3>Paste your link</h3>
+            <p>If the owner sent you a private link, paste it here and open your own money room.</p>
+            <label>Private customer link <input id="customerLinkInput" autocomplete="off" placeholder="https://signalpilot-trader.onrender.com/player/..."></label>
+            <button id="openCustomerLink" class="primary-action" type="button">Open my trading room</button>
           </article>
 
-          <article class="tool-card">
-            <span class="login-badge">Withdraw</span>
-            <h4>Request withdrawal</h4>
-            <label>Amount <input id="withdrawAmount" inputmode="decimal" placeholder="0"></label>
-            <label>Your Solana wallet <input id="withdrawWallet" placeholder="Paste wallet address"></label>
-            <button id="requestWithdraw" class="primary-action" type="button">Request withdrawal</button>
-          </article>
-
-          <article class="tool-card">
-            <span class="login-badge">Referral</span>
-            <h4>Invite people</h4>
-            <p class="muted" id="customerReferralRule"></p>
-            <label>Your referral link <input id="customerReferralLink" readonly></label>
-            <button id="createReferralLink" class="primary-action" type="button">Create referral link</button>
-            <button id="copyReferralLink" class="secondary-action" type="button">Copy referral link</button>
+          <article class="login-card" id="createAccount">
+            <span class="login-badge">Invite Signup</span>
+            <h3>Create your account</h3>
+            <p>Open an invite/referral link, register, and your trading account is created automatically.</p>
+            <label>Name <input id="signupName" autocomplete="name" placeholder="Your name"></label>
+            <label>Email <input id="signupEmail" autocomplete="email" placeholder="you@example.com"></label>
+            <label>Password <input id="signupPassword" autocomplete="new-password" type="password" placeholder="At least 6 characters"></label>
+            <button id="customerSignup" class="primary-action" type="button">Register and create wallet</button>
+            <p id="referralSignupCard" class="muted hidden">This signup is linked to a referral. Your deposit wallet appears after registration.</p>
           </article>
         </div>
-      </div>
-      <p id="businessMessage" class="message-line"></p>
-    </section>
-  </main>
-  <script src="./script.js?v=customer-login-v1"></script>
-</body>
+
+        <div id="customerPanel" class="customer-dashboard hidden">
+          <div class="dashboard-head">
+            <div>
+              <span class="login-badge">Customer Dashboard</span>
+              <h3 id="customerWelcome">Your account</h3>
+              <p>This is your private room. Deposit here, trade from here, and withdraw from here.</p>
+            </div>
+          </div>
+
+          <div class="metric-grid customer-summary">
+            <article><span>Deposited</span><strong id="customerDeposited">$0.00</strong></article>
+            <article><span>Withdrawable</span><strong id="customerWithdrawable">$0.00</strong></article>
+            <article><span>Status</span><strong id="customerStatus">Active</strong></article>
+          </div>
+          <div class="customer-profit-line">
+            <span>Gain: <strong id="customerProfit">$0.00</strong></span>
+            <span>Business share: <strong id="customerOwnerShare">$0.00</strong></span>
+            <span>Referral earned: <strong id="customerReferralRewards">$0.00</strong></span>
+            <span>You keep: <strong id="customerNetProfit">$0.00</strong></span>
+          </div>
+          <p id="customerShareRule" class="share-rule">Business share: 0% of gain only.</p>
+          <p id="customerReferredBy" class="share-rule">Direct owner/customer account.</p>
+
+          <div class="customer-tools">
+            <article class="tool-card deposit-card">
+              <span class="login-badge">Step 1</span>
+              <h4>Deposit money</h4>
+              <p class="muted">Copy the wallet, send SOL or USDC, then your balance shows after the owner confirms your deposit.</p>
+              <label>
+                Choose plan
+                <select id="customerPlan">
+                  <option value="frog">Decu Win</option>
+                  <option value="truenest">Risk Win</option>
+                  <option value="both">Auto-switch</option>
+                </select>
+              </label>
+              <button id="saveCustomerPlan" class="secondary-action" type="button">Show my deposit wallet</button>
+              <div id="depositAddresses" class="deposit-addresses"></div>
+              <div class="deposit-help">
+                <strong>After sending money</strong>
+                <span>Your balance shows after the owner confirms your deposit.</span>
+              </div>
+            </article>
+
+            <article class="tool-card">
+              <span class="login-badge">Step 2</span>
+              <h4>Withdraw later</h4>
+              <p class="muted">When your withdrawable balance is ready, enter the amount and your wallet.</p>
+              <label>Amount <input id="withdrawAmount" inputmode="decimal" placeholder="0"></label>
+              <label>Your Solana wallet <input id="withdrawWallet" placeholder="Paste wallet address"></label>
+              <button id="requestWithdraw" class="primary-action" type="button">Request withdrawal</button>
+            </article>
+
+            <article class="tool-card">
+              <span class="login-badge">Referral</span>
+              <h4>Invite people</h4>
+              <p class="muted" id="customerReferralRule">Your referral link pays 5% from profit only.</p>
+              <label>Your referral link <input id="customerReferralLink" readonly placeholder="Create your referral link"></label>
+              <button id="createReferralLink" class="primary-action" type="button">Create referral link</button>
+              <button id="copyReferralLink" class="secondary-action" type="button">Copy referral link</button>
+            </article>
+          </div>
+        </div>
+
+        <p id="businessMessage" class="message-line"></p>
+      </section>
+
+      <section class="easy-setup public-steps customer-only hidden" aria-labelledby="howItWorksTitle">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">How deposit works</p>
+            <h2 id="howItWorksTitle">Simple steps</h2>
+          </div>
+        </div>
+        <div class="simple-steps">
+          <article class="active-step">
+            <span>1</span>
+            <strong>Open private link</strong>
+            <p>The owner gives you your own link.</p>
+          </article>
+          <article>
+            <span>2</span>
+            <strong>Copy wallet</strong>
+            <p>Choose Decu Win, Risk Win, or auto-switch, then copy the same main deposit address.</p>
+          </article>
+          <article>
+            <span>3</span>
+            <strong>Send and wait</strong>
+            <p>Your balance appears after the owner confirms payment.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+    <script src="./script.js?v=high-risk-profit-run-v4"></script>
+  </body>
 </html>
