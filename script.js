@@ -1527,45 +1527,7 @@ function renderCustomer(customer) {
   renderAddresses(customer.depositAddresses || []);
 }
 
-function renderOwnerDeposits(deposits = []) {
-  const wrap = $("ownerDepositRequests");
-  if (!wrap) return;
-  wrap.innerHTML = "";
-  const rows = [...deposits].reverse();
-  if (!rows.length) {
-    wrap.innerHTML = '<p class="muted">No deposit request yet.</p>';
-    return;
-  }
-  rows.forEach((deposit) => {
-    const card = document.createElement("article");
-    card.className = "address-card";
-    card.innerHTML = `
-      <strong>${escapeHtml(deposit.customerName || deposit.customerEmail || "Customer")}</strong>
-      <span>${money(deposit.amount)} · ${escapeHtml(deposit.asset || "USDC")} · ${escapeHtml(deposit.status || "pending")}</span>
-      <small>${escapeHtml(deposit.customerEmail || "")} ${deposit.createdAt ? "· " + escapeHtml(new Date(deposit.createdAt).toLocaleString()) : ""}</small>
-      ${deposit.status === "pending" ? '<div class="hero-actions"><button class="primary-action approve-deposit" type="button">Approve and credit</button><button class="secondary-action reject-deposit" type="button">Reject</button></div>' : ""}
-    `;
-    card.querySelector(".approve-deposit")?.addEventListener("click", () => reviewDeposit(deposit.id, "approve"));
-    card.querySelector(".reject-deposit")?.addEventListener("click", () => reviewDeposit(deposit.id, "reject"));
-    wrap.appendChild(card);
-  });
-}
-
-async function reviewDeposit(id, action) {
-  try {
-    const result = await api(`/api/owner/deposit/${encodeURIComponent(id)}`, {
-      method: "POST",
-      body: JSON.stringify({ action })
-    });
-    renderOwner({ owner: { email: value("ownerEmail") }, ...result });
-    showBusinessMessage(action === "approve" ? "Deposit approved and customer balance credited." : "Deposit rejected.");
-  } catch (error) {
-    showBusinessMessage(error.message, true);
-  }
-}
-
 function renderOwner(data) {
-  renderOwnerDeposits(data.deposits || []);
   setText("ownerIdentity", `Logged in as ${data.owner?.email || "owner"}.`);
   setText("ownerCustomerCount", data.summary?.customers || 0);
   setText("ownerTotalDeposits", money(data.summary?.deposited));
@@ -1807,23 +1769,6 @@ async function saveCustomerPlan() {
     });
     renderCustomer(result.customer);
     showBusinessMessage("Trading wallet choice saved.");
-  } catch (error) {
-    showBusinessMessage(error.message, true);
-  }
-}
-
-async function submitDepositRequest() {
-  try {
-    const amount = Number(value("depositAmount"));
-    const asset = value("depositCurrency") || "USDC";
-    if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter the amount you sent.");
-    const result = await api("/api/customer/deposit", {
-      method: "POST",
-      body: JSON.stringify({ amount, asset, plan: value("customerPlan") })
-    });
-    setText("customerDepositStatus", `Deposit request received: ${money(amount)} ${asset}. The owner will verify the payment and credit your balance.`);
-    showBusinessMessage("Deposit submitted for verification.");
-    if (result.customer) renderCustomer(result.customer);
   } catch (error) {
     showBusinessMessage(error.message, true);
   }
@@ -2256,7 +2201,6 @@ on("copyReferralLink", "click", copyReferralLink);
 on("openCustomerLink", "click", openCustomerLink);
 on("ownerCreateCustomer", "click", ownerCreateCustomer);
 on("saveCustomerPlan", "click", saveCustomerPlan);
-on("confirmDeposit", "click", submitDepositRequest);
 on("requestWithdraw", "click", requestWithdrawal);
 on("logoutButton", "click", logout);
 on("installOwnerApp", "click", installOwnerApp);
