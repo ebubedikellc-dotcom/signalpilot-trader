@@ -187,22 +187,12 @@
 
         <div id="ownerPanel" class="owner-dashboard hidden">
           <section class="wallet-remaining" aria-labelledby="tradeLordTitle">
-            <p class="eyebrow">Training AI · Observation only</p>
+            <p class="eyebrow">Your AI assistant</p>
             <h2 id="tradeLordTitle">Trade Lord</h2>
-            <p>Your separate training room for watching traders, studying their moves and saving your trading knowledge.</p>
-            <a class="primary-action" href="/trade-lord">Open Trade Lord ↗</a>
-            <details style="margin-top:20px"><summary>Teach Trade Lord a lesson</summary>
-              <form id="tradeLordLesson">
-                <label>Lesson title<input name="title" maxlength="120" required placeholder="What should Trade Lord learn?"></label>
-                <label>Trading knowledge<textarea name="body" rows="5" maxlength="12000" required placeholder="Add your explanation, research or trading rules. Keep private keys and passwords out of this box."></textarea></label>
-                <label>Source (optional)<input name="source" maxlength="300" placeholder="Your notes or a reference"></label>
-                <label><input type="checkbox" name="rightsConfirmed" required> This is my knowledge or material I have permission to use.</label>
-                <button class="primary-action" type="submit">Save lesson to Trade Lord</button>
-                <p id="tradeLordSaveStatus" role="status">Your lesson stays saved when you leave this page.</p>
-              </form>
-            </details>
+            <p>Talk to Trade Lord, or upload videos and manage its knowledge here in your private control panel.</p>
+            <a class="primary-action" href="/trade-lord">Talk to Trade Lord ↗</a>
+            <a class="secondary-action" href="/control-panel/trade-lord">Train Trade Lord · Upload videos ↗</a>
           </section>
-          <script src="/trade-lord-panel.js?v=1" defer></script>
           <div class="dashboard-head">
             <div>
               <span class="login-badge">Owner Mode</span>

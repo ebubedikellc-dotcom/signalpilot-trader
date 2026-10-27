@@ -4638,6 +4638,8 @@ function serveFile(response, pathname) {
     ? "/control-panel.html"
     : pathname === "/trade-lord" || pathname === "/trade-lord/"
       ? "/trade-lord.html"
+    : pathname === "/control-panel/trade-lord" || pathname === "/control-panel/trade-lord/"
+      ? "/trade-lord-training.html"
     : pathname.startsWith("/player/")
       ? "/index.html"
       : pathname;
