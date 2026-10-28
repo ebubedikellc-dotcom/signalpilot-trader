@@ -1,0 +1,14 @@
+{$HUB_DOMAIN} {
+  basic_auth {
+    {$HUB_OWNER} {$HUB_PASSWORD_HASH}
+  }
+  header {
+    X-Frame-Options DENY
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+  }
+  request_body {
+    max_size 100MB
+  }
+  reverse_proxy web:8080
+}

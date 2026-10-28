@@ -1,0 +1,1 @@
+{"private":true,"scripts":{"dev":"HUB_DATA=/tmp/trade-lord-hub-preview python3 server.py"}}

@@ -1,0 +1,54 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: training-hub/Dockerfile
+    restart: unless-stopped
+    volumes: [hub-data:/data]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      QWEN_MODEL: qwen3:4b
+    networks: [private]
+  worker:
+    build:
+      context: ..
+      dockerfile: training-hub/Dockerfile
+    command: [python, worker.py]
+    restart: unless-stopped
+    volumes: [hub-data:/data]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      QWEN_MODEL: qwen3:4b
+    networks: [private, outbound]
+    mem_limit: 3g
+    cpus: 3
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes: [models:/root/.ollama]
+    environment:
+      OLLAMA_NUM_PARALLEL: 1
+      OLLAMA_MAX_LOADED_MODELS: 1
+      OLLAMA_CONTEXT_LENGTH: 8192
+    networks: [private, outbound]
+    mem_limit: 7g
+    cpus: 3
+  gateway:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ['80:80','443:443']
+    volumes: ['./Caddyfile:/etc/caddy/Caddyfile:ro',caddy-data:/data,caddy-config:/config]
+    environment:
+      HUB_DOMAIN: ${HUB_DOMAIN:?Set the training site domain}
+      HUB_OWNER: ${HUB_OWNER:?Set owner email}
+      HUB_PASSWORD_HASH: ${HUB_PASSWORD_HASH:?Generate an owner password hash}
+    networks: [private,outbound]
+networks:
+  private:
+    internal: true
+  outbound: {}
+volumes:
+  hub-data: {}
+  models: {}
+  caddy-data: {}
+  caddy-config: {}
