@@ -1,5 +1,6 @@
 {$HUB_DOMAIN} {
-  basic_auth {
+  @owner not path /v1/chat
+  basic_auth @owner {
     {$HUB_OWNER} {$HUB_PASSWORD_HASH}
   }
   header {
@@ -7,7 +8,12 @@
     X-Content-Type-Options nosniff
     Referrer-Policy no-referrer
   }
-  request_body {
+  @restore path /api/import
+  request_body @restore {
+    max_size 21GB
+  }
+  @regular not path /api/import
+  request_body @regular {
     max_size 100MB
   }
   reverse_proxy web:8080
