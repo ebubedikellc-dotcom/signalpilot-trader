@@ -19,6 +19,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         route=urlparse(self.path).path
         if route=='/': return self.send(200,Path(__file__).with_name('index.html').read_bytes(),'text/html; charset=utf-8')
+        if route=='/api/brain-link': return self.send(200,{'url':store.brain_link()})
         if route=='/api/jobs': return self.send(200,{'jobs':store.jobs(),'topics':store.topics(),'bytes':store.space(),'quota':store.QUOTA})
         if route.startswith('/api/job/'):
             try: return self.send(200,store.get(route.rsplit('/',1)[1]))
@@ -56,6 +57,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200,{'ok':True})
             if not 0<size<=20000: raise ValueError('Request too large or empty.')
             data=json.loads(self.rfile.read(size))
+            if route=='/api/brain-link':
+                return self.send(200,{'url':store.save_brain_link(data.get('url',''))})
             if route=='/api/topic':
                 return self.send(201,{'id':store.add_topic(data.get('topic',''))})
             if route=='/api/add':

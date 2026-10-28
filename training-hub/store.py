@@ -13,6 +13,7 @@ def connect():
     db.execute('PRAGMA journal_mode=WAL')
     db.execute('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, url TEXT UNIQUE, status TEXT, detail TEXT, created REAL, updated REAL, transcript TEXT, lessons TEXT)')
     db.execute("CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, topic TEXT, status TEXT, detail TEXT, created REAL)")
+    db.execute("CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
     return db
 
 def canonical(value):
@@ -95,3 +96,21 @@ def claim_topic():
         if not row:return None
         db.execute("UPDATE topics SET status='searching' WHERE id=?",(row['id'],))
         return dict(row)
+
+
+def brain_link():
+    with connect() as db:
+        row=db.execute("SELECT value FROM settings WHERE name='brain_link'").fetchone()
+    return row['value'] if row else ''
+
+def save_brain_link(value):
+    value=str(value).strip()
+    if len(value)>2000: raise ValueError('Link is too long.')
+    if value:
+        u=urlparse(value)
+        if u.scheme!='https' or not u.hostname or u.username or u.password or u.query or u.fragment:
+            raise ValueError('Use the HTTPS address of your private Qwen page, without passwords, keys or query parameters.')
+        value=value.rstrip('/')
+    with connect() as db:
+        db.execute("INSERT INTO settings(name,value) VALUES ('brain_link',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",(value,))
+    return value

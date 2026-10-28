@@ -9,6 +9,14 @@ class HubTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();store.ROOT=Path(self.temp.name)
     def tearDown(self): self.temp.cleanup()
+    def test_brain_link_persists_and_rejects_credentials(self):
+        self.assertEqual(store.brain_link(),'')
+        store.save_brain_link('https://brain.example.com/')
+        self.assertEqual(store.brain_link(),'https://brain.example.com')
+        for value in ('javascript:alert(1)','http://brain.example.com','https://user:pass@brain.example.com','https://brain.example.com/?key=secret'):
+            with self.assertRaises(ValueError):store.save_brain_link(value)
+        self.assertEqual(store.brain_link(),'https://brain.example.com')
+        store.save_brain_link('');self.assertEqual(store.brain_link(),'')
     def test_link_canonicalization_and_duplicates(self):
         a=store.add('Lesson','https://youtu.be/abcdefghijk')
         b=store.add('Duplicate','https://www.youtube.com/watch?v=abcdefghijk&list=anything')
