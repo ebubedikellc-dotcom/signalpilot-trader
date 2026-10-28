@@ -112,3 +112,16 @@ Official processing references:
 - https://github.com/SYSTRAN/faster-whisper/releases/tag/v1.2.1
 - https://ffmpeg.org/ffmpeg.html
 - https://tesseract-ocr.github.io/tessdoc/Command-Line-Usage.html
+
+
+## Video links and retention (October 2026)
+
+The private training panel accepts YouTube video/playlist references and approved direct HTTPS MP4/MOV/M4V/WebM sources. Importing the curated references is idempotent. YouTube references remain `needs_source`; no scraping, cookies, playlist expansion or assumed permission is implemented. An owner can attach an authorized direct video to an existing reference, preserving its source citation. Links alone do not train model weights.
+
+Configure `TRADE_LORD_VIDEO_SOURCE_HOSTS` as the same comma-separated exact host allowlist on the web service and worker. Do not include arbitrary URL shorteners or proxy hosts. Direct URLs cannot contain credentials, query tokens or custom ports. The worker pins a validated public IP while verifying TLS for the hostname, refuses redirects, caps downloads at 100 MB and three minutes, and decodes local files only. Existing owner authentication, worker token and per-job leases remain required.
+
+For direct-link processing, mount persistent worker storage and set `TRADE_LORD_VIDEO_ARCHIVE_DIR` to a private writable directory on that mount. The process user is UID 10001. The archive currently caps files at 500 MB, independently of the web upload quota; capacity errors retain sources. Original files from direct links remain on the worker for later visual/audio review, including after a job fails. Removing a link record does not erase its worker archive: an operator must separately manage that archive. No archives, credentials, videos or transcripts belong in GitHub.
+
+Uploaded originals stay on the web disk. After successful processing, the owner can choose “Remove original · keep knowledge”; the server rereads committed knowledge before removing the file. Failed/unfinished jobs cannot be released. The current speech/OCR processor cannot confidently decide that all visual or audio learning is complete, so it conservatively retains originals. Automatic selective clips and Qwen vision analysis are not implemented. There is no automatic model fine-tuning.
+
+Current capacity: 100 saved job records, 100 MB per video, 500 MB original uploads, 60-minute videos. Original-byte counters exclude the JSON memory, model weights and worker archive. Increasing software limits does not provision disk or GPU resources. Paid compute, storage mounts and a running worker still need to be connected; this commit provisions none of them.

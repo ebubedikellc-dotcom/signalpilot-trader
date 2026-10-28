@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from video_sources import download_video
 from urllib.parse import urlparse
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
@@ -116,18 +117,34 @@ def run_worker():
         try:
             with tempfile.TemporaryDirectory(prefix="trade-lord-job-") as temp:
                 source, output = str(Path(temp) / "input.video"), str(Path(temp) / "result.json")
-                with request(route + "/file", extra_headers={"X-Job-Lease": lease}) as response, open(source, "wb") as file:
-                    count = 0
-                    while True:
-                        block = response.read(1024 * 1024)
-                        if not block:
-                            break
-                        count += len(block)
-                        if count > min(job["bytes"], 100 * 1024 * 1024):
-                            raise ValueError("Downloaded video exceeds its limit.")
-                        file.write(block)
-                if count != job["bytes"]:
-                    raise ValueError("Video download was incomplete.")
+                remote_bytes = 0
+                if job.get("downloadUrl"):
+                    archive_setting = os.environ.get("TRADE_LORD_VIDEO_ARCHIVE_DIR", "")
+                    if not archive_setting:
+                        raise ValueError("Connect persistent video storage before processing links. Your source link remains saved.")
+                    archive = Path(archive_setting)
+                    archive.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    source = str(archive / (job["id"] + ".video"))
+                    if not Path(source).exists():
+                        used = sum(p.stat().st_size for p in archive.iterdir() if p.is_file())
+                        if used + 100 * 1024 * 1024 > 500 * 1024 * 1024:
+                            raise ValueError("Processor archive is full. Keep existing originals until reviewed; expand storage or release reviewed files.")
+                        api(route + "/progress", {"lease": lease, "progress": "Downloading the authorized video source."})
+                        download_video(job["downloadUrl"], source, os.environ.get("TRADE_LORD_VIDEO_SOURCE_HOSTS", ""))
+                    remote_bytes = Path(source).stat().st_size
+                else:
+                    with request(route + "/file", extra_headers={"X-Job-Lease": lease}) as response, open(source, "wb") as file:
+                        count = 0
+                        while True:
+                            block = response.read(1024 * 1024)
+                            if not block:
+                                break
+                            count += len(block)
+                            if count > min(job["bytes"], 100 * 1024 * 1024):
+                                raise ValueError("Downloaded video exceeds its limit.")
+                            file.write(block)
+                    if count != job["bytes"]:
+                        raise ValueError("Video download was incomplete.")
                 # The child has no API token, cannot claim jobs, and has bounded runtime.
                 child_env = {k: v for k, v in os.environ.items() if k not in {"TRADE_LORD_VIDEO_WORKER_TOKEN", "TRADE_LORD_SITE_URL"}}
                 child = subprocess.Popen([sys.executable, __file__, "--extract", source, output],
@@ -147,7 +164,7 @@ def run_worker():
                 if Path(output).stat().st_size > 1900000:
                     raise ValueError("Video transcript is too large. Split the video into shorter parts.")
                 result = json.loads(Path(output).read_text(encoding="utf-8"))
-                api(route + "/complete", {**result, "lease": lease})
+                api(route + "/complete", {**result, "lease": lease, "archivedBytes": remote_bytes, "retentionReason": "Full original kept for visual/audio review. This processor extracts speech and sampled text, not complete visual meaning."})
                 print("Video knowledge saved.", flush=True)
         except Exception as error:
             if child and child.poll() is None:

@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,stat} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {Readable} from 'node:stream';
 import {createServer} from 'node:http';
 import {createTradeLord,handleTradeLordApi} from '../lib/trade-lord.mjs';
-import {createVideoTraining,makeVideoChunks,workerAuthorized} from '../lib/trade-lord-training.mjs';
+import {createVideoTraining,makeVideoChunks,workerAuthorized,videoLink} from '../lib/trade-lord-training.mjs';
 const video=Buffer.concat([Buffer.from([0,0,0,24]),Buffer.from('ftypisom'),Buffer.alloc(100)]);
 const secret='local-test-worker-credential-123456789';
 async function setup(t,opts={}){const directory=await mkdtemp(path.join(os.tmpdir(),'tl-video-'));t.after(()=>rm(directory,{force:true,recursive:true}));const service=await createTradeLord({directory,env:{TRADE_LORD_VIDEO_WORKER_TOKEN:secret},...opts});return {directory,service,training:service.training};}
@@ -62,4 +62,48 @@ test('explicit conversation actions persist while ambiguous requests do not chan
   await service.chat({message:'Explain whether I should pause observation.'});assert.equal(service.snapshot().enabled,true);
   const pause=await service.chat({message:'Pause observation'});assert.equal(pause.engine,'action');assert.equal(service.snapshot().enabled,false);
   const fresh=await createTradeLord({directory,env:{}});assert.equal(fresh.snapshot().enabled,false);await fresh.chat({message:'Resume observation'});assert.equal(fresh.snapshot().enabled,true);
+});
+
+
+test('YouTube references are durable and deduplicated, never falsely claimable or learned',async t=>{
+  const {training,directory}=await setup(t);
+  const job=await training.addLink({url:'https://youtu.be/g1HVsYXXZrw',title:'Accent lesson'});
+  assert.equal(job.status,'needs_source');assert.equal(job.rightsConfirmed,false);
+  const again=await training.addLink({url:'https://www.youtube.com/watch?v=g1HVsYXXZrw&utm_source=test'});
+  assert.equal(again.id,job.id);assert.equal(await training.claim(),null);
+  await training.importLinks();assert.equal(training.snapshot().jobs.length,25);
+  await training.importLinks();assert.equal(training.snapshot().jobs.length,25);
+  const fresh=await createVideoTraining({directory,env:{}});
+  assert.equal(fresh.snapshot().jobs.length,25);assert.equal(fresh.snapshot().ready,0);
+  assert.equal(fresh.retrieve('accent').length,0);
+});
+test('direct source links require permission and configured exact hosts',async t=>{
+  assert.throws(()=>videoLink('http://example.org/video.mp4','example.org'),/HTTPS/);
+  assert.throws(()=>videoLink('https://example.org.evil.test/video.mp4','example.org'),/not connected/);
+  assert.throws(()=>videoLink('https://user:secret@example.org/video.mp4','example.org'),/password/);
+  assert.throws(()=>videoLink('https://example.org/video.mp4?token=secret','example.org'),/not connected/);
+  const directory=await mkdtemp(path.join(os.tmpdir(),'tl-links-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const training=await createVideoTraining({directory,env:{TRADE_LORD_VIDEO_SOURCE_HOSTS:'media.example.org'}});
+  const url='https://media.example.org/lesson.mp4';
+  await assert.rejects(training.addLink({url}),/permission/);
+  const ref=await training.addLink({url:'https://youtu.be/g1HVsYXXZrw'});
+  await training.attachSource(ref.id,{url,rightsConfirmed:true});
+  const claimed=await training.claim();assert.equal(claimed.downloadUrl,url);
+  await training.finish(ref.id,{lease:claimed.lease,segments:[segment],archivedBytes:120});
+  assert.equal(training.snapshot().jobs[0].archivedBytes,120);
+  assert.equal(training.snapshot().jobs[0].sourceUrl,'https://www.youtube.com/watch?v=g1HVsYXXZrw');
+});
+test('original release requires verified saved knowledge and preserves answers after restart',async t=>{
+  const {training,directory}=await setup(t);const job=await training.create(input);
+  await training.upload(job.id,Readable.from(video));
+  await assert.rejects(training.releaseOriginal(job.id),/processing/);
+  const claim=await training.claim();await training.finish(job.id,{lease:claim.lease,error:'Incomplete'});
+  await assert.rejects(training.releaseOriginal(job.id),/processing/);
+  assert.equal((await stat(path.join(directory,'videos',job.id+'.video'))).size,video.length);
+  await training.retry(job.id);const retry=await training.claim();await training.finish(job.id,{lease:retry.lease,segments:[segment]});
+  await training.releaseOriginal(job.id);
+  await assert.rejects(stat(path.join(directory,'videos',job.id+'.video')),/ENOENT/);
+  const fresh=await createVideoTraining({directory,env:{}});
+  assert.equal(fresh.snapshot().bytesUsed,0);assert.equal(fresh.snapshot().ready,1);
+  assert.match(fresh.retrieve('exposure')[0].body,/exposure/);
 });
