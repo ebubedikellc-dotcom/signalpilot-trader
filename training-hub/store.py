@@ -12,6 +12,7 @@ def connect():
     db.row_factory = sqlite3.Row
     db.execute('PRAGMA journal_mode=WAL')
     db.execute('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, url TEXT UNIQUE, status TEXT, detail TEXT, created REAL, updated REAL, transcript TEXT, lessons TEXT)')
+    db.execute("CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, topic TEXT, status TEXT, detail TEXT, created REAL)")
     return db
 
 def canonical(value):
@@ -68,3 +69,29 @@ def media(id):
 
 def space():
     return sum(p.stat().st_size for p in ROOT.iterdir() if p.is_file())
+
+
+def add_topic(topic):
+    topic=' '.join(str(topic).split())
+    if not 3 <= len(topic) <= 200: raise ValueError('Enter a topic between 3 and 200 characters.')
+    with connect() as db:
+        prior=db.execute("SELECT id FROM topics WHERE topic=? AND status IN ('waiting','searching')",(topic,)).fetchone()
+        if prior: return prior['id']
+        if db.execute('SELECT count(*) FROM topics').fetchone()[0]>=100: raise ValueError('Topic limit reached.')
+        id=str(uuid.uuid4())
+        db.execute('INSERT INTO topics VALUES (?,?,?,?,?)',(id,topic,'waiting','Waiting for the search worker',time.time()))
+    return id
+
+def topics():
+    with connect() as db: return [dict(r) for r in db.execute('SELECT * FROM topics ORDER BY created DESC')]
+
+def topic_update(id,status,detail):
+    with connect() as db: db.execute('UPDATE topics SET status=?,detail=? WHERE id=?',(status,detail[:400],id))
+
+def claim_topic():
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute("SELECT * FROM topics WHERE status='waiting' ORDER BY created LIMIT 1").fetchone()
+        if not row:return None
+        db.execute("UPDATE topics SET status='searching' WHERE id=?",(row['id'],))
+        return dict(row)

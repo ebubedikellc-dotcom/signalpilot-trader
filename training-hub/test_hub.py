@@ -1,6 +1,9 @@
 import io, json, os, tempfile, unittest, threading, urllib.request, urllib.error
 from pathlib import Path
 import store
+from unittest.mock import patch
+from types import SimpleNamespace
+import worker
 from server import Handler, ThreadingHTTPServer
 class HubTests(unittest.TestCase):
     def setUp(self):
@@ -23,6 +26,26 @@ class HubTests(unittest.TestCase):
         store.update(id,'needs_lessons','Model offline')
         self.assertEqual(store.get(id)['transcript'],'[0s] A lesson')
         self.assertEqual(store.get(id)['lessons'],'')
+    def test_topic_persistence_dedup_and_source_queue(self):
+        id=store.add_topic('  Position sizing  ')
+        self.assertEqual(store.add_topic('Position sizing'),id)
+        topic=store.claim_topic();self.assertEqual(topic['id'],id)
+        self.assertIsNone(store.claim_topic())
+        result=SimpleNamespace(stdout=json.dumps([{'title':'Risk lesson','url':'https://youtu.be/abcdefghijk'}]))
+        with patch('worker.subprocess.run',return_value=result): worker.process_topic(topic)
+        self.assertEqual(store.topics()[0]['status'],'queued')
+        self.assertEqual(len(store.jobs()),1)
+        with patch('worker.subprocess.run',return_value=result): worker.process_topic(topic)
+        self.assertEqual(len(store.jobs()),1)
+        self.assertEqual(store.claim()['url'],'https://www.youtube.com/watch?v=abcdefghijk')
+    def test_failed_topic_does_not_block_upload_queue(self):
+        id=store.add_topic('Risk management')
+        topic=store.claim_topic()
+        with patch('worker.subprocess.run',side_effect=TimeoutError):worker.process_topic(topic)
+        self.assertEqual(store.topics()[0]['status'],'failed')
+        uploaded=store.add('Upload');store.update(uploaded,'queued')
+        self.assertEqual(store.claim()['id'],uploaded)
+        with self.assertRaises(ValueError):store.add_topic('x')
     def test_http_upload_validation_and_retry(self):
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()

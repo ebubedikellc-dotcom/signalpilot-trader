@@ -19,7 +19,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         route=urlparse(self.path).path
         if route=='/': return self.send(200,Path(__file__).with_name('index.html').read_bytes(),'text/html; charset=utf-8')
-        if route=='/api/jobs': return self.send(200,{'jobs':store.jobs(),'bytes':store.space(),'quota':store.QUOTA})
+        if route=='/api/jobs': return self.send(200,{'jobs':store.jobs(),'topics':store.topics(),'bytes':store.space(),'quota':store.QUOTA})
         if route.startswith('/api/job/'):
             try: return self.send(200,store.get(route.rsplit('/',1)[1]))
             except ValueError as e: return self.send(404,{'error':str(e)})
@@ -56,6 +56,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200,{'ok':True})
             if not 0<size<=20000: raise ValueError('Request too large or empty.')
             data=json.loads(self.rfile.read(size))
+            if route=='/api/topic':
+                return self.send(201,{'id':store.add_topic(data.get('topic',''))})
             if route=='/api/add':
                 if data.get('permission') is not True: raise ValueError('Confirm permission to download and process this material.')
                 return self.send(201,{'id':store.add(str(data.get('title','')),data.get('url') or None)})

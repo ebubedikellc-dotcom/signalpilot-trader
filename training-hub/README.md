@@ -26,3 +26,7 @@ Only individual public YouTube video links are supported in this release. No pla
 
 Tests: `PYTHONPATH=training-hub python3 -m unittest discover -s training-hub -p 'test_*.py'`.
 Preview: `sites-preview start .../training-hub` uses disposable `/tmp/trade-lord-hub-preview`, without a worker or Qwen. No real private content belongs in preview.
+
+## Topic requests
+
+The Gain knowledge of form persists a topic independently of video jobs. The worker uses yt-dlp YouTube search metadata (`ytsearch3:`) with a 120-second subprocess deadline, validates video IDs, and queues up to three individual video links. Duplicate sources reuse their original record. Search failures are visible without blocking uploaded videos. Search results are candidate sources, not verified facts or proof of expertise. Search/download availability must be tested from the actual VPS; no bypass of access restrictions is implemented. Topic requests are bounded to 100 records and require owner access through the gateway. Downloads and uploads must be content the owner is authorized to process.
