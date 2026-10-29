@@ -40,6 +40,18 @@ class HubTests(unittest.TestCase):
             with self.assertRaises(ValueError):store.save_brain_link(value)
         self.assertEqual(store.brain_link(),'https://brain.example.com')
         store.save_brain_link('');self.assertEqual(store.brain_link(),'')
+    def test_long_lessons_remain_valid_at_context_boundary(self):
+        notes='Teacher explains "examples" and exceptions.\n'*500
+        ready=store.add('Long lesson')
+        store.update(ready,'ready',lessons=notes)
+        with patch('server.ask',return_value='From the excerpt.') as ask:
+            chat_answer({'question':'What examples did the teacher explain?'})
+        sources=json.loads(ask.call_args.args[0].split('SOURCE NOTES:\n',1)[1].split('\nQUESTION:\n',1)[0])
+        self.assertEqual(sources[0]['title'],'Long lesson')
+        self.assertTrue(sources[0]['excerpted'])
+        self.assertTrue(notes.startswith(sources[0]['lessons']))
+        self.assertLess(len(sources[0]['lessons']),len(notes))
+        self.assertEqual(store.get(ready)['lessons'],notes)
     def test_link_canonicalization_and_duplicates(self):
         a=store.add('Lesson','https://youtu.be/abcdefghijk')
         b=store.add('Duplicate','https://www.youtube.com/watch?v=abcdefghijk&list=anything')

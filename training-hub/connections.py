@@ -92,7 +92,7 @@ def export_work(id,password):
         files=[store.ROOT/(j['id']+'.video') for j in jobs if (store.ROOT/(j['id']+'.video')).exists()]
         required=sum(p.stat().st_size for p in files)+sum(len(json.dumps(j).encode()) for j in jobs)+1024**2
         if required>20*1024**3 or shutil.disk_usage(store.ROOT).free<required*2+1024**3:raise ValueError('Not enough free space to create a complete backup.')
-        manifest={'version':1,'model':os.getenv('QWEN_MODEL','qwen3:14b-q4_K_M'),'jobs':jobs,'topics':topics,'brain_link':store.brain_link(),'videos':[p.name for p in files]}
+        manifest={'version':1,'model':os.getenv('QWEN_MODEL','qwen3:8b-q4_K_M'),'jobs':jobs,'topics':topics,'brain_link':store.brain_link(),'videos':[p.name for p in files]}
         with tempfile.TemporaryDirectory(dir=transfer_dir()) as tmp:
             manifest_file=Path(tmp)/'manifest.json';manifest_file.write_text(json.dumps(manifest));os.chmod(manifest_file,0o600)
             plain=Path(tmp)/'backup.tar'
@@ -135,7 +135,7 @@ def restore(source,password):
                 if m.size>64*1024**2:raise ValueError('Backup manifest is too large.')
                 manifest=json.load(tar.extractfile(m))
                 if manifest.get('version')!=1:raise ValueError('Unsupported backup version.')
-                if manifest.get('model')!=os.getenv('QWEN_MODEL','qwen3:14b-q4_K_M'):raise ValueError('Install the same Qwen model on the new server before import: '+str(manifest.get('model'))[:80])
+                if manifest.get('model')!=os.getenv('QWEN_MODEL','qwen3:8b-q4_K_M'):raise ValueError('Install the same Qwen model on the new server before import: '+str(manifest.get('model'))[:80])
                 jobs=manifest['jobs'];topics=manifest['topics'];videos=manifest['videos']
                 if len(jobs)>1000 or len(topics)>100 or len({j['id'] for j in jobs})!=len(jobs):raise ValueError('Invalid record count.')
                 ids=set()

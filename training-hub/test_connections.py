@@ -43,10 +43,10 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(c.transfer(transfer_id)['status'],'expired');self.assertFalse(path.exists())
         plain=Path(self.tmp.name)/'unsafe.tar';encrypted=Path(self.tmp.name)/'unsafe.tlbackup'
         with tarfile.open(plain,'w') as tar:
-            for name,body in [('manifest.json',b'{"version":1,"model":"qwen3:14b-q4_K_M","jobs":[],"topics":[],"videos":[]}'),('../escape',b'bad')]:
+            for name,body in [('manifest.json',b'{"version":1,"model":"qwen3:8b-q4_K_M","jobs":[],"topics":[],"videos":[]}'),('../escape',b'bad')]:
                 member=tarfile.TarInfo(name);member.size=len(body);tar.addfile(member,io.BytesIO(body))
         c.encrypt(plain,encrypted,'a-long-test-password')
-        with self.assertRaises(ValueError):c.restore(encrypted,'a-long-test-password')
+        with self.assertRaisesRegex(ValueError,'Unexpected backup file'):c.restore(encrypted,'a-long-test-password')
         self.assertFalse((store.ROOT.parent/'escape').exists());self.assertEqual(store.jobs(),[])
     def test_api_auth_shared_knowledge_and_scoping(self):
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start()
