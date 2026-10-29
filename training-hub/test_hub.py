@@ -98,6 +98,16 @@ class HubTests(unittest.TestCase):
             if header:h['X-Trade-Lord']='1'
             return urllib.request.urlopen(urllib.request.Request(base+route,data=body,headers=h))
         try:
+            # The original conversation and its separate controls share this hub's routes.
+            for path,kind,marker in [
+                ('/trade-lord','text/html',b'id="lord-face"'),
+                ('/control-panel/trade-lord','text/html',b'id="add"'),
+                ('/trade-lord.css','text/css',b'.face-core'),
+                ('/trade-lord-hub.js','text/javascript',b"fetch('/api/chat'")
+            ]:
+                with urllib.request.urlopen(base+path) as response:
+                    self.assertIn(kind,response.headers['Content-Type'])
+                    self.assertIn(marker,response.read())
             with self.assertRaises(urllib.error.HTTPError) as denied: post('/api/add',b'{}',False)
             self.assertEqual(denied.exception.code,403)
             with post('/api/add',json.dumps({'title':'My video','permission':True}).encode()) as r:id=json.load(r)['id']

@@ -4,6 +4,10 @@ Separate VPS service; no trading endpoints, wallet credentials or SignalPilot au
 
 Implemented: owner-only HTTPS gateway; link/file submission; persistent SQLite queue; single yt-dlp download worker; manual-upload fallback with original URL; duplicate URL suppression; bounded downloads; durable transcript checkpoint; Qwen-generated section notes; source-grounded chat; restart recovery. Pending jobs do not hold up other jobs. The site does not claim that saved notes change model weights.
 
+## Original Trade Lord design
+
+The conversation page reuses the repository's original `trade-lord.html` structure, green face SVG and `trade-lord.css`. `/` and `/trade-lord` open that conversation; `/control-panel/trade-lord` opens the private training controls. The standalone adapter sends questions to this hub's `/api/chat` and retains the video-defined learning behavior. Browser voice input defaults to Nigerian English and optional spoken replies to UK English; support depends on the phone/browser. The standalone controls keep link/upload learning, topic search, saved sources, website connections and protected transfers. This does not migrate an existing Render database or claim full feature parity with its separate trading/observation service.
+
 ## Learn from the teacher's videos
 
 The supplied videos determine the subject and method. The study desk does not assign a trading strategy, profit target or fixed set of rules. Lesson extraction is instructed to preserve the teacher's explanations, examples, numbers, conditions and exceptions, and to attribute claims to that teacher. Conflicting or unclear passages should remain explicit. Chat is instructed to answer from completed lessons, cite their titles/timestamps and say when those lessons do not provide an answer. Before any nonempty lessons are ready, chat returns a clear waiting message without calling Qwen. These instructions guide generation; they are not proof of correct transcription, complete understanding or model fine-tuning. The extractor's speech/sampled-text limitations below still apply.
@@ -17,6 +21,20 @@ Create `training-hub/.env` outside git with HUB_DOMAIN, HUB_OWNER, and HUB_PASSW
 Use maintained yt-dlp with its default EJS dependencies and Deno. Pin verified package/image versions at deployment after a build test, and schedule security updates. The image build, live model inference and downloads remain unverified. This is a deployment candidate, not a live service. Server activation/access and manual-renewal settings still require verification. The owner authorized one month without automatic recurring payment.
 
 The smaller context uses 6000-character transcript sections and up to 8000 characters of retrieved notes per question. Every transcript section is processed and the complete saved notes remain on disk. Source JSON stays intact when an excerpt is shortened, and shortened sources are labeled `excerpted`. Character limits approximate token limits; validate long questions and dense multilingual lessons on the actual model before launch.
+
+## Larger Qwen after a RAM upgrade
+
+The 10 GB deployment keeps `qwen3:8b-q4_K_M`. `compose.qwen14b.yaml` prepares `qwen3:14b-q4_K_M` for a VPS upgraded to at least 24 GB RAM (with sufficient CPU allocation for the 4-CPU model / 2-CPU worker budgets). More disk storage alone does not meet this requirement. The official 14B model package is approximately 9.3 GB before runtime/context memory: https://ollama.com/library/qwen3:14b-q4_K_M. This profile is prepared configuration, not evidence of an installed or benchmarked model.
+
+Before switching, verify actual RAM/CPU, let any current video finish, and take a verified knowledge backup. Use the existing checkout directory and Compose project name so `hub-data` and `models` remain the same volumes. Never use `down -v` for an upgrade. Start the larger Ollama budget, download the model, then switch the web/worker model selection:
+
+```sh
+docker compose --env-file training-hub/.env -f training-hub/compose.yaml -f training-hub/compose.qwen14b.yaml up -d ollama
+docker compose --env-file training-hub/.env -f training-hub/compose.yaml -f training-hub/compose.qwen14b.yaml exec ollama ollama pull qwen3:14b-q4_K_M
+docker compose --env-file training-hub/.env -f training-hub/compose.yaml -f training-hub/compose.qwen14b.yaml up -d --build
+```
+
+Saved transcripts and notes stay in `hub-data`; switching models does not retrain their weights. Test a known lesson and new short video, and measure RAM/response time before processing the full queue. Keep using both Compose files after the switch. Returning to the base Compose file selects the 8B default again (unless `QWEN_MODEL` is overridden in `.env`), while retaining the same saved knowledge.
 
 The CPU extractor is reused from workers/trade_lord_video.py: faster-whisper small INT8, English OCR sampled every 30 seconds. These are not full visual understanding. Qwen summarizes timestamped text sections. Unavailable Qwen leaves the transcript saved in `needs_lessons`, with manual retry; failed downloads become `needs_upload`. Uploads retain the original record/source and are limited to 100 MB / 60 minutes; total working data allowance is 20 GB. Retain originals pending review. Do not delete model/source storage without a verified backup. Queue/memory are not imported from SignalPilot automatically.
 

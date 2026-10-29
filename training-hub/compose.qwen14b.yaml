@@ -1,0 +1,14 @@
+# Apply only after increasing the VPS to at least 24 GB RAM.
+# Merge with compose.yaml using the same project name/directory to retain volumes.
+services:
+  web:
+    environment:
+      QWEN_MODEL: qwen3:14b-q4_K_M
+  worker:
+    environment:
+      QWEN_MODEL: qwen3:14b-q4_K_M
+    mem_limit: 3g
+    cpus: 2
+  ollama:
+    mem_limit: 16g
+    cpus: 4

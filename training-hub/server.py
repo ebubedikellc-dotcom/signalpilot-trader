@@ -40,7 +40,18 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code); self.send_header('Content-Type',kind); self.send_header('Content-Length',str(len(body))); self.send_header('Cache-Control','no-store'); self.send_header('X-Content-Type-Options','nosniff'); self.end_headers(); self.wfile.write(body)
     def do_GET(self):
         route=urlparse(self.path).path
-        if route=='/': return self.send(200,Path(__file__).with_name('index.html').read_bytes(),'text/html; charset=utf-8')
+        assets={
+            '/':('index.html','text/html; charset=utf-8'),
+            '/trade-lord':('index.html','text/html; charset=utf-8'),
+            '/trade-lord/':('index.html','text/html; charset=utf-8'),
+            '/control-panel/trade-lord':('training.html','text/html; charset=utf-8'),
+            '/control-panel/trade-lord/':('training.html','text/html; charset=utf-8'),
+            '/trade-lord.css':('trade-lord.css','text/css; charset=utf-8'),
+            '/trade-lord-hub.js':('trade-lord-hub.js','text/javascript; charset=utf-8'),
+        }
+        if route in assets:
+            name,kind=assets[route]
+            return self.send(200,Path(__file__).with_name(name).read_bytes(),kind)
         if route=='/api/connections': return self.send(200,{'keys':connections.keys()})
         if route.startswith('/api/transfer/'):
             try:
