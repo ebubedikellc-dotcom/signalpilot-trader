@@ -43,7 +43,7 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(c.transfer(transfer_id)['status'],'expired');self.assertFalse(path.exists())
         plain=Path(self.tmp.name)/'unsafe.tar';encrypted=Path(self.tmp.name)/'unsafe.tlbackup'
         with tarfile.open(plain,'w') as tar:
-            for name,body in [('manifest.json',b'{"version":1,"model":"qwen3:4b","jobs":[],"topics":[],"videos":[]}'),('../escape',b'bad')]:
+            for name,body in [('manifest.json',b'{"version":1,"model":"qwen3:14b-q4_K_M","jobs":[],"topics":[],"videos":[]}'),('../escape',b'bad')]:
                 member=tarfile.TarInfo(name);member.size=len(body);tar.addfile(member,io.BytesIO(body))
         c.encrypt(plain,encrypted,'a-long-test-password')
         with self.assertRaises(ValueError):c.restore(encrypted,'a-long-test-password')

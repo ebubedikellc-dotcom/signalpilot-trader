@@ -9,7 +9,7 @@ LOCK=threading.Lock()
 OLLAMA=os.getenv('OLLAMA_URL','http://ollama:11434')
 
 def ask(prompt):
-    req=urllib.request.Request(OLLAMA+'/api/generate',data=json.dumps({'model':os.getenv('QWEN_MODEL','qwen3:4b'),'prompt':prompt,'stream':False,'think':False,'options':{'num_ctx':8192,'num_predict':700,'temperature':0.2}}).encode(),headers={'Content-Type':'application/json'})
+    req=urllib.request.Request(OLLAMA+'/api/generate',data=json.dumps({'model':os.getenv('QWEN_MODEL','qwen3:14b-q4_K_M'),'prompt':prompt,'stream':False,'think':False,'options':{'num_ctx':8192,'num_predict':700,'temperature':0.2}}).encode(),headers={'Content-Type':'application/json'})
     with urllib.request.urlopen(req,timeout=300) as r: return json.load(r)['response']
 
 
