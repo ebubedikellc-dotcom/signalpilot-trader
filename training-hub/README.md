@@ -4,6 +4,10 @@ Separate VPS service; no trading endpoints, wallet credentials or SignalPilot au
 
 Implemented: owner-only HTTPS gateway; link/file submission; persistent SQLite queue; single yt-dlp download worker; manual-upload fallback with original URL; duplicate URL suppression; bounded downloads; durable transcript checkpoint; Qwen-generated section notes; source-grounded chat; restart recovery. Pending jobs do not hold up other jobs. The site does not claim that saved notes change model weights.
 
+## Learn from the teacher's videos
+
+The supplied videos determine the subject and method. The study desk does not assign a trading strategy, profit target or fixed set of rules. Lesson extraction is instructed to preserve the teacher's explanations, examples, numbers, conditions and exceptions, and to attribute claims to that teacher. Conflicting or unclear passages should remain explicit. Chat is instructed to answer from completed lessons, cite their titles/timestamps and say when those lessons do not provide an answer. Before any nonempty lessons are ready, chat returns a clear waiting message without calling Qwen. These instructions guide generation; they are not proof of correct transcription, complete understanding or model fine-tuning. The extractor's speech/sampled-text limitations below still apply.
+
 ## Deployment (operator steps, not instructions for the owner)
 
 The selected deployment target is an x86 Linux VPS with Docker Compose, 24 GB RAM, 6 vCPUs and 480 GB SSD. The initial configuration uses Qwen3 14B Q4_K_M, one loaded model and an 8192-token context. Ollama is capped at 16 GB / 4 CPUs and the video worker at 3 GB / 2 CPUs, leaving memory for the OS, web service and gateway. These are initial resource budgets, not measured capacity guarantees. CPU throughput, RAM use and Qwen timeouts need benchmarking before promising video capacity. Set DNS for an existing subdomain to avoid a new domain purchase. Permit inbound 80/443 and restrict SSH. Never expose port 8080 or Ollama 11434 to the Internet: they rely on the gateway/internal network. Configure disk monitoring and provider backups before ingesting data.

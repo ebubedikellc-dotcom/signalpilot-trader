@@ -4,11 +4,34 @@ import store
 from unittest.mock import patch
 from types import SimpleNamespace
 import worker
-from server import Handler, ThreadingHTTPServer
+from server import Handler, ThreadingHTTPServer, chat_answer
 class HubTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();store.ROOT=Path(self.temp.name)
     def tearDown(self): self.temp.cleanup()
+    def test_chat_without_processed_lessons_does_not_call_model(self):
+        with patch('server.ask') as ask:
+            answer=chat_answer({'question':'What did the teacher explain?'})
+        ask.assert_not_called()
+        self.assertIn('do not have any processed video lessons',answer)
+    def test_chat_ignores_unfinished_and_empty_lessons(self):
+        for status,notes in [('working','Unfinished notes'),('failed','Failed notes'),('ready','  ')]:
+            id=store.add(status)
+            store.update(id,status,lessons=notes)
+        with patch('server.ask') as ask:
+            chat_answer({'question':'Explain the lesson'})
+        ask.assert_not_called()
+    def test_chat_references_only_completed_lessons(self):
+        ready=store.add('Teacher lesson')
+        store.update(ready,'ready',lessons='[12s] The teacher explains a worked example.')
+        pending=store.add('Unfinished lesson')
+        store.update(pending,'working',lessons='Unprocessed material must not be used.')
+        with patch('server.ask',return_value='Teacher lesson [12s]: a worked example.') as ask:
+            answer=chat_answer({'question':'Explain the worked example'})
+        self.assertIn('Teacher lesson',answer)
+        sources=json.loads(ask.call_args.args[0].split('SOURCE NOTES:\n',1)[1].split('\nQUESTION:\n',1)[0])
+        self.assertEqual([source['title'] for source in sources],['Teacher lesson'])
+        self.assertEqual(sources[0]['lessons'],store.get(ready)['lessons'])
     def test_brain_link_persists_and_rejects_credentials(self):
         self.assertEqual(store.brain_link(),'')
         store.save_brain_link('https://brain.example.com/')
