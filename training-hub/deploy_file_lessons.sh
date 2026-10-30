@@ -18,9 +18,12 @@ docker cp training-hub-web-1:/app/hub/server.py "$files_build/server.py"
 docker cp training-hub-web-1:/app/hub/training.html "$files_build/training.html"
 python3 "$files_build/install_file_lessons.py" "$files_build"
 python3 -m py_compile "$files_build/server.py" "$files_build/file_lessons.py" "$files_build/file_lessons_smoke.py"
+chmod 644 "$files_build/"*.py "$files_build/training.html"
 files_stamp=$(date +%s%N)
 files_candidate="trade-lord-hub:file-candidate-$files_stamp"
-docker build -t "$files_candidate" --build-arg "FILES_BASE=$files_base_image" -f - "$files_build" <<'DOCKER'
+files_base_tag="trade-lord-hub:file-base-$files_stamp"
+docker tag "$files_base_image" "$files_base_tag"
+docker build -t "$files_candidate" --build-arg "FILES_BASE=$files_base_tag" -f - "$files_build" <<'DOCKER'
 ARG FILES_BASE
 FROM ${FILES_BASE}
 USER root
@@ -75,3 +78,4 @@ rm -rf "$files_build"
 echo "File lessons installed. Previous web image and source backup: $files_backup"
 echo 'Video worker was not restarted. Refresh the control panel and find Upload a lesson file.'
 echo 'PDF/DOCX/TXT/MD readable text is supported; scanned pages need OCR and images are not interpreted.'
+
