@@ -2,7 +2,9 @@
 import fcntl, json, os, subprocess, sys, time
 from pathlib import Path
 import store
-from server import ask
+from server import ask as model_ask
+from functools import partial
+ask = partial(model_ask, timeout=1800)
 
 def download(job):
     import yt_dlp
@@ -15,7 +17,7 @@ def download(job):
             raise ValueError('Download exceeded its size or time allowance.')
     # No cookies, login credentials, playlist crawling, proxy rotation or generic URL extractor.
     opts={'outtmpl':str(target),'noplaylist':True,'allowed_extractors':['youtube'],
-          'format':'best[ext=mp4][height<=720][filesize<100M]/best[height<=720][filesize<100M]',
+          'format':'best[ext=mp4][height<=720][filesize<?100M]/best[height<=720][filesize<?100M]',
           'max_filesize':store.MAX_FILE,'socket_timeout':20,'retries':1,'fragment_retries':1,
           'quiet':True,'no_warnings':True,'progress_hooks':[guard],
           'match_filter':lambda info,**kw: 'Use a video up to 60 minutes.' if (info.get('duration') or 0)>3600 or info.get('is_live') else None}

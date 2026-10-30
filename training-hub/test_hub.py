@@ -13,7 +13,7 @@ class HubTests(unittest.TestCase):
         with patch('server.ask') as ask:
             answer=chat_answer({'question':'What did the teacher explain?'})
         ask.assert_not_called()
-        self.assertIn('do not have any processed video lessons',answer)
+        self.assertIn('do not have saved lessons yet',answer)
     def test_chat_ignores_unfinished_and_empty_lessons(self):
         for status,notes in [('working','Unfinished notes'),('failed','Failed notes'),('ready','  ')]:
             id=store.add(status)
