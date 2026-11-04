@@ -6,12 +6,12 @@ from decimal import Decimal, DecimalException, localcontext, ROUND_FLOOR
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, BeforeValidator, Field, model_validator
 
-VERSION = '1.0.0'
+VERSION = '1.2.0'
 
 def number(v):
     # Decimal strings preserve the original value; floats/bools are never coerced.
-    if not isinstance(v, str) or not re.fullmatch(r'-?\d{1,12}(?:\.\d{1,8})?', v):
-        raise ValueError('Use a decimal string: at most 12 integer and 8 fractional digits.')
+    if not isinstance(v, str) or not re.fullmatch(r'-?\d{1,12}(?:\.\d{1,18})?', v):
+        raise ValueError('Use a decimal string: at most 12 integer and 18 fractional digits.')
     return Decimal(v)
 
 Number = Annotated[Decimal, BeforeValidator(number)]
@@ -206,6 +206,55 @@ def check(case, proposal):
                 'reasons':problems,'reference':reference, 'actual_proposal':p.model_dump(mode='json'),
                 'actual_quantity_totals':{k:fmt(v) for k,v in expected.items()},
                 'source_content_verified':False,'rationale_verified':False,'fill_assumed':False}
+
+def review(case, proposal):
+    """Keep the AI grade; separately produce a bounded, rule-derived paper answer.
+
+    Never infer a missing input or parse a decision out of prose. The original
+    proposal is not mutated, and this function has no model or storage access.
+    """
+    assessment = check(case, proposal)
+    final = dict(status='NOT_VERIFIED', decision=None, accepted_for_paper=False,
+                 producer='calculator_and_rules', checker_version=VERSION,
+                 original_answer_status=assessment['status'], changes=[],
+                 source_content_verified=False, rationale_verified=False,
+                 fill_assumed=False, orders_enabled=False,
+                 scope='Stated arithmetic and selected paper rules only; input facts and source content require owner review.')
+    assessment['final_result'] = final
+    if assessment['status'] == 'NOT_VERIFIED':
+        final['message'] = 'No corrected answer: structured inputs or the completed AI decision could not be verified.'
+        return assessment
+    c = Case.model_validate(case)
+    reference = assessment['reference']
+    action = reference['expected_action']
+    trade = action != 'NO_TRADE'
+    rationale = ('The supplied entry condition passes. This is the maximum size fitting the stated risk, cash, margin and liquidity limits, with costs included.'
+                 if trade else ' '.join(reference['reasons']))
+    decision = dict(action=action, quantity=reference['committed_quantity'],
+                    entry=fmt(c.entry) if trade else None,
+                    stop=fmt(c.stop) if trade else None,
+                    target=fmt(c.target) if trade else None,
+                    **reference['committed_totals'], source=c.source,
+                    rationale=rationale)
+    # Refuse publication if the assembled decision does not satisfy the checker.
+    # This is a consistency guard, not a second independent trading model.
+    if check(case, decision)['status'] != 'PASS':
+        final['message'] = 'No corrected answer: the calculated result failed its consistency check.'
+        return assessment
+    original = assessment['actual_proposal']
+    changes = [dict(field=k, original=original[k], corrected=v)
+               for k, v in decision.items() if k != 'rationale' and original[k] != v]
+    with localcontext() as ctx:
+        ctx.prec = 80
+        ratio = (fmt((Decimal(decision['reward']) / Decimal(decision['risk'])).quantize(Decimal('0.0001')))
+                 if trade else None)
+    final.update(status='CORRECTED' if assessment['status'] == 'FAIL' else 'CHECKED',
+                 decision=decision, accepted_for_paper=True, changes=changes,
+                 unit=c.unit, reward_risk_display=ratio,
+                 pattern=reference['pattern'], stop_guarantees_cap=False,
+                 message=('A separate calculated answer replaces the incorrect proposal on this paper result screen. The original AI answer remains in history.'
+                          if assessment['status'] == 'FAIL' else 'The numeric decision matches the stated paper rules. The explanation below is generated from those rules.'))
+    return assessment
 
 def calculator(expression):
     """Bounded decimal arithmetic; no eval, names, attributes, functions or code execution."""
