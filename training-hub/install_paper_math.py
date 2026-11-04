@@ -15,7 +15,7 @@ def install(root):
     if server.count(anchor)!=1:raise ValueError('Unknown startup layout; no files changed.')
     if html.count('</main>')!=1:raise ValueError('Unknown control panel; no files changed.')
     patched=server.replace(anchor,'from paper_math.web import install as install_paper_math\ninstall_paper_math(Handler, chat_answer)\n\n'+anchor)
-    link='<section class="card"><h2>Paper calculator and checker</h2><p>Check a structured paper setup and compare the original AI answer with independent arithmetic.</p><a class="link" href="/paper-math">Open paper desk</a></section>'
+    link='<section class="card"><h2>Paper practice</h2><p>Seven-day practice with virtual money. Original decisions, checks and simulated results stay in history.</p><a class="link" href="/paper-demo">Open demo trader</a><br><a class="link" href="/paper-math">Open paper calculator</a></section>'
     page=html.replace('</main>',link+'</main>')
     ast.parse(patched)
     sp.write_text(patched);hp.write_text(page)

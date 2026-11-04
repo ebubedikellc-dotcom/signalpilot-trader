@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trade Lord · Demo trader</title>
+<style>
+:root{color-scheme:light}*{box-sizing:border-box}body{margin:0;background:#edf2ed;color:#18382a;font:16px/1.6 system-ui}main{max-width:1000px;margin:auto;padding:28px 20px}a{color:#20583d}header{padding:24px 0}h1{font-size:clamp(30px,6vw,48px);line-height:1.1;margin:12px 0}h2{font-size:22px;margin-top:0}.eyebrow{font-size:12px;letter-spacing:.12em;font-weight:700}section,article{padding:24px;border:1px solid #cbd8cb;border-radius:16px;background:white;margin:18px 0}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.metric{padding:20px;background:#163c2b;color:white;border-radius:14px}.metric strong{display:block;font-size:28px}.metric span{font-size:13px}.actions{display:flex;gap:10px;flex-wrap:wrap}button{font:inherit;padding:10px 18px;border:1px solid #20583d;border-radius:9px;background:#20583d;color:white;cursor:pointer}button.secondary{background:white;color:#20583d}button:disabled{opacity:.5;cursor:default}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 ui-monospace,monospace}.muted{color:#52685c}.pill{display:inline-block;padding:3px 10px;border-radius:6px;background:#e4eee5;font-size:13px;font-weight:700}.warn{background:#fff2dc}.success{border-left:5px solid #287a41}summary{cursor:pointer;font-weight:600;padding:8px 0}#error{color:#952b25}small{font-size:13px}@media(max-width:650px){.cards{grid-template-columns:1fr}section,article{padding:18px}main{padding:16px}}
+</style></head><body><main>
+<a href="/control-panel/trade-lord">← Owner control panel</a>
+<header><div class="eyebrow">TRADE LORD · NO REAL MONEY</div><h1>Real prices. Virtual money.</h1><p>Trade Lord proposes a paper decision. The calculator checks its numbers and fixed rules. The demo then follows newly observed market prices with a virtual account.</p></header>
+<section><span id="state" class="pill">Loading status…</span><p id="timing"></p><div class="actions"><button id="start">Start seven-day demo</button><button id="pause" class="secondary">Pause new entries</button><button id="resume" class="secondary">Resume</button></div><p id="error" role="alert"></p><small class="muted">The server handles the loop while this page is closed. One decision and position at a time; at least one minute between completed cases. No forced entries. Other pending questions are respected. A run ends after seven days and preserves its records.</small></section>
+<div class="cards"><div class="metric"><span>Original decisions · closed virtual equity</span><strong id="equity">—</strong></div><div class="metric"><span>Original decisions · total costs</span><strong id="costs">—</strong></div><div class="metric"><span>Original decisions · maximum closed drawdown</span><strong id="drawdown">—</strong></div></div>
+<section><h2>How this forward demo works</h2><p>A passing grade means the numeric decision followed the programmed rules. A profitable simulation can still contain a bad decision. A sound decision can lose.</p><p class="muted">The feed supplies real timestamped bid/ask prices and completed candles. Future prices are unknown. Fills are simulated using fresh observations after the decision, with declared fees, adverse fills and liquidity limits. Fifteen-second sampling can miss moves between observations; it cannot duplicate real exchange execution. Feedback is shown here for owner review; it is not sent back to the AI or saved as a lesson. This does not retrain the model.</p><p class="muted">Connected scope: Kraken DOGE/USD, long cash positions only. Gold, stocks, options and other tokens are unavailable until their specific feeds and execution models are verified. Rules stay fixed during each run. No account, wallet or real-order connection exists.</p></section>
+<section><h2>Separate checked comparison</h2><p id="checked">No completed cases.</p><p class="muted">This comparison uses independently corrected decisions under the same frozen rules and later market observations. It never replaces the original AI score or its ledger. Both accounts start with a fresh virtual $5,000; earlier evaluation history is unchanged.</p></section>
+<section><h2>Fixed experiment rules</h2><p>Buy only after a completed five-minute close above the previous candle’s high. Planned stop: 1.5% below the frozen entry; target: 5% above. Maximum planned risk: $25 and 0.5% of virtual equity. Maximum committed cash: $1,000. Costs must leave net reward/risk of at least 1.5.</p><p class="muted">Simulated commission: 0.4% of the frozen entry price per token on each side. Adverse price adjustment: 0.1%. Use at most 10% of displayed best bid/ask quantity. One immediate entry attempt after the answer; expire the setup after twenty minutes. Observe exits for at most thirty minutes. These are fixed test rules, not an established profitable strategy.</p></section>
+<h2>Decision history</h2><p id="feed-status" class="muted"></p><div class="actions"><button id="newer" class="secondary">Newer records</button><button id="older" class="secondary">Older records</button></div><div id="history"><p>No run has started.</p></div>
+</main><script>
+const $=id=>document.getElementById(id);let busy=false,offset=0,nextOffset=null;
+function el(tag,text,parent){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(parent)parent.append(n);return n}
+function details(label,text,parent){const d=el('details',undefined,parent);el('summary',label,d);el('pre',text,d)}
+function money(v){return v===null?'Unresolved':'$'+v}
+async function api(action){const r=await fetch('/api/paper-demo/'+action+(action==='status'?'?offset='+offset:''),action==='status'?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Trade-Lord':'1'},body:'{}'});const d=await r.json();if(!r.ok)throw Error(d.error||'Demo unavailable');return d}
+function render(d){
+ $('state').textContent=d.state.replaceAll('_',' ');
+ $('timing').textContent=d.ends?'Started '+new Date(d.started*1000).toLocaleString()+'. Ends '+new Date(d.ends*1000).toLocaleString()+'.':'Start a new seven-day forward paper run with a virtual $5,000.';
+ $('start').disabled=busy||!['NOT_STARTED','ENDED'].includes(d.state);$('pause').disabled=busy||d.state!=='RUNNING';$('resume').disabled=busy||d.state!=='PAUSED';
+ const l=d.original_ledger,c=d.checked_ledger;
+ $('equity').textContent=l?money(l.equity):'—';$('costs').textContent=l?money(l.costs):'—';$('drawdown').textContent=l?money(l.closed_max_drawdown):'—';
+ $('checked').textContent=c?'Calculated comparison equity '+money(c.equity)+', costs '+money(c.costs)+'. Original AI: '+l.filled+' filled, '+l.no_trade+' no-trade, '+l.rejected+' rejected, '+l.not_verified+' not verified.':'No completed cases.';
+ $('feed-status').textContent=d.health?d.health.state+': '+d.health.reason:'Feed checked after the run starts. No live deployment is implied.';
+ nextOffset=d.next_offset;$('older').disabled=nextOffset==null;$('newer').disabled=offset===0;
+ $('history').replaceChildren();
+ for(const item of (d.cases||[])){
+  const a=el('article',undefined,$('history'));el('span',item.status,a).className='pill';el('h2',new Date(item.created*1000).toLocaleString(),a);
+  if(item.result){const r=item.result;el('p',r.feedback,a);if(r.assessment.status==='PASS')a.className='success';
+   el('p','Original simulated result: '+r.original.status+' · net '+money(r.original.pnl)+' · costs '+money(r.original.costs),a);
+   el('p','Checked comparison: '+r.checked.status+' · net '+money(r.checked.pnl),a);
+   details('Original Trade Lord answer',item.answer?.raw||'No verified answer',a);
+   details('Checked answer and explanation',JSON.stringify(r.assessment.final_result,null,2),a);
+   details('Chronological outcome and assumptions',JSON.stringify({initial_snapshot:item.precommit.snapshot,policy:item.precommit.execution_policy,observations:item.observations,original:r.original,checked:r.checked},null,2),a);
+   details('Source snapshot and grading criteria',JSON.stringify({source:item.precommit.source_id,notes:item.precommit.source_snapshot,rubric:item.precommit.rubric},null,2),a);
+  }else{
+   el('p',item.uncertainty?.reason||(item.positions?'Observing the market. Positions are still open or awaiting a verified exit.':'Waiting for a completed decision. No backdated entry or future price is assumed.'),a);
+   if(item.positions)details('Open positions and latest quote',JSON.stringify(item.positions,null,2),a);
+   if(item.answer)details('Recorded original answer',item.answer.raw,a);
+   if(item.assessment)details('Independent calculation',JSON.stringify(item.assessment,null,2),a);
+  }
+  details('Exact scenario',item.question,a);el('small','Request '+(item.request?.id||'not yet verified')+' · Precommit '+item.commitment,a);
+ }
+ if(!d.cases?.length)el('p','No scenario has been submitted by this demo.',$('history'));
+}
+async function refresh(){try{render(await api('status'));$('error').textContent=''}catch(e){$('error').textContent=e.message+' No completion or deployment is implied.'}}
+for(const action of ['start','pause','resume'])$(action).onclick=async()=>{if(busy)return;busy=true;for(const x of ['start','pause','resume'])$(x).disabled=true;try{const d=await api(action);busy=false;offset=0;render(d);$('error').textContent=''}catch(e){busy=false;await refresh();$('error').textContent=e.message}};
+$('older').onclick=()=>{if(nextOffset!=null){offset=nextOffset;refresh()}};
+$('newer').onclick=()=>{offset=Math.max(0,offset-20);refresh()};
+refresh();setInterval(()=>{if(!busy)refresh()},10000);
+</script></body></html>

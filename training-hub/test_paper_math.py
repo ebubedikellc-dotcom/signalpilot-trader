@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from paper_math import Case, calculator, calculate, check, parse_proposal
+from paper_math import Case, calculator, calculate, check, review, parse_proposal
 from paper_math.web import prompt, install
 
 
@@ -64,6 +64,71 @@ class MathsTests(unittest.TestCase):
             self.assertEqual(check(setup_case(),s)['status'],'NOT_VERIFIED')
     def test_does_not_trust_model_totals(self):
         p=proposal();p.update(risk='4',reward='100');self.assertEqual(check(setup_case(),p)['status'],'FAIL')
+    def test_corrected_totals_preserve_original_failure(self):
+        p=proposal();p.update(risk='4',reward='100',rationale='Guaranteed money!')
+        before=copy.deepcopy(p);c=setup_case();original_case=copy.deepcopy(c)
+        r=review(c,p);f=r['final_result']
+        self.assertEqual(r['status'],'FAIL');self.assertFalse(r['accepted_for_paper'])
+        self.assertEqual(f['status'],'CORRECTED');self.assertTrue(f['accepted_for_paper'])
+        self.assertEqual((f['decision']['risk'],f['decision']['reward']),('20','28'))
+        self.assertEqual(r['actual_proposal']['risk'],'4')
+        self.assertEqual({x['field'] for x in f['changes']},{'risk','reward'})
+        self.assertNotIn('Guaranteed',f['decision']['rationale'])
+        self.assertFalse(f['source_content_verified']);self.assertFalse(f['rationale_verified'])
+        self.assertFalse(f['orders_enabled']);self.assertFalse(f['fill_assumed'])
+        self.assertEqual(p,before);self.assertEqual(c,original_case)
+    def test_wrong_no_trade_becomes_margin_limited_paper_buy(self):
+        c=setup_case();c.update(unit='ounces',entry='3100',stop='3097',target='3109',threshold='3098',
+            risk_budget='25',minimum_rr='1.5',funding='MARGIN',available_cash='5000',
+            margin_per_unit='150',available_margin='500',entry_liquidity='10',exit_liquidity='10',
+            entry_per_unit='0.75',exit_per_unit='0.75')
+        c['latest']=dict(open='3097',high='3100',low='3096',close='3099',completed=True)
+        p=proposal();p.update(action='NO_TRADE',quantity='0',entry=None,stop=None,target=None,costs='0',risk='0',reward='0',margin='0',cash='0')
+        r=review(c,p);d=r['final_result']['decision']
+        self.assertEqual(r['status'],'FAIL');self.assertEqual(d['action'],'BUY')
+        self.assertEqual(d['quantity'],'3');self.assertEqual(d['costs'],'4.5')
+        self.assertEqual(d['risk'],'13.5');self.assertEqual(d['reward'],'22.5')
+        self.assertEqual(d['margin'],'450');self.assertEqual(d['cash'],'452.25')
+        self.assertEqual(r['final_result']['reward_risk_display'],'1.6667')
+    def test_oversize_and_wrong_levels_are_recomputed_from_frozen_case(self):
+        p=proposal();p.update(quantity='50',entry='200',stop='190',target='230')
+        r=review(setup_case(),p);d=r['final_result']['decision']
+        self.assertEqual(r['actual_proposal']['quantity'],'50')
+        self.assertEqual((d['quantity'],d['entry'],d['stop'],d['target']),('4','160','156','168'))
+        self.assertEqual(d['cash'],'642');self.assertEqual(d['risk'],'20')
+    def test_failed_entry_gates_correct_to_no_trade_without_costs(self):
+        for change in ['close','ratio','liquidity']:
+            c=setup_case()
+            if change=='close':c['latest']['close']='158.5'
+            elif change=='ratio':c['minimum_rr']='1.40000001'
+            else:c['exit_executable']=False
+            with self.subTest(change=change):
+                f=review(c,proposal())['final_result'];d=f['decision']
+                self.assertEqual(f['status'],'CORRECTED');self.assertEqual(d['action'],'NO_TRADE')
+                for name in ['quantity','costs','risk','reward','margin','cash']:self.assertEqual(d[name],'0')
+                for name in ['entry','stop','target']:self.assertIsNone(d[name])
+                self.assertIsNone(f['reward_risk_display'])
+    def test_short_correction_uses_direction_multiplier_and_body(self):
+        c=setup_case();c.update(side='SHORT',rule='SHORT_DISPLACEMENT',entry='71',stop='74',target='65',funding='MARGIN',margin_per_unit='25',available_margin='200',risk_budget='18')
+        c['previous']=dict(open='73',high='76',low='72',close='74',completed=True)
+        c['latest']=dict(open='74',high='74.5',low='70',close='71',completed=True)
+        f=review(c,proposal())['final_result'];d=f['decision']
+        self.assertEqual(d['action'],'SELL_SHORT');self.assertEqual(d['quantity'],'4')
+        self.assertEqual((d['risk'],d['reward'],d['margin']),('16','20','100'))
+        self.assertEqual(f['pattern']['latest_body'],'3')
+    def test_missing_or_unstructured_data_cannot_be_corrected(self):
+        c=setup_case();del c['stop']
+        for case,p in [(c,proposal()),(setup_case(),'BUY four'),(setup_case(),'{"action":"BUY","action":"NO_TRADE"}'),(setup_case(),None)]:
+            with self.subTest(p=p):
+                r=review(case,p);self.assertEqual(r['status'],'NOT_VERIFIED')
+                self.assertIsNone(r['final_result']['decision']);self.assertFalse(r['final_result']['accepted_for_paper'])
+    def test_passing_numbers_keep_grade_and_get_rule_based_explanation(self):
+        p=proposal();p['rationale']='The future is guaranteed.'
+        r=review(setup_case(),p);f=r['final_result']
+        self.assertEqual(r['status'],'PASS');self.assertEqual(f['status'],'CHECKED')
+        self.assertEqual(f['changes'],[]);self.assertEqual(f['decision']['quantity'],'4')
+        self.assertNotIn('guaranteed',f['decision']['rationale'])
+        self.assertFalse(f['rationale_verified'])
     def test_prompt_has_inputs_no_computed_answer(self):
         q=prompt(Case.model_validate(setup_case()));self.assertLessEqual(len(q),2000);self.assertNotIn('642',q)
     def test_adapter_preserves_routes_and_auth(self):
@@ -75,12 +140,16 @@ class MathsTests(unittest.TestCase):
             def send(self,*args):return args
             def do_GET(self):return 'original GET'
             def do_POST(self):return 'original POST'
-        install(Handler,lambda x:'unused')
+        with patch('paper_math.demo.launch'):
+            install(Handler,lambda x:'unused')
         self.assertEqual(Handler('/api/jobs').do_GET(),'original GET')
         self.assertEqual(Handler('/api/question').do_POST(),'original POST')
         self.assertEqual(Handler('/api/paper-math/calculate',{'expression':'2+3'},False).do_POST()[0],403)
         self.assertEqual(Handler('/api/paper-math/calculate',{'expression':'2+3'}).do_POST()[1]['result'],'5')
         self.assertFalse(Handler('/api/paper-math/health').do_GET()[1]['orders_enabled'])
+        self.assertEqual(Handler('/api/paper-demo/start',{},False).do_POST()[0],403)
+        self.assertEqual(Handler('/api/paper-demo/start',{'risk_budget':'9999'}).do_POST()[0],400)
+        self.assertEqual(Handler('/api/paper-demo/status?offset=-1').do_GET()[0],400)
     def test_install_copies_and_unknown_abort(self):
         from install_paper_math import install as patch_files
         with tempfile.TemporaryDirectory() as root:
@@ -100,5 +169,47 @@ class MathsTests(unittest.TestCase):
             with patch.object(question_queue,'submit',side_effect=immediate):
                 submit(setup_case(),lambda _:json.dumps(proposal()))
             r=result('test-id');self.assertEqual(r['check']['status'],'PASS');self.assertEqual(r['answer'],json.dumps(proposal()))
+    def test_correction_is_frozen_and_never_fed_back_to_model(self):
+        import store
+        from paper_math import web
+        p=proposal();p.update(risk='4',reward='100');raw=json.dumps(p,indent=2)
+        calls=[]
+        def model(data):calls.append(data);return raw
+        def immediate(data,callback):callback(data);return {'id':'corrected-id','status':'waiting'}
+        with tempfile.TemporaryDirectory() as root,patch.object(store,'ROOT',Path(root)):
+            with patch('question_queue.submit',side_effect=immediate):web.submit(setup_case(),model)
+            first=web.result('corrected-id')
+            self.assertEqual(first['answer'],raw);self.assertEqual(first['check']['status'],'FAIL')
+            self.assertEqual(first['check']['final_result']['decision']['risk'],'20')
+            self.assertEqual(len(calls),1);self.assertEqual(calls[0]['question'],prompt(Case.model_validate(setup_case())))
+            with patch.object(web,'review',side_effect=AssertionError('Must not recalculate saved history')):
+                self.assertEqual(web.result('corrected-id'),first)
+            with web.database() as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM checked_results').fetchone()[0],1)
+                self.assertEqual(db.execute('SELECT answer FROM reviews').fetchone()[0],raw)
+    def test_waiting_and_failed_requests_never_get_corrected_answers(self):
+        import store
+        from paper_math import web
+        def waiting(*args):return {'id':'pending-id','status':'waiting'}
+        with tempfile.TemporaryDirectory() as root,patch.object(store,'ROOT',Path(root)):
+            with patch('question_queue.submit',side_effect=waiting):web.submit(setup_case(),lambda _: 'unused')
+            with patch('question_queue.get',return_value={'id':'pending-id','status':'waiting'}):
+                self.assertEqual(web.result('pending-id')['status'],'waiting')
+                self.assertNotIn('check',web.result('pending-id'))
+            with web.database() as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM checked_results').fetchone()[0],0)
+                db.execute('UPDATE reviews SET error=?',('Model failed',))
+            r=web.result('pending-id');self.assertEqual(r['check']['status'],'NOT_VERIFIED')
+            self.assertNotIn('answer',r)
+    def test_checker_failure_keeps_original_and_blocks_final_result(self):
+        import store
+        from paper_math import web
+        raw=json.dumps(proposal())
+        def immediate(data,callback):callback(data);return {'id':'check-failure','status':'waiting'}
+        with tempfile.TemporaryDirectory() as root,patch.object(store,'ROOT',Path(root)):
+            with patch('question_queue.submit',side_effect=immediate),patch.object(web,'review',side_effect=ArithmeticError()):
+                web.submit(setup_case(),lambda _:raw)
+            r=web.result('check-failure');self.assertEqual(r['answer'],raw)
+            self.assertEqual(r['check']['status'],'NOT_VERIFIED');self.assertIsNone(r['check']['final_result']['decision'])
 
 if __name__=='__main__':unittest.main()
