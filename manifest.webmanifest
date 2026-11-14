@@ -1,8 +1,8 @@
 {
-  "name": "SignalPilot Control Panel",
-  "short_name": "SignalPilot",
-  "description": "Private owner control panel for SignalPilot trading.",
-  "start_url": "/control-panel.html",
+  "name": "TradeLog",
+  "short_name": "TradeLog",
+  "description": "Your trading, learning and conversation workspace.",
+  "start_url": "/workspace",
   "scope": "/",
   "display": "standalone",
   "background_color": "#09161f",
@@ -15,5 +15,6 @@
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "id": "/control-panel.html"
 }

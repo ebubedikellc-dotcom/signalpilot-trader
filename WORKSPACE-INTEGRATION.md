@@ -1,10 +1,11 @@
-# Trade Lord + SignalPilot workspace — staged integration
+# TradeLog workspace — staged integration
 
-This branch adds one owner workspace at `/workspace` (also `/`) and shared navigation on SignalPilot, the existing server's Trade Lord page and its training page. SignalPilot remains at `/control-panel`. The copy engine, provider selection, signing, profit reserves, position journal, and funding rules are not replaced.
+This branch adds one owner workspace at `/workspace` (also `/`) and shared navigation on SignalPilot, the existing server's Trade Lord page and its training page. The existing SignalPilot screen is now CopyTrade at `/copytrade`, and `/control-panel` still works. Separate pages are available at `/chat`, `/research`, `/calculator` and `/whatsapp`. The copy engine, provider selection, signing, profit reserves, position journal, and funding rules are not replaced.
 
 ## Implemented here
 
-- Owner workspace with links to existing SignalPilot and server-side Trade Lord pages.
+- Redesigned owner workspace with CopyTrade, Lessons, Chat, Research, Calculator and WhatsApp rooms. CopyTrade retains SignalPilot’s trading controls and account APIs.
+- Owner-only WhatsApp QR connector, new direct-text inbox, local reply drafts and explicit manual send. See `services/whatsapp/README.md` for setup and limitations.
 - Exact decimal scenario calculator and input checker: existing and added units, long/short stop direction, point value, unit increments, fixed and per-unit exit costs, maximum additional quantity and budget comparison. It uses integer arithmetic scaled to eight decimal places and rounds displayed risk upward.
 - Separate owner-only normal-chat and Vane web-research endpoints. Normal chat sends only recent conversation; research returns HTTP(S) source links. Neither receives a trading executor, signing material or messaging tools.
 - One active workspace AI request at a time, bounded inputs, outputs and timeout. This is not a global lock across the separate laptop PDF/video/question workers; that requires their current source.
@@ -29,7 +30,7 @@ Render shows `signalpilot-trader` on the Starter plan in Oregon, linked to this 
 
 The environment key list includes `DATA_DIR`, `ENABLE_LIVE_TRADING`, `EXECUTE_REAL_SWAPS`, `GMGN_API_KEY` and `NODE_ENV`; values were not revealed. There is no visible `OWNER_PASSWORD`, Ollama or Vane setting in that list. Configure owner authentication before deploying this branch; do not deploy an owner-login change without providing the owner a working sign-in path. The disk's contents and restore procedure have not been verified.
 
-Validation: all 307 Node tests passed. An isolated full-server HTTP smoke check passed owner login/logout, the 11-versus-10 calculation regression, navigation asset delivery, owner-only access, source-file protection, cross-origin rejection and missing-service errors. Automated browser rendering could not run because Chromium's required local socket was denied by this execution environment; desktop/mobile visual verification remains outstanding.
+Validation: all 318 Node tests passed, including 11 WhatsApp connector and access-control checks. An isolated full-server HTTP smoke check passed owner login/logout, the 11-versus-10 calculation regression, navigation asset delivery, owner-only access, source-file protection, cross-origin rejection and missing-service errors. A desktop browser check of an isolated design preview confirmed Home, CopyTrade, WhatsApp and the calculator regression. No production accounts, models or messaging services were connected to that preview. Mobile and actual phone pairing tests remain outstanding.
 
 ## Existing copy-speed components to retain
 

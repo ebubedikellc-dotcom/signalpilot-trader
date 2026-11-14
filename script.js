@@ -583,17 +583,17 @@ function updateInstallButton() {
   const button = $("installOwnerApp");
   if (!button) return;
   if (runningStandalone()) {
-    button.textContent = "SignalPilot App Installed";
+    button.textContent = "TradeLog App Installed";
     button.disabled = true;
     return;
   }
   button.disabled = false;
-  button.textContent = isIosDevice() ? "Add SignalPilot to iPhone" : "Install SignalPilot App";
+  button.textContent = isIosDevice() ? "Add TradeLog to iPhone" : "Install TradeLog App";
 }
 
 async function installOwnerApp() {
   if (runningStandalone()) {
-    showBusinessMessage("SignalPilot is already opening like an app.");
+    showBusinessMessage("TradeLog is already opening like an app.");
     return;
   }
   if (deferredInstallPrompt) {

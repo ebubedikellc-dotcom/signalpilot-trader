@@ -1,0 +1,19 @@
+# Optional private service. No public ports and no trading credentials.
+services:
+  whatsapp:
+    build: ../services/whatsapp
+    restart: unless-stopped
+    environment:
+      WHATSAPP_BRIDGE_TOKEN: ${WHATSAPP_BRIDGE_TOKEN:?Set a private random bridge token}
+    volumes:
+      - whatsapp-session:/data
+    networks:
+      tradelord-local:
+        aliases: [whatsapp]
+    mem_limit: 512m
+    cpus: 0.5
+networks:
+  tradelord-local:
+    external: true
+volumes:
+  whatsapp-session:

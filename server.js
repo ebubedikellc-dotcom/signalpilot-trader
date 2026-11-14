@@ -4655,9 +4655,9 @@ async function handleApi(request, response, url) {
 }
 
 function serveFile(response, pathname) {
-  const safePath = pathname === "/" || pathname === "/workspace" || pathname === "/workspace/"
+  const safePath = ["/", "/workspace", "/workspace/", "/chat", "/research", "/calculator", "/whatsapp"].includes(pathname)
     ? "/workspace.html"
-    : pathname === "/control-panel"
+    : pathname === "/control-panel" || pathname === "/copytrade" || pathname === "/copytrade/"
     ? "/control-panel.html"
     : pathname === "/trade-lord" || pathname === "/trade-lord/"
       ? "/trade-lord.html"
@@ -4669,7 +4669,7 @@ function serveFile(response, pathname) {
   const filePath = path.normalize(path.join(__dirname, safePath));
   const relativePath = path.relative(__dirname, filePath);
   const hiddenSegment = relativePath.split(path.sep).some((segment) => segment.startsWith("."));
-  const publicFiles = new Set(["workspace.html","workspace.css","workspace.js","workspace-nav.js","control-panel.html","index.html","trade-lord.html","trade-lord-training.html","styles.css","script.js","trade-lord.css","trade-lord.js","trade-lord-client.js","trade-lord-panel.js","trade-lord-player.js","trade-lord-study.js","trade-lord-training.js","manifest.webmanifest","signalpilot-icon.svg","sw.js"]);
+  const publicFiles = new Set(["workspace.html","workspace.css","workspace.js","workspace-nav.js","whatsapp.js","control-panel.html","index.html","trade-lord.html","trade-lord-training.html","styles.css","script.js","trade-lord.css","trade-lord.js","trade-lord-client.js","trade-lord-panel.js","trade-lord-player.js","trade-lord-study.js","trade-lord-training.js","manifest.webmanifest","signalpilot-icon.svg","sw.js"]);
   if (!filePath.startsWith(__dirname) || hiddenSegment || !publicFiles.has(relativePath)) {
     response.writeHead(403);
     response.end("Forbidden");

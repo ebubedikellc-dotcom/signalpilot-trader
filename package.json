@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js"
+    "check": "node --check server.js",
+    "dev": "node tools/preview.mjs"
   },
   "dependencies": {
     "@solana/web3.js": "^1.99.0",

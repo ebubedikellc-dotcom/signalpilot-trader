@@ -1,0 +1,1 @@
+{"name":"tradelog-whatsapp-bridge","private":true,"type":"module","version":"0.1.0","scripts":{"start":"node server.mjs","test":"node --test test.mjs"},"engines":{"node":">=22"},"dependencies":{"baileys":"7.0.0-rc14","qrcode":"1.5.4","pino":"9.14.0"}}
