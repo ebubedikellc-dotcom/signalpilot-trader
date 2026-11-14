@@ -29,13 +29,13 @@ function harness() {
  const state={settings:{},strategy:{},profiles:{safe:{running:false}},activity:[]};
  const reserves={wallet:{lockedUsd:185.58}};const journal={pending:{}};
  let saved=0,invalidated=0,cash=193.58,owner=true;
- const c=vm.createContext({Date,Math,Number,Object,releaseProfitReserve,supportedProfiles:['safe'],
+ const c=vm.createContext({process:{env:{}},Date,Math,Number,Object,releaseProfitReserve,supportedProfiles:['safe'],
   readState:async()=>state,readBody:async r=>r.body,sessionFromRequest:()=>({}),requireOwner:()=>!owner,
   withWalletOperation:async f=>f(),tradeWallet:()=> 'wallet',executionJournal:{load:async()=>journal},
   tokenUiBalance:async()=>cash,solanaConnection:()=>({}),usdcMint:'USDC',protectProfit:async()=>{},
   readProfitReserves:async()=>reserves,saveProfitReserves:async()=>saved++,invalidateWalletBudget:()=>invalidated++,
   saveState:async()=>{},line:x=>x,statusPayload:s=>s,send:(_,code,body)=>{c.output={code,body}}});
- const start=server.indexOf('async function handleApi('),end=server.indexOf('function serveFile(',start);
+ const start=server.indexOf('async function handleApi('),end=server.indexOf('async function serveFile(',start);
  vm.runInContext(server.slice(start,end),c);
  return {state,journal,reserves,setOwner:x=>owner=x,setCash:x=>cash=x,saved:()=>saved,invalidated:()=>invalidated,
   run:async()=>{await c.handleApi({method:'POST',body:{amountUsd:'20',requestId}},{},{pathname:'/api/profit/release'});return c.output;}};
@@ -54,3 +54,4 @@ test('release requires owner access and verified wallet cash',async()=>{
  const h=harness();h.setOwner(false);await h.run();assert.equal(h.saved(),0);
  h.setOwner(true);h.setCash(NaN);assert.equal((await h.run()).code,409);assert.equal(h.saved(),0);
 });
+

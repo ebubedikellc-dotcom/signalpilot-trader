@@ -9,14 +9,14 @@ const section=(s,a,b)=>s.slice(s.indexOf(a),s.indexOf(b,s.indexOf(a)));
 function harness() {
  const state={settings:{frogBuyMode:'trailing',frogSurviveMax:'20',safeSurviveMax:'5',truenestSurviveMax:'5',frogDeposit:'50',profitMode:'save',trailingStopPercent:'10'},strategy:{activeProfile:'safe',controlRevision:1},profiles:{safe:{running:true},frog:{running:true},truenest:{running:true}},activity:[]};
  let saves=0;
- const c=vm.createContext({Date,Number,Math,Object,String,defaultBuyMode:'limits',surviveBuyUsd:5,
+ const c=vm.createContext({process:{env:{}},Date,Number,Math,Object,String,defaultBuyMode:'limits',surviveBuyUsd:5,
    profileBuyMode:s=>s.settings.frogBuyMode,clean:x=>x,executionJournal:{load:async()=>({})},
    readState:async()=>state,requireOwner:()=>false,sessionFromRequest:()=>({role:'owner'}),readBody:async r=>r.body,
    saveState:async()=>{saves++;},statusPayload:s=>s,line:x=>x,send:(_,code,body)=>{c.output={code,body}}});
  vm.runInContext(section(server,'function syncQueueSurviveSettings(', 'function isLegacyUnsupportedSwapSkip('),c);
  vm.runInContext(section(server,'function profileSurviveMaxUsd(', '// An owner-confirmed token sale'),c);
  vm.runInContext(section(server,'function buyUsdAmount(', 'function sourceUsdFromSignal('),c);
- vm.runInContext(section(server,'async function handleApi(', 'function serveFile('),c);
+ vm.runInContext(section(server,'async function handleApi(', 'async function serveFile('),c);
  return {c,state,saves:()=>saves,save:async amountUsd=>{await c.handleApi({method:'POST',body:{amountUsd}},{},{pathname:'/api/purchase-limit'});return c.output;}};
 }
 
@@ -58,7 +58,7 @@ test('20% Rise — Sell 30% can be saved and reloaded without changing limits or
  for(const profile of ['safe','frog','truenest'])assert.equal(settings[profile+'BuyMode'],'rise30');
  assert.equal(settings.frogSurviveMax,'20');assert.equal(settings.frogDeposit,'50');
  assert(Object.values(h.state.profiles).every(p=>p.running));
- const c=vm.createContext({Number,value:()=>'',normalizeBuyMode:undefined});
+ const c=vm.createContext({process:{env:{}},Number,value:()=>'',normalizeBuyMode:undefined});
  vm.runInContext(section(script,'function normalizeBuyMode(', 'let modeFormDirty'),c);
  assert.equal(c.normalizeBuyMode('rise30'),'rise30');
  assert.equal(c.buyModeLabel('rise30'),'20% Rise — Sell 30%');
@@ -74,7 +74,7 @@ test('Protected Frog Copy can be saved and keeps the shared purchase ceiling',as
  assert.equal(settings.frogSurviveMax,'20');
  assert.equal(h.c.buyUsdAmount(h.state,'safe',50),20);
  assert.equal(h.c.buyUsdAmount(h.state,'safe',3),3);
- const c=vm.createContext({Number,value:()=>'',normalizeBuyMode:undefined});
+ const c=vm.createContext({process:{env:{}},Number,value:()=>'',normalizeBuyMode:undefined});
  vm.runInContext(section(script,'function normalizeBuyMode(', 'let modeFormDirty'),c);
  assert.equal(c.normalizeBuyMode('protected'),'protected');
  assert.equal(c.buyModeLabel('protected'),'Protected Frog Copy');
@@ -89,7 +89,7 @@ test('High Risk Profit Run can be saved and keeps the highest-buy cap',async()=>
  assert.equal(settings.frogSurviveMax,'20');
  assert.equal(h.c.buyUsdAmount(h.state,'safe',50),20);
  assert.equal(h.c.buyUsdAmount(h.state,'safe',3),3);
- const c=vm.createContext({Number,value:()=>'',normalizeBuyMode:undefined});
+ const c=vm.createContext({process:{env:{}},Number,value:()=>'',normalizeBuyMode:undefined});
  vm.runInContext(section(script,'function normalizeBuyMode(', 'let modeFormDirty'),c);
  assert.equal(c.normalizeBuyMode('riskrun'),'riskrun');
  assert.equal(c.buyModeLabel('riskrun'),'High Risk Profit Run');
@@ -140,7 +140,7 @@ test('purchase-limit endpoint requires owner authorization',async()=>{
 
 test('visible Save limit submits only the chosen cap and clears its draft only after success',async()=>{
  const requests=[],messages=[];const button={disabled:false};let render;
- const c=vm.createContext({Number,Math,JSON,String,purchaseLimitDirty:true,value:()=> '25',
+ const c=vm.createContext({process:{env:{}},Number,Math,JSON,String,purchaseLimitDirty:true,value:()=> '25',
    $:()=>button,setText:(_,v)=>messages.push(v),api:async(url,options)=>{requests.push({url,body:JSON.parse(options.body)});return {settings:{frogSurviveMax:'25'}};},renderState:s=>render=s});
  vm.runInContext(section(script,'async function savePurchaseLimit(', 'async function ownerWithdraw('),c);
  await c.savePurchaseLimit();assert.equal(requests[0].url,'/api/purchase-limit');
@@ -163,8 +163,9 @@ test('blank highest buy persists through reload and copies full source amount wi
  for(const amount of [2,7,20])assert.equal(h.c.buyUsdAmount(h.state,'safe',amount),Math.min(amount,10));
 });
 test('blank visible highest buy submits an explicit empty string rather than zero',async()=>{
- const requests=[];const c=vm.createContext({Number,Math,JSON,String,purchaseLimitDirty:true,value:()=> '',
+ const requests=[];const c=vm.createContext({process:{env:{}},Number,Math,JSON,String,purchaseLimitDirty:true,value:()=> '',
  $:()=>({disabled:false}),setText:()=>{},api:async(url,options)=>{requests.push(JSON.parse(options.body));return {};},renderState:()=>{}});
  vm.runInContext(section(script,'async function savePurchaseLimit(', 'async function ownerWithdraw('),c);
  await c.savePurchaseLimit();assert.deepEqual(requests[0],{amountUsd:''});
 });
+

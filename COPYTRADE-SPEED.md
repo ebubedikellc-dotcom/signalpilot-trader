@@ -24,13 +24,33 @@ delay in that specific simulated case. It is not a live copy-to-fill benchmark.
 This change does not modify trading permissions, signing, source verification,
 position sizing, transaction submission or the selected RPC provider.
 
+## Free-connection laptop package — 14 November 2026
+
+`README-LAPTOP.md` contains the installation and private-import instructions.
+The laptop package includes the existing pinned FnZero builders and uses public
+Solana WebSocket notifications plus durable confirmed-history recovery. It does
+not require Helius or GMGN. Keyless Jupiter fallback is paced to its published
+allowance; the public connection is not a guaranteed low-latency service.
+
+The gateway adds `/copytrade/` beside the existing Python Trade Lord without
+replacing its container, lesson data or installed Qwen model. Both live execution
+switches are off. The owner-only connection check observes public activity for
+two minutes and measures a read request; it is not a copied-fill benchmark.
+
+Validation: 334 Node checks passed, followed by 17 targeted rechecks after the
+final importer/preview adjustments, plus two Python backup-import checks. HTTP
+checks cover the mounted UI, owner login, preservation of source wallet/cap,
+private-route protection and rejection of live starts. The Docker image and
+actual laptop connection have not been tested here. The cloud browser could not
+open the local preview, so this update has no completed visual browser check.
+
 ## Remaining work
 
 1. Measure the existing live path without signing or submitting trades: source
    notification, confirmed source decode, route preparation and signing readiness.
-2. Verify access to a compatible Yellowstone gRPC endpoint before comparing a
-   streaming adapter with the existing WebSocket feed. Yellowstone has not been
-   integrated or activated by this scheduling fix.
+2. Measure the free public connection on the laptop before considering any
+   different feed. Yellowstone is not included and does not itself provide a
+   free, low-latency mainnet data service.
 3. Keep the source confirmation policy explicit. A faster feed does not by itself
    remove confirmation time, network delay, route preparation or on-chain inclusion.
 4. Install and validate on the target machine. Code on the review branch is not

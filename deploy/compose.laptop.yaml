@@ -1,0 +1,52 @@
+name: tradelord-copytrade
+services:
+  copytrade:
+    build:
+      context: ..
+      dockerfile: Dockerfile.laptop
+    image: tradelord-copytrade:local
+    restart: unless-stopped
+    init: true
+    user: "${COPYTRADE_UID:-1000}:${COPYTRADE_GID:-1000}"
+    env_file: .laptop.private.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      DATA_DIR: /data
+      APP_BASE_PATH: /copytrade
+      COPYTRADE_HOME_URL: /trade-lord
+      COPYTRADE_CONNECTION: public
+      COPYTRADE_KEYLESS_QUOTES: "true"
+      ENABLE_LIVE_TRADING: "false"
+      EXECUTE_REAL_SWAPS: "false"
+      TRADE_LORD_DISABLED: "true"
+      NODE_ENV: development
+    volumes:
+      - ./private-data:/data
+    networks: [copytrade]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/copytrade/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  gateway:
+    image: tradelord-copytrade:local
+    restart: unless-stopped
+    init: true
+    command: [node, tools/laptop-gateway.mjs]
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8088"
+      TRADE_LORD_UPSTREAM: "${TRADE_LORD_UPSTREAM:?Run install-laptop.sh first}"
+      COPYTRADE_UPSTREAM: http://copytrade:3000
+    ports:
+      - "127.0.0.1:${COPYTRADE_PORT:-8088}:8088"
+    networks: [copytrade, lessons]
+    depends_on:
+      copytrade:
+        condition: service_healthy
+networks:
+  copytrade: {}
+  lessons:
+    external: true
+    name: "${TRADE_LORD_NETWORK:?Run install-laptop.sh first}"

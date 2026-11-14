@@ -1,5 +1,6 @@
 let walletPriceSnapshot = null;
 const fields = [
+  "copyConnection",
   "executionEngine",
   "gmgnApiKey",
   "heliusKey",
@@ -611,7 +612,7 @@ async function installOwnerApp() {
 
 function setupOwnerWebAppInstall() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/sw.js").catch(() => null);
+    if (!window.copytradeBase) navigator.serviceWorker.register("/sw.js").catch(() => null);
   }
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
@@ -627,7 +628,7 @@ function setupOwnerWebAppInstall() {
 }
 
 function publicUrl(path) {
-  return `${window.location.origin}${path}`;
+  return `${window.location.origin}${window.appPath ? window.appPath(path) : path}`;
 }
 
 function tokenFromLink(input) {
@@ -789,8 +790,7 @@ function percent(value) {
 
 function localReady(data = payload()) {
   return Boolean(
-    data.gmgnApiKey &&
-    data.routeApi &&
+    (data.copyConnection === "public" || (data.gmgnApiKey && data.routeApi)) &&
     data.turnkeyOrgId &&
     data.turnkeyApiPublicKey &&
     data.turnkeyApiPrivateKey &&
@@ -1233,7 +1233,7 @@ function renderState(state) {
   const savingLabel = backend.creditSaving ? `${backend.creditSaving.mode}. ${backend.creditSaving.sleeping ? 'Transaction listener stays on; active checks wake automatically. ' : ''}` : '';
   const idleConnection = checkedConnection
     ? `${checkedConnection.message} Checked ${new Date(checkedConnection.checkedAt).toLocaleString()}.`
-    : queueRunning ? "Watching the selected trader; waiting for feed status." : "Feeds not checked while trading is stopped. GMGN connection is not yet verified.";
+    : queueRunning ? "Watching the selected trader; waiting for feed status." : "Feeds not checked while trading is stopped. Use the connection check.";
   setText("feedConnectionStatus", savingLabel + (observingWhileStopped ? "Read-only connection check — trading remains stopped. " : "") + (feedRows.length ? feedRows.map((f) => `${profileName(f.profile)} ${f.source}: ${f.status}${f.error ? ` (${f.error})` : ""}`).join(" · ") : observingWhileStopped ? "Waiting for wallet activity." : idleConnection));
   renderExecutionReport();
   const liveTradingEnv = backend.liveTradingEnv === true;
@@ -1253,12 +1253,16 @@ function renderState(state) {
   ["frog", "truenest"].forEach(syncRoomProtectionFromMode);
 
   const ready = localReady(settings);
+  const freeMode = backend.freeConnection === true;
+  document.querySelectorAll("[data-paid-provider]").forEach(node=>node.hidden=freeMode);
+  if ($("copyConnection")) $("copyConnection").disabled=backend.connectionLocked || queueRunning;
+  setText("copyConnectionStatus", freeMode ? "Free public Solana alerts and history. No Helius or GMGN key is used. FnZero is included; supported routes use it after preparation." : "Existing provider configuration");
   const heliusBlocked = latestState.backend?.paidHeliusEnabled !== false && heliusLimited();
   if ($("frogStart")) $("frogStart").disabled = !ready || heliusBlocked || profiles.frog?.running;
   if ($("truenestStart")) $("truenestStart").disabled = !ready || heliusBlocked || profiles.truenest?.running;
   if ($("frogStop")) $("frogStop").disabled = !profiles.frog?.running;
   if ($("truenestStop")) $("truenestStop").disabled = !profiles.truenest?.running;
-  if ($("queueStart")) $("queueStart").disabled = backend.providerRepairHold || !ready || heliusBlocked || queueRunning;
+  if ($("queueStart")) $("queueStart").disabled = !backend.productionExecution || backend.providerRepairHold || !ready || heliusBlocked || queueRunning;
   if ($("queueStop")) $("queueStop").disabled = !queueRunning;
   if ($("changeTrader")) {
     $("changeTrader").disabled = queueRunning;
@@ -1339,10 +1343,10 @@ function renderState(state) {
   renderStockCoinHistory(trades);
   updateStockAlarm(trades);
   setText("liveEnvStatus", productionExecution
-    ? "Production execution is enabled in Render and the required wallet details are saved."
+    ? "Execution is enabled on this server and the required wallet details are saved."
     : liveTradingEnv
-      ? "Render monitoring is on. Real buy/sell execution is still locked until EXECUTE_REAL_SWAPS=true is set in Render."
-      : "Render monitoring is locked. Real trading cannot run until the Render environment is enabled.");
+      ? "Observation is available. Real buy/sell execution is disabled."
+      : "Observation mode — real trading is disabled. Check the free connection without spending money.");
 
   if (backend.providerRepairHold) {
     const checked = backend.gmgnConnectionCheck;
@@ -1359,8 +1363,8 @@ function renderState(state) {
     setText("engineStatus", "Trading locked - keys missing");
     setText("engineSubtext", "Backend is alive. Add the missing keys and wallet IDs inside this control panel, then Save.");
     const missing = [];
-    if (!settings.gmgnApiKey) missing.push("Waiting for GMGN API key.");
-    if (!settings.routeApi) missing.push("Waiting for Jupiter / trading route API.");
+    if (!freeMode && !settings.gmgnApiKey) missing.push("Waiting for GMGN API key.");
+    if (!freeMode && !settings.routeApi) missing.push("Waiting for Jupiter / trading route API.");
     if (!settings.turnkeyOrgId) missing.push("Waiting for Turnkey organization ID.");
     if (!settings.turnkeyApiPublicKey) missing.push("Waiting for Turnkey API public key.");
     if (!settings.turnkeyApiPrivateKey) missing.push("Waiting for Turnkey API private key.");
@@ -1430,7 +1434,7 @@ async function api(path, options = {}) {
   const controller = boundedRead ? new AbortController() : null;
   const timer = controller ? setTimeout(()=>controller.abort(),10000) : null;
   try {
-  const response = await fetch(path, {
+  const response = await fetch(window.appPath ? window.appPath(path) : path, {
     headers: { "Content-Type": "application/json" },
     ...(controller ? {signal:controller.signal} : {}),
     ...options
@@ -2503,3 +2507,6 @@ on('growthStartingAmount','input',()=>{growthFormDirty=true;explainGrowthPlan();
 on('growthTargetAmount','input',()=>{growthFormDirty=true;explainGrowthPlan();});
 on('saveProfitPlan','click',saveGrowthPlan);
 
+
+$("checkPublicConnection")?.addEventListener("click",async()=>{const button=$("checkPublicConnection");button.disabled=true;setText("publicConnectionResult","Checking public history and listening for trader activity. No trade will be sent…");try{const result=await api("/api/public/check",{method:"POST"});setText("publicConnectionResult",result.message);}catch(error){setText("publicConnectionResult",error.message);}finally{button.disabled=false;}});
+$("saveCopyConnection")?.addEventListener("click",async()=>{try{renderState(await api("/api/settings",{method:"POST",body:JSON.stringify({copyConnection:$("copyConnection").value})}));}catch(error){setText("copyConnectionStatus",error.message);}});

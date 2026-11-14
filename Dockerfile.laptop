@@ -1,0 +1,10 @@
+FROM node:22-bookworm-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+COPY server.js ./*.html ./*.js ./*.css ./*.svg ./*.webmanifest ./
+COPY lib ./lib
+COPY vendor ./vendor
+COPY tools/laptop-gateway.mjs ./tools/laptop-gateway.mjs
+USER node
+CMD ["node", "server.js"]

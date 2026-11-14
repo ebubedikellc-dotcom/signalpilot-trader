@@ -5,3 +5,8 @@ node_modules/
 !.env.example
 *.log
 playwright-report/
+deploy/.laptop*
+deploy/private-data/
+deploy/private-data-*/
+
+__pycache__/

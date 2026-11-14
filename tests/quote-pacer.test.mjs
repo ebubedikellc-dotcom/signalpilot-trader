@@ -22,3 +22,10 @@ test('every held coin can get a paced price check instead of starving after the 
  await p.acquire('key',{background:true});assert.equal(now,2050);
  await p.acquire('key',{background:true});assert.equal(now,3100);
 });
+
+
+test('keyless quotes respect the free allowance from the first request',async()=>{
+ let now=0;const waits=[];const q=createQuotePacer({now:()=>now,sleep:async ms=>{waits.push(ms);now+=ms;},minimumInterval:key=>key==='keyless'?2100:0});
+ await q.acquire('keyless');await q.acquire('keyless');assert.deepEqual(waits,[2100]);
+ q.slow('keyless',0);await q.acquire('keyless');assert.equal(waits.at(-1),2100);
+});

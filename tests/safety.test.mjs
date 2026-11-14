@@ -154,7 +154,7 @@ test('sold-at-loss is closed; positive wallet quantity is open; absent wallet da
  assert.equal(c.openPositionsFromTrades(trades)[0].held,null);
 });
 test('GMGN is the sole activity feed even with a saved Helius key',async()=>{
- const c=vm.createContext({Date,Map,Set,Promise,monitoredProfiles,executionReport:null,syncLiveSubscriptions:async()=>{},monitorSleepStatus:()=>({recoveryPollMs:500}),wakeCopyWorker:async()=>{},wakeSellWorker:async()=>{},supportedProfiles:['safe'],
+ const c=vm.createContext({monitoringEnabled:()=>true,Date,Map,Set,Promise,monitoredProfiles,executionReport:null,syncLiveSubscriptions:async()=>{},monitorSleepStatus:()=>({recoveryPollMs:500}),wakeCopyWorker:async()=>{},wakeSellWorker:async()=>{},supportedProfiles:['safe'],
  readState:async()=>({profiles:{safe:{running:true}},settings:{heliusKey:'test',gmgnApiKey:'test'}}),
  targetWallet:()=> 'wallet',process:{env:{}},fetchTransactionsForAddress:async()=>[{signature:'new',timestamp:1}],
  fetchGmgnTransactionsForAddress:()=>new Promise(()=>{})});
@@ -508,3 +508,4 @@ test('a missing verified source entry blocks a buy instead of treating its price
  assert.match((await h.c.executeCopiedSwap('safe',h.buy,h.state)).status,/source entry price cannot be verified/);
  assert.equal(h.submitted.length,0);
 });
+

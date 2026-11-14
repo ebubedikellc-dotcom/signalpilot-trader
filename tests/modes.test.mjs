@@ -63,7 +63,7 @@ test('profit ladder takes repeated profit and guards the remaining position',()=
 });
 test('maximum is a ceiling for every mode, including Exact Copy, without forcing smaller buys upward',()=>{
  let mode='limits';
- const c=vm.createContext({Number,Math,profileBuyMode:()=>mode,profileSurviveMaxUsd:()=>50});
+ const c=vm.createContext({process:{env:{}},Number,Math,profileBuyMode:()=>mode,profileSurviveMaxUsd:()=>50});
  vm.runInContext(section('function buyUsdAmount(', 'function sourceUsdFromSignal('),c);
  assert.equal(c.buyUsdAmount({},'safe',20),20);assert.equal(c.buyUsdAmount({},'safe',200),50);
  mode='loss';assert.equal(c.buyUsdAmount({},'safe',200),50);
@@ -97,8 +97,8 @@ test('daily accounting uses Lagos midnight, not browser or server timezone',()=>
 });
 function controls(){
  const state={settings:{modesConfirmed:'yes'},strategy:{activeProfile:'safe',controlRevision:1},profiles:{safe:{running:false},frog:{running:false},truenest:{running:false}}};let output;
- const c=vm.createContext({Date,Number,Boolean,Object,Math,structuredClone,supportedProfiles:['safe','frog','truenest'],readState:async()=>state,requireOwner:()=>false,sessionFromRequest:()=>({role:'owner'}),readBody:async r=>r.body||{},saveState:async()=>{},send:(_,code,body)=>{output={code,body}},statusPayload:s=>s,profileLabel:p=>p,strategyLossKey:p=>p+'Losses',line:x=>x,ready:()=>true,assertHeliusReadyForProfile:async()=>{},defaultState:{strategy:{}},beginTradingSession:()=>{},queueFailureSwitchLimit:()=>3,liveTradingAllowed:()=>false,withWalletOperation:f=>f(),emergencyStopRequested:false});
- vm.runInContext(section('async function handleApi(', 'function serveFile('),c);
+ const c=vm.createContext({process:{env:{}},Date,Number,Boolean,Object,Math,structuredClone,supportedProfiles:['safe','frog','truenest'],readState:async()=>state,requireOwner:()=>false,sessionFromRequest:()=>({role:'owner'}),readBody:async r=>r.body||{},saveState:async()=>{},send:(_,code,body)=>{output={code,body}},statusPayload:s=>s,profileLabel:p=>p,strategyLossKey:p=>p+'Losses',line:x=>x,ready:()=>true,assertHeliusReadyForProfile:async()=>{},defaultState:{strategy:{}},beginTradingSession:()=>{},queueFailureSwitchLimit:()=>3,liveTradingAllowed:()=>false,withWalletOperation:f=>f(),emergencyStopRequested:false});
+ vm.runInContext(section('async function handleApi(', 'async function serveFile('),c);
  return {c,state,run:async(url,body)=>{await c.handleApi({method:'POST',body},{},{pathname:url});return output;}};
 }
 test('changing trader does not start trading; changing while running is rejected',async()=>{
@@ -155,3 +155,4 @@ test('5% guard protects the latest profit ladder level after a partial sale',()=
  const exit=profitLadderExit(remaining,trigger,mark);
  assert.equal(exit.reason,'5% profit guard');assert.equal(exit.raw,remaining.raw);assert.equal(exit.partial,false);
 });
+

@@ -57,9 +57,10 @@ test('build and order share cooldown, but background work cannot hold up a live 
  const c=vm.createContext({URL,AbortSignal,Map,Number,Math,JSON,Object,Error,Date,setTimeout,createQuotePacer,
   fetch:async()=>{calls++;await new Promise(resolve=>release=resolve);return {ok:true,status:200,json:async()=>({outAmount:'1'})};}});
  vm.runInContext(snippet,c);
- const live=c.jupiterJson('/swap/v2/order');
- await assert.rejects(c.jupiterJson('/swap/v2/order',{background:true}),/deferred/);assert.equal(calls,1);
+ const live=c.jupiterJson('/swap/v2/order',{apiKey:'test-key'});
+ await assert.rejects(c.jupiterJson('/swap/v2/order',{background:true,apiKey:'test-key'}),/deferred/);assert.equal(calls,1);
  release();await live;
- await assert.rejects(c.jupiterJson('/swap/v2/order',{background:true}),/deferred/);assert.equal(calls,1);
- const anotherLive=c.jupiterJson('/swap/v2/order');await new Promise(setImmediate);assert.equal(calls,2);release();await anotherLive;
+ await assert.rejects(c.jupiterJson('/swap/v2/order',{background:true,apiKey:'test-key'}),/deferred/);assert.equal(calls,1);
+ const anotherLive=c.jupiterJson('/swap/v2/order',{apiKey:'test-key'});await new Promise(setImmediate);assert.equal(calls,2);release();await anotherLive;
 });
+

@@ -1,0 +1,12 @@
+.git
+node_modules
+.data
+.env*
+deploy/.laptop*
+deploy/private-data
+deploy/private-data-*
+*.tar.gz
+*.zip
+*.log
+services
+tests

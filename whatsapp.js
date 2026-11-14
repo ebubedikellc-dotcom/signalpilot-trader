@@ -4,7 +4,7 @@ let uncertain = false, sending = false, connected = false, epoch = 0;
 const visibleOwner = () => !$('ws-owner').hidden;
 const say = (id, text) => { $(id).textContent = text; };
 async function api(action, body) {
-  const r = await fetch('/api/workspace/whatsapp/' + action, {
+  const r = await fetch(window.appPath('/api/workspace/whatsapp/' + action), {
     method: body ? 'POST' : 'GET', headers: body ? {'Content-Type': 'application/json'} : {},
     body: body ? JSON.stringify(body) : undefined, cache: 'no-store'
   });

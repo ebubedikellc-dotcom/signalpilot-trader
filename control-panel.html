@@ -18,6 +18,14 @@
   </head>
   <body data-page="owner">
     <main class="app-shell control-shell">
+      <section class="room-help" aria-label="CopyTrade connection">
+        <strong>CopyTrade · FnZero open source</strong>
+        <label>Connection <select id="copyConnection"><option value="public">Free public Solana</option><option value="legacy">Existing provider settings</option></select></label>
+        <button type="button" id="saveCopyConnection" class="secondary-action">Save connection</button>
+        <p id="copyConnectionStatus" role="status"></p>
+        <button type="button" id="checkPublicConnection" class="secondary-action">Check free connection</button>
+        <p id="publicConnectionResult" role="status">Checks public trade data without signing or sending a trade. Speed is measured on this laptop.</p>
+      </section>
       <div class="emergency-trading-bar" role="region" aria-label="Stop trading">
         <div class="main-trading-buttons">
           <button id="queueStart" class="primary-action" type="button" disabled>START TRADING</button>
@@ -82,7 +90,7 @@
       <section class="wallet-remaining" aria-labelledby="gmgnCheckTitle">
         <h2 id="gmgnCheckTitle">GMGN connection</h2>
         <p>This check reads the selected trader's activity. It never starts trading, buys or sells.</p>
-        <button id="checkGmgnConnection" type="button">Check GMGN connection</button>
+        <button data-paid-provider id="checkGmgnConnection" type="button">Check GMGN connection</button>
         <p id="gmgnCheckResult" role="status">Press Check for a fresh connection result.</p>
       </section>
       <section class="wallet-remaining" aria-labelledby="speedTestTitle">
@@ -590,18 +598,18 @@
               </div>
 
               <div class="form-grid">
-                <label>GMGN API key <input id="gmgnApiKey" type="password" autocomplete="off" placeholder="Paste GMGN official API key here"></label>
-                <label>Helius API key <input id="heliusKey" type="password" autocomplete="off" placeholder="Paste Helius API key here"></label>
-                <div class="inline-save-box">
+                <label data-paid-provider>GMGN API key <input id="gmgnApiKey" type="password" autocomplete="off" placeholder="Paste GMGN official API key here"></label>
+                <label data-paid-provider>Helius API key <input id="heliusKey" type="password" autocomplete="off" placeholder="Paste Helius API key here"></label>
+                <div class="inline-save-box" data-paid-provider>
                   <button id="saveHelius" class="secondary-action">Save Helius API key</button>
                   <button id="checkHelius" class="secondary-action">Check Helius connection</button>
                   <p id="heliusProviderStatus" role="status">Checking selected provider…</p>
                   <p id="heliusCheckResult" role="status">Connection check reads your wallet balance. It never signs or sends a trade.</p>
                   <p class="hint">A saved Helius key takes priority for live trader alerts and wallet verification. Buy preparation targets 0.5 seconds, with a 1-second backup deadline. Actual submission and confirmation can take longer. Trader sells remain eligible even when preparation takes longer.</p>
                 </div>
-                <label>Alchemy API key (optional) <input id="alchemyKey" type="password" autocomplete="off" placeholder="Use Alchemy for wallet checks and direct trade alerts"></label>
-                <p class="hint">Alchemy is used when no Helius key is configured. Without either key, direct alerts and wallet checks use shared public Solana, which can be rate-limited.</p>
-                <label>Jupiter / trading route API <input id="routeApi" type="password" autocomplete="off" placeholder="Paste route API or endpoint here"></label>
+                <label data-paid-provider>Alchemy API key (optional) <input id="alchemyKey" type="password" autocomplete="off" placeholder="Use Alchemy for wallet checks and direct trade alerts"></label>
+                <p class="hint" data-paid-provider>Alchemy is used when no Helius key is configured. Without either key, direct alerts and wallet checks use shared public Solana, which can be rate-limited.</p>
+                <label>Jupiter API key (optional in free mode) <input id="routeApi" type="password" autocomplete="off" placeholder="Leave empty for keyless quotes in free mode"></label>
                 <label>Turnkey organization ID <input id="turnkeyOrgId" autocomplete="off" placeholder="Paste Turnkey organization ID"></label>
                 <label>Turnkey API public key <input id="turnkeyApiPublicKey" autocomplete="off" placeholder="Paste Turnkey API public key"></label>
                 <label>Turnkey API private key <input id="turnkeyApiPrivateKey" type="password" autocomplete="off" placeholder="Paste only inside this control panel"></label>

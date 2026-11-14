@@ -1,7 +1,9 @@
 import { createFnzeroRouter, submitFnzeroOrder } from "./lib/fnzero-route.mjs";
 import { createOwnerAuth } from "./lib/owner-auth.mjs";
 import { createWorkspace, handleWorkspaceApi } from "./lib/workspace.mjs";
-import { rpcProvider, monitoredProfiles, directMonitoringEnabled } from "./lib/rpc-provider.mjs";
+import { rpcProvider, monitoredProfiles, directMonitoringEnabled, freeConnection } from "./lib/rpc-provider.mjs";
+import { createPublicRecovery } from "./lib/public-recovery.mjs";
+import { createMount } from "./lib/mount-path.mjs";
 import { createMonitorSleep } from "./lib/monitor-sleep.mjs";
 import { createRpcReadPool } from "./lib/rpc-read-pool.mjs";
 import { inspectSwapSignature, base58 } from "./lib/swap-signature.mjs";
@@ -115,7 +117,8 @@ const directReadRetryMs = Number(process.env.DIRECT_READ_RETRY_MS || 150);
 const maxSignalAgeMs = Number(process.env.MAX_SIGNAL_AGE_MS || 5000);
 const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
 const sessionMaxAge = 60 * 60 * 24 * 30;
-const ownerAuth = createOwnerAuth({password:process.env.OWNER_PASSWORD});
+const ownerAuth = createOwnerAuth({password:process.env.OWNER_PASSWORD || (process.env.OWNER_PASSWORD_B64 ? Buffer.from(process.env.OWNER_PASSWORD_B64,"base64").toString("utf8") : undefined)});
+const mount = createMount(process.env.APP_BASE_PATH,process.env.COPYTRADE_HOME_URL);
 const workspace = createWorkspace();
 const solMint = "So11111111111111111111111111111111111111112";
 const usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -174,7 +177,8 @@ function fnzeroRecentCoins(transactions) {
 
 const defaultState = {
   settings: {
-    executionEngine: "jupiter",
+    copyConnection: "legacy",
+    executionEngine: process.env.COPYTRADE_CONNECTION === "public" ? "fnzero" : "jupiter",
     gmgnApiKey: "",
     safeWallet: legacyFrogWallet,
     safeMax: "50",
@@ -259,6 +263,7 @@ const defaultState = {
 };
 
 const fields = [
+  "copyConnection",
   "executionEngine",
   "gmgnApiKey",
   "heliusKey",
@@ -512,7 +517,8 @@ function normalizeState(state) {
   state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
   state.strategy.activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "frog";
   // GMGN repair completed; owner must explicitly start a new session.
-  state.settings.marketDataProvider = "gmgn";
+  state.settings.copyConnection = freeConnection(state.settings,process.env) ? "public" : "legacy";
+  state.settings.marketDataProvider = state.settings?.copyConnection === "public" ? "public" : "gmgn";
   releaseGmgnRepairHold(state);
   if (state.settings.manualModesVersion !== "v1") {
     for (const profile of supportedProfiles) state.profiles[profile].running = false;
@@ -785,13 +791,16 @@ function statusPayload(state, session) {
     backend: {
       appVersion: "high-risk-profit-run-v4",
       fnzero: isOwner ? fnzeroRouter.status() : undefined,
-      marketDataProvider: "Direct Solana alerts + GMGN recovery",
+      marketDataProvider: state.settings?.copyConnection === "public" ? "Public Solana alerts + confirmed history recovery" : "Direct Solana alerts + GMGN recovery",
+      freeConnection: state.settings?.copyConnection === "public",
+      connectionLocked: Boolean(process.env.COPYTRADE_CONNECTION),
+      publicRecovery: state.settings?.copyConnection === "public" ? publicRecovery.status(targetWallet(state,state.strategy.activeProfile)) : undefined,
       gmgnConnectionCheck: isOwner ? gmgnConnectionCheck : undefined,
       walletVerificationProvider: `${rpcProvider(state.settings,process.env).name} RPC with controlled public fallback`,
       directAlertProvider: rpcProvider(state.settings,process.env,{direct:true}).name,
       rpcReads: Array.from(rpcConnections.values(), entry => ({provider:entry.provider, ...entry.pool.status()})),
       paidHeliusEnabled: rpcProvider(state.settings,process.env).name === "Helius",
-      providerRepairHold: state.settings.providerRepairHold === true,
+      providerRepairHold: state.settings.providerRepairHold === true && state.settings.copyConnection !== "public",
       liveTrading: productionExecution,
       liveTradingEnv,
       productionExecution,
@@ -980,8 +989,7 @@ function clean(input) {
 function ready(state) {
   const s = state.settings;
   return Boolean(
-    (s.gmgnApiKey || process.env.GMGN_API_KEY) &&
-    s.routeApi &&
+    (s.copyConnection === "public" || ((s.gmgnApiKey || process.env.GMGN_API_KEY) && s.routeApi)) &&
     s.turnkeyOrgId &&
     s.turnkeyApiPublicKey &&
     s.turnkeyApiPrivateKey &&
@@ -1049,14 +1057,14 @@ function profileSurviveMaxUsd(state, profile) {
 function manualSellingAllowed(state, profile = "frog") {
   const settings = state.settings;
   return Boolean(process.env.ENABLE_LIVE_TRADING === "true" && process.env.EXECUTE_REAL_SWAPS === "true"
-    && jupiterApiKey(settings) && settings.turnkeyOrgId && settings.turnkeyApiPublicKey
+    && (settings.copyConnection === "public" || jupiterApiKey(settings)) && settings.turnkeyOrgId && settings.turnkeyApiPublicKey
     && settings.turnkeyApiPrivateKey && tradeWallet(state) && signerId(state)
     && profileLiveTradingSwitch(state, profile) === "on"
     && profileWalletSync(state, profile) === "Turnkey server wallet");
 }
 
 function liveTradingAllowed(state, profile = "") {
-  if (state.settings.providerRepairHold || !ready(state) || process.env.ENABLE_LIVE_TRADING !== "true" || process.env.EXECUTE_REAL_SWAPS !== "true") {
+  if ((state.settings.providerRepairHold && state.settings.copyConnection !== "public") || !ready(state) || process.env.ENABLE_LIVE_TRADING !== "true" || process.env.EXECUTE_REAL_SWAPS !== "true") {
     return false;
   }
   if (!profile) return supportedProfiles.some((item) => liveTradingAllowed(state, item));
@@ -1490,7 +1498,7 @@ function solanaConnection(settings = {}, { fastRead = false, publicOnly = false,
       return result.catch(error=>{
         if(provider.secret)error.message=String(error.message).split(provider.secret).join('[redacted]');
         const safeRead=['getSignaturesForAddress','getBalance','getParsedTokenAccountsByOwner','getParsedTransaction','getBlockHeight','getSignatureStatuses','getAccountInfo','getLatestBlockhash','getMultipleAccountsInfoAndContext','simulateTransaction'].includes(property);
-        if(!provider.public && safeRead && (isRateLimitError(error) || /timed out|connection failed/i.test(error.message))) {
+        if((!provider.public || (freeConnection(settings,process.env) && !publicNode && !publicOnly)) && safeRead && (isRateLimitError(error) || /timed out|connection failed/i.test(error.message))) {
           return solanaConnection({}, {publicOnly:property==='getParsedTokenAccountsByOwner',publicNode:property!=='getParsedTokenAccountsByOwner',priority})[property](...args);
         }
         throw error;
@@ -1873,6 +1881,7 @@ function scaledCopyAmount(amount, state, profile) {
 }
 
 function jupiterApiKey(settings = {}) {
+  if (process.env.COPYTRADE_KEYLESS_QUOTES === "true") return "";
   const value = String(settings.routeApi || "").trim();
   if (!value || value.startsWith("http://") || value.startsWith("https://")) return "";
   return value;
@@ -1924,7 +1933,7 @@ async function signSolanaTransaction(state, preferredSigner, wallet, unsignedTra
 
 const jupiterQuoteCooldowns = new Map();
 const jupiterQuoteActivity = new Map();
-const jupiterQuotePacer = createQuotePacer({now:()=>Date.now(),sleep:ms=>new Promise(resolve=>setTimeout(resolve,ms))});
+const jupiterQuotePacer = createQuotePacer({now:()=>Date.now(),sleep:ms=>new Promise(resolve=>setTimeout(resolve,ms)),minimumInterval:key=>key === "keyless" ? 2100 : 0});
 async function jupiterJson(pathname, { apiKey, method = "GET", query, body, background = false } = {}) {
   const url = new URL(`https://api.jup.ag${pathname}`);
   Object.entries(query || {}).forEach(([key, value]) => {
@@ -2044,6 +2053,10 @@ async function verifyCopySource(profile, transaction, state) {
 
 // Poll cadence is not a buy-expiration deadline. A known source exit cancels a pending buy.
 function buySignalError(profile, transaction, state) {
+  if (state.settings?.copyConnection === "public") {
+    const health=publicRecovery.status(targetWallet(state,profile));
+    if (!health.ok || health.catchingUp || Date.now()-health.checkedAt>45000) return "Buy blocked: public history is incomplete or delayed. " + (health.error || "Waiting for recovery checks.");
+  }
   const started = Number(state.strategy?.buySessionStartedAt || 0);
   if (started && (!Number(transaction.timestamp) || Number(transaction.timestamp) * 1000 < Math.floor(started / 1000) * 1000)) {
     return "Buy blocked: source trade predates this trading session";
@@ -3241,7 +3254,36 @@ async function fetchGmgnTransactionsForAddress(settings, address) {
   throw finalError;
 }
 
+const publicCursorFile = path.join(dataDir, "public-recovery.json");
+const publicRecovery = createPublicRecovery({
+  signatures: async (wallet,options) => {
+    const state=await readState();
+    return solanaConnection(state.settings,{priority:5}).getSignaturesForAddress(new PublicKey(wallet),options,"confirmed");
+  },
+  transaction: async signature => {
+    const state=await readState();
+    return solanaConnection(state.settings,{priority:5}).getParsedTransaction(signature,{commitment:"confirmed",maxSupportedTransactionVersion:1});
+  }, decode:decodeDirectSwap,
+  load:async()=>{try{return JSON.parse(await readFile(publicCursorFile,"utf8"));}catch(e){if(e.code!=="ENOENT")throw e;return {}; }},
+  save:async value=>{await mkdir(dataDir,{recursive:true});await writeFile(publicCursorFile+".tmp",JSON.stringify(value),{mode:0o600});await rename(publicCursorFile+".tmp",publicCursorFile);}
+});
+async function recentPublicSwaps(wallet) {
+  const state=await readState(),connection=solanaConnection(state.settings,{priority:5});
+  const rows=await connection.getSignaturesForAddress(new PublicKey(wallet),{limit:8},"confirmed");
+  const transactions=[];
+  for(const row of rows)if(!row.err){const tx=await connection.getParsedTransaction(row.signature,{commitment:"confirmed",maxSupportedTransactionVersion:1});if(tx){const decoded=decodeDirectSwap(tx,wallet,row.signature);if(decoded)transactions.push(decoded);}}
+  return transactions;
+}
+
 async function assertHeliusReadyForProfile(state, profile) {
+  if (state.settings?.copyConnection === "public") {
+    const wallet=targetWallet(state,profile);
+    if (!wallet) throw Error("Choose a trader wallet before starting.");
+    await publicRecovery.poll(wallet);
+    const health=publicRecovery.status(wallet);
+    if (!health.ok || health.catchingUp) throw Error("Wait for public history recovery before starting.");
+    return;
+  }
   if (state.settings.providerRepairHold) throw new Error("Trading stays stopped while GMGN access is being repaired.");
   const wallet = targetWallet(state, profile);
   if (!wallet) throw new Error("Choose a trader wallet before starting.");
@@ -3525,17 +3567,18 @@ const feedStartedAt = new Map();
 async function pollSignalFeeds() {
   const state = await readState();
   await syncLiveSubscriptions(state);
-  if (!supportedProfiles.some((p) => state.profiles?.[p]?.running)) return;
+  if (!monitoringEnabled(state)) return;
   const saving = monitorSleepStatus(state);
   for (const profile of monitoredProfiles(state, executionReport, supportedProfiles)) {
     const wallet = targetWallet(state, profile);
     if (!wallet) continue;
     const sources = [];
-    // GMGN is the only selected trader-activity feed.
-    if (state.settings.gmgnApiKey || process.env.GMGN_API_KEY) sources.push(["GMGN", () => fetchGmgnTransactionsForAddress(state.settings, wallet)]);
+    if (state.settings?.copyConnection === "public") sources.push(["Solana recovery", () => publicRecovery.poll(wallet)]);
+    else if (state.settings.gmgnApiKey || process.env.GMGN_API_KEY) sources.push(["GMGN", () => fetchGmgnTransactionsForAddress(state.settings, wallet)]);
     for (const [source, fetcher] of sources) {
+      const recoveryInterval = source === "Solana recovery" ? 10000 : saving.recoveryPollMs;
       const key = `${profile}:${source}`;
-      if (feedRequests.has(key) || Date.now() - (feedStartedAt.get(key) || 0) < (source === "GMGN" ? saving.recoveryPollMs : 500)) continue;
+      if (feedRequests.has(key) || Date.now() - (feedStartedAt.get(key) || 0) < recoveryInterval) continue;
       feedStartedAt.set(key, Date.now());
       feedRequests.add(key);
       if (!signalFeeds.has(key)) signalFeeds.set(key, { profile, source, wallet, checkedAt: null, error: "", transactions: [] });
@@ -3547,7 +3590,7 @@ async function pollSignalFeeds() {
         }
         const checked = source === "GMGN" ? gmgnCache.get(`official:${wallet}`)?.at || Date.now() : Date.now();
         const at = new Date(checked).toISOString();
-        signalFeeds.set(key, { profile, source, wallet, checkedAt: at, error: "", pollIntervalMs:saving.recoveryPollMs, transactions: transactions.map((t) => ({ ...t, detectedAt: at })) });
+        signalFeeds.set(key, { profile, source, wallet, checkedAt: at, error: "", pollIntervalMs:recoveryInterval, transactions: transactions.map((t) => ({ ...t, detectedAt: at })) });
         wakeSellWorker().catch(() => {});
         wakeCopyWorker().catch(() => {});
       }).catch((error) => {
@@ -3571,21 +3614,21 @@ async function runCopyWorkerOnce() {
   // Both lanes share one cycle state, but keep independent feed checkpoints.
   // Only submission is serialized; buy quotation cannot stop sell detection.
   for (const profile of order) {
-    for (const field of ["lastSignature", "lastGmgnSignature", "lastDirectSignature"]) {
+    for (const field of ["lastSignature", "lastGmgnSignature", "lastDirectSignature", "lastPublicSignature"]) {
       state.profiles[profile][`${field}Sell`] ||= state.profiles[profile][field];
     }
   }
   const pass = async (side, feeds) => {
     for (const profile of order) {
-      for (const source of ["Solana live", "Helius", "GMGN"]) {
+      for (const source of (state.settings?.copyConnection === "public" ? ["Solana live", "Solana recovery"] : ["Solana live", "Helius", "GMGN"])) {
         const feed = feeds.get(`${profile}:${source}`);
         if (!feed || (feed.error && source !== "Solana live") || feed.wallet !== targetWallet(state, profile)) continue;
         const current = await readState();
         if (!supportedProfiles.some((p) => current.profiles?.[p]?.running)) return;
         if (Number(current.strategy.controlRevision || 0) > Number(state.strategy.controlRevision || 0)) state.strategy = current.strategy;
-        const field = source === "Solana live" ? "lastDirectSignature" : source === "GMGN" ? "lastGmgnSignature" : "lastSignature";
+        const field = source === "Solana live" ? "lastDirectSignature" : source === "Solana recovery" ? "lastPublicSignature" : source === "GMGN" ? "lastGmgnSignature" : "lastSignature";
         await processSignalTransactions(state, profile, feed.transactions, newestSignature(feed.transactions),
-          side === "sell" ? `${field}Sell` : field, source, { side, advanceCheckpoint: true, realtime: source === "Solana live" });
+          side === "sell" ? `${field}Sell` : field, source, { side, advanceCheckpoint: true, realtime: source === "Solana live" || source === "Solana recovery" });
       }
     }
   };
@@ -3656,6 +3699,7 @@ async function handleApi(request, response, url) {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     if (supportedProfiles.some(p => state.profiles?.[p]?.running)) { send(response, 409, {error:'Stop trading before checking the connection.'}); return true; }
+    if (state.settings.copyConnection === 'public') {send(response,409,{error:'Free mode uses public Solana. Use Check free connection.'});return true;}
     if (gmgnCheckRunning || Date.now()-gmgnLastCheckAt < 30000) { send(response,429,{error:'Wait 30 seconds between connection checks.'}); return true; }
     gmgnCheckRunning = true;
     gmgnLastCheckAt = Date.now();
@@ -3674,6 +3718,23 @@ async function handleApi(request, response, url) {
     return true;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/public/check") {
+    const state=await readState();
+    if(requireOwner(response,sessionFromRequest(request,state)))return true;
+    if(state.settings.copyConnection !== "public"){send(response,409,{error:"Select free public Solana first."});return true;}
+    const wallet=targetWallet(state,state.strategy.activeProfile),started=Date.now();
+    observationUntil=Date.now()+120000;
+    await syncLiveSubscriptions(state);
+    try {
+      await publicRecovery.poll(wallet);
+      const health=publicRecovery.status(wallet),sub=liveSubscriptions.get(wallet);
+      const socketConnected=sub?.connection?._rpcWebSocketConnected===true;
+      send(response,200,{readOnly:true,tradingStarted:false,httpMs:Date.now()-started,socketConnected,recovery:health,
+        message:`Public history responded in ${Date.now()-started} ms. ${health.catchingUp ? "Catching up on missed history." : "History check complete."} ${socketConnected ? "Live connection is open; awaiting trader activity." : "Live connection is not yet confirmed."} This is not a copy-to-fill speed measurement.`});
+    } catch(error){send(response,503,{readOnly:true,error:directReadFailure(error,state.settings)});}
+    return true;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/monitor/observe") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
@@ -3681,8 +3742,9 @@ async function handleApi(request, response, url) {
       send(response, 409, { error: "Stop trading before running the read-only connection check." });
       return true;
     }
-    observationUntil = Date.now() + 45000;
+    observationUntil = Date.now() + 120000;
     await syncLiveSubscriptions(state);
+    void pollSignalFeeds().catch(()=>{});
     send(response, 200, { readOnly: true, tradingStarted: false, expiresAt: new Date(observationUntil).toISOString() });
     return true;
   }
@@ -4021,8 +4083,8 @@ async function handleApi(request, response, url) {
     const check={at:Date.now(),busy:true};fnzeroCoinChecks.set(wallet,check);
     try {
       const key=String(state.settings.gmgnApiKey || process.env.GMGN_API_KEY || '').trim();
-      if(!key)throw Error('GMGN API key is missing. You can still paste a coin mint address for testing.');
-      const transactions=await fetchOfficialGmgnTransactionsForAddress(key,wallet);
+      if(!key && state.settings.copyConnection !== 'public')throw Error('GMGN API key is missing. You can still paste a coin mint address for testing.');
+      const transactions=state.settings.copyConnection === 'public' ? await recentPublicSwaps(wallet) : await fetchOfficialGmgnTransactionsForAddress(key,wallet);
       check.result={profile,wallet,coins:fnzeroRecentCoins(transactions),checkedAt:new Date().toISOString(),readOnly:true};
       send(response,200,check.result);
     } catch(error) {send(response,400,{error:error.message});}
@@ -4076,6 +4138,7 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/owner/helius-check") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    if(state.settings.copyConnection === "public"){send(response,409,{error:"Free mode does not use Helius. Use Check free connection."});return true;}
     const provider = rpcProvider(state.settings, process.env);
     if (provider.name !== "Helius") { send(response,400,{error:"Save a Helius API key first."}); return true; }
     const wallet = tradeWallet(state);
@@ -4105,6 +4168,9 @@ async function handleApi(request, response, url) {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
     const input = await readBody(request);
+    if (input.copyConnection !== undefined && !["public","legacy"].includes(input.copyConnection)) {send(response,400,{error:"Choose public or legacy connection."});return true;}
+    if (input.copyConnection !== undefined && input.copyConnection !== state.settings.copyConnection && supportedProfiles.some(p=>state.profiles[p].running)) {send(response,409,{error:"Stop trading before changing connection."});return true;}
+    if (process.env.COPYTRADE_CONNECTION && input.copyConnection && input.copyConnection !== process.env.COPYTRADE_CONNECTION) {send(response,409,{error:"This installation is locked to its configured connection mode."});return true;}
     if (input.executionEngine !== undefined && !["jupiter","fnzero"].includes(input.executionEngine)) {send(response,400,{error:"Choose Jupiter or FnZero."});return true;}
     if (input.frogBuyMode !== undefined) {
       if (!["limits", "exact", "exactFull", "loss", "trailing", "takeback", "ladder", "rise30", "protected", "riskrun"].includes(input.frogBuyMode)) { send(response, 400, {error:"Choose a trading mode."}); return true; }
@@ -4493,8 +4559,9 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/queue/start") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
-    if (state.settings.providerRepairHold) { send(response,409,{error:"Trading stays stopped while GMGN access is being repaired. It will not restart automatically."}); return true; }
+    if (state.settings.providerRepairHold && state.settings.copyConnection !== "public") { send(response,409,{error:"Trading stays stopped while GMGN access is being repaired. It will not restart automatically."}); return true; }
     if (state.settings.modesConfirmed !== "yes") { send(response,409,{error:"Choose and save your trading mode before starting."}); return true; }
+    if (process.env.ENABLE_LIVE_TRADING !== "true" || process.env.EXECUTE_REAL_SWAPS !== "true") {send(response,409,{error:"This installation is in observation mode. Use Check free connection; automatic trading is disabled."});return true;}
     if (!ready(state)) {
       send(response, 400, { error: "Engine Room is not complete yet." });
       return true;
@@ -4654,9 +4721,10 @@ async function handleApi(request, response, url) {
   return false;
 }
 
-function serveFile(response, pathname) {
+async function serveFile(response, pathname) {
+  if(pathname === "/mount-config.js") {response.writeHead(200,{"Content-Type":"text/javascript","Cache-Control":"no-store"});response.end(mount.script());return;}
   const safePath = ["/", "/workspace", "/workspace/", "/chat", "/research", "/calculator", "/whatsapp"].includes(pathname)
-    ? "/workspace.html"
+    ? (mount.base && pathname === "/" ? "/control-panel.html" : "/workspace.html")
     : pathname === "/control-panel" || pathname === "/copytrade" || pathname === "/copytrade/"
     ? "/control-panel.html"
     : pathname === "/trade-lord" || pathname === "/trade-lord/"
@@ -4676,6 +4744,10 @@ function serveFile(response, pathname) {
     return;
   }
 
+  if(path.extname(filePath) === ".html") {
+    const html=mount.html(await readFile(filePath,"utf8"));
+    response.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store"});response.end(html);return;
+  }
   const stream = createReadStream(filePath);
   stream.on("error", () => {
     createReadStream(path.join(__dirname, "index.html")).pipe(response);
@@ -4687,13 +4759,17 @@ function serveFile(response, pathname) {
 createServer(async (request, response) => {
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
+    if(mount.base && url.pathname === mount.base) {response.writeHead(302,{Location:mount.base+"/"});response.end();return;}
+    const unmounted=mount.strip(url.pathname);
+    if(unmounted===null){send(response,404,{error:"Page not found."});return;}
+    url.pathname=unmounted;
     if (!['GET','HEAD'].includes(request.method)) {
       let sameOrigin=true;try{if(request.headers.origin)sameOrigin=new URL(request.headers.origin).host===request.headers.host;}catch{sameOrigin=false;}
       if(!sameOrigin||request.headers['sec-fetch-site']==='cross-site'){send(response,403,{error:'Open the application on its own website.'});return;}
     }
     if (url.pathname.startsWith("/api/") && await handleApi(request, response, url)) return;
     if (url.pathname.startsWith("/api/")) {send(response,404,{error:'Action not found.'});return;}
-    serveFile(response, url.pathname);
+    await serveFile(response, url.pathname);
   } catch (error) {
     send(response, 500, { error: error.message });
   }

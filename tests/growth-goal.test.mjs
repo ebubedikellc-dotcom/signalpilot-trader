@@ -65,7 +65,7 @@ function harness(d=journal()) {
  let cash=279,saves=0;
  const state={settings:{profitMode:'target',growthPrincipal:'100',growthTarget:'200'},strategy:{controlRevision:1},profiles:{safe:{running:true}},activity:[]};
  const reserves={w:{lockedUsd:35,history:[]}};
- const c=vm.createContext({growthSnapshot,growthTradeable,growthTransition,validateGrowthSettings,Date,Number,Math,BigInt,Object,
+ const c=vm.createContext({process:{env:{}},growthSnapshot,growthTradeable,growthTransition,validateGrowthSettings,Date,Number,Math,BigInt,Object,
   readState:async()=>state,readBody:async r=>r.body,requireOwner:()=>false,sessionFromRequest:()=>({role:'owner'}),
   supportedProfiles:['safe'],emergencyStopRequested:false,executionReport:{},executionJournal:{load:async()=>d,save:async()=>{saves++;},snapshot:async()=>({pending:{},positions:{}})},
   readProfitReserves:async()=>reserves,saveProfitReserves:async()=>{},saveState:async()=>{},line:x=>x,
@@ -74,7 +74,7 @@ function harness(d=journal()) {
   tradeWallet:()=> 'w',refreshExecutionReport:async()=>{},protectProfit:async()=>35,randomUUID:()=> 'new-id',
   withWalletOperation:f=>f(),statusPayload:s=>s,send:(_,code,body)=>{c.output={code,body}}});
  vm.runInContext(section('async function assertNoOpenGrowthPlan(', 'function profileTraderBankrollUsd('),c);
- vm.runInContext(section('async function handleApi(', 'function serveFile('),c);
+ vm.runInContext(section('async function handleApi(', 'async function serveFile('),c);
  return {c,d,state,reserves,setCash:n=>cash=n,saves:()=>saves,run:async body=>{await c.handleApi({method:'POST',body},{},{pathname:'/api/growth/settings'});return c.output;}};
 }
 test('completed goal stops all trading and locks profit once, including after restart',async()=>{
@@ -120,3 +120,4 @@ test('failed chain transactions retain goal fees and pending reservations surviv
   assert.equal(growthSnapshot(result).availableUsd,99.999);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+

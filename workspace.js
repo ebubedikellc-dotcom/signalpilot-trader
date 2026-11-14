@@ -1,6 +1,6 @@
 const $=id=>document.getElementById(id);
 const histories={chat:[],research:[]};
-const route=location.pathname.replace(/\/$/,'');
+const route=(window.appRoute ? window.appRoute(location.pathname) : location.pathname).replace(/\/$/,'');
 const view=['/chat','/research'].includes(route)?'conversation':route==='/calculator'?'calculator':route==='/whatsapp'?'whatsapp':'home';
 for(const pane of document.querySelectorAll('[data-view]'))pane.hidden=pane.dataset.view!==view;
 const pageTitles={home:['Your day, in one place.','Trading, learning and conversations. Your tools, together.'],conversation:[route==='/research'?'Research':'Normal chat',route==='/research'?'Explore online sources and keep the evidence close.':'Ask questions and keep the conversation going.'],calculator:['Calculator & checker','Check your numbers before making a decision.'],whatsapp:['WhatsApp','Your messages. Your voice. Your replies.']};
@@ -11,7 +11,7 @@ $('ws-mode').value=route==='/research'?'research':'chat';
 $('ws-conversation-title').textContent=route==='/research'?'Research':'Normal chat';
 if(route==='/research')$('ws-mode-help').textContent='Research searches online and includes source links. Check dates and evidence before using a finding.';
 async function api(url,body){
-  const r=await fetch(url,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
+  const r=await fetch(window.appPath ? window.appPath(url) : url,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
   const data=await r.json();if(!r.ok)throw new Error(data.error||'Request failed.');return data;
 }
 function notice(id,message,error=false){$(id).textContent=message;$(id).classList.toggle('ws-error',error);}

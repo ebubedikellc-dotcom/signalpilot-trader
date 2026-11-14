@@ -58,7 +58,17 @@ Installing another copy engine is not needed for these features. Next speed work
 
 Obtain the current laptop Python source and deployment configuration, and verify the actual production host/branch. Back up and test restoration of SignalPilot's persistent state, execution journal, profit reserves, customer records and uploads on the existing host. Keep credentials on the host. A GitHub checkout contains code, not the current account state.
 
-Use one active execution owner. Do not run a copied live data directory on a second host while the first can still execute. Reconcile holdings and all pending transactions before any controlled cutover. There is no wallet transfer, data migration or automated cutover script in this branch.
+Use one active execution owner. Do not run a copied live data directory on a second host while the first can still execute. Reconcile holdings and all pending transactions before any controlled cutover. There is no wallet transfer or automated production cutover in this branch.
+
+## Local CopyTrade package — 14 November 2026
+
+The later `README-LAPTOP.md` supersedes the earlier staging instructions for this
+local-only CopyTrade installation. It supplies an observation-only Compose stack,
+a gateway to the unchanged Python Trade Lord, and a private backup importer.
+The importer retains the old local directory for rollback and stops all profiles.
+Funded account data and credentials have not been obtained or migrated here.
+The older optional research/WhatsApp services remain separate and are not started
+by this installer. See `COPYTRADE-SPEED.md` for current checks and limits.
 
 ## Official research source
 
