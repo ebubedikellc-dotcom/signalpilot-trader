@@ -1,4 +1,6 @@
 import { createFnzeroRouter, submitFnzeroOrder } from "./lib/fnzero-route.mjs";
+import { createOwnerAuth } from "./lib/owner-auth.mjs";
+import { createWorkspace, handleWorkspaceApi } from "./lib/workspace.mjs";
 import { rpcProvider, monitoredProfiles, directMonitoringEnabled } from "./lib/rpc-provider.mjs";
 import { createMonitorSleep } from "./lib/monitor-sleep.mjs";
 import { createRpcReadPool } from "./lib/rpc-read-pool.mjs";
@@ -113,6 +115,8 @@ const directReadRetryMs = Number(process.env.DIRECT_READ_RETRY_MS || 150);
 const maxSignalAgeMs = Number(process.env.MAX_SIGNAL_AGE_MS || 5000);
 const ownerEmail = (process.env.OWNER_EMAIL || "ebubedikellc@gmail.com").toLowerCase();
 const sessionMaxAge = 60 * 60 * 24 * 30;
+const ownerAuth = createOwnerAuth({password:process.env.OWNER_PASSWORD});
+const workspace = createWorkspace();
 const solMint = "So11111111111111111111111111111111111111112";
 const usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const usdtMint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
@@ -374,7 +378,12 @@ async function saveStateSerialized(state) {
 
 async function readBody(request) {
   let raw = "";
-  for await (const chunk of request) raw += chunk;
+  let bytes = 0;
+  for await (const chunk of request) {
+    bytes += chunk.length;
+    if (bytes > 65536) throw new Error("Request body is too large.");
+    raw += chunk;
+  }
   return raw ? JSON.parse(raw) : {};
 }
 
@@ -581,7 +590,7 @@ function parseCookies(request) {
 }
 
 function cookieFor(token) {
-  return `sp_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${sessionMaxAge}`;
+  return `sp_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${sessionMaxAge}${process.env.RENDER || process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
 }
 
 function clearCookie() {
@@ -591,7 +600,11 @@ function clearCookie() {
 function sessionFromRequest(request, state) {
   const token = parseCookies(request).sp_session;
   if (!token || !state.sessions?.[token]) return null;
-  return { token, ...state.sessions[token] };
+  const session = state.sessions[token];
+  const created = Date.parse(session.createdAt);
+  if (!Number.isFinite(created) || Date.now()-created > sessionMaxAge*1000 || created>Date.now()) return null;
+  if (session.role === "owner" && !ownerAuth.accepts(session)) return null;
+  return { token, ...session };
 }
 
 function createSession(state, role, id) {
@@ -599,6 +612,7 @@ function createSession(state, role, id) {
   state.sessions[token] = {
     role,
     id,
+    ...(role === "owner" ? {ownerAuthVersion:ownerAuth.version} : {}),
     createdAt: new Date().toISOString()
   };
   return token;
@@ -3630,6 +3644,10 @@ function startCopyWorker() {
 }
 
 async function handleApi(request, response, url) {
+  if (url.pathname.startsWith("/api/workspace")) {
+    const state = await readState();
+    return handleWorkspaceApi({request,response,url,isOwner:sessionFromRequest(request,state)?.role === "owner",workspace});
+  }
   if (url.pathname.startsWith("/api/trade-lord")) {
     const state = await readState();
     return handleTradeLordApi({request,response,url,isOwner:sessionFromRequest(request,state)?.role === "owner",service:getTradeLord});
@@ -3699,8 +3717,11 @@ async function handleApi(request, response, url) {
     const state = await readState();
     const body = await readBody(request);
     const email = normalizeEmail(body.email);
-    if (email !== state.owner.email) {
-      send(response, 403, { error: "That email is not the owner email." });
+    let passwordValid;
+    try { passwordValid = ownerAuth.verify(body.password); }
+    catch (error) { send(response,error.status,{error:error.message});return true; }
+    if (email !== state.owner.email || !passwordValid) {
+      send(response, 403, { error: "The owner email or password is incorrect." });
       return true;
     }
     const token = createSession(state, "owner", "owner");
@@ -4634,7 +4655,9 @@ async function handleApi(request, response, url) {
 }
 
 function serveFile(response, pathname) {
-  const safePath = pathname === "/" || pathname === "/control-panel"
+  const safePath = pathname === "/" || pathname === "/workspace" || pathname === "/workspace/"
+    ? "/workspace.html"
+    : pathname === "/control-panel"
     ? "/control-panel.html"
     : pathname === "/trade-lord" || pathname === "/trade-lord/"
       ? "/trade-lord.html"
@@ -4646,7 +4669,8 @@ function serveFile(response, pathname) {
   const filePath = path.normalize(path.join(__dirname, safePath));
   const relativePath = path.relative(__dirname, filePath);
   const hiddenSegment = relativePath.split(path.sep).some((segment) => segment.startsWith("."));
-  if (!filePath.startsWith(__dirname) || hiddenSegment) {
+  const publicFiles = new Set(["workspace.html","workspace.css","workspace.js","workspace-nav.js","control-panel.html","index.html","trade-lord.html","trade-lord-training.html","styles.css","script.js","trade-lord.css","trade-lord.js","trade-lord-client.js","trade-lord-panel.js","trade-lord-player.js","trade-lord-study.js","trade-lord-training.js","manifest.webmanifest","signalpilot-icon.svg","sw.js"]);
+  if (!filePath.startsWith(__dirname) || hiddenSegment || !publicFiles.has(relativePath)) {
     response.writeHead(403);
     response.end("Forbidden");
     return;
@@ -4663,13 +4687,19 @@ function serveFile(response, pathname) {
 createServer(async (request, response) => {
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
+    if (!['GET','HEAD'].includes(request.method)) {
+      let sameOrigin=true;try{if(request.headers.origin)sameOrigin=new URL(request.headers.origin).host===request.headers.host;}catch{sameOrigin=false;}
+      if(!sameOrigin||request.headers['sec-fetch-site']==='cross-site'){send(response,403,{error:'Open the application on its own website.'});return;}
+    }
     if (url.pathname.startsWith("/api/") && await handleApi(request, response, url)) return;
+    if (url.pathname.startsWith("/api/")) {send(response,404,{error:'Action not found.'});return;}
     serveFile(response, url.pathname);
   } catch (error) {
     send(response, 500, { error: error.message });
   }
 }).listen(port, host, () => {
   console.log(`SignalPilot site running on ${host}:${port}`);
-  startCopyWorker();
+  if (process.env.DISABLE_BACKGROUND_WORKERS !== "true") startCopyWorker();
   if (process.env.TRADE_LORD_DISABLED !== "true") getTradeLord().then(service => service.start()).catch(() => console.error("Trade Lord memory unavailable; observer did not start."));
 });
+

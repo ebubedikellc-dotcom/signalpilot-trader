@@ -1,0 +1,23 @@
+# Optional research service only. Does not start or migrate SignalPilot/Ollama.
+services:
+  research:
+    build:
+      context: https://github.com/ItzCrazyKns/Vane.git#348feca3e378fb4157b217724ed508dc707f853f
+    container_name: tradelord-research
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3030:3000"
+    volumes:
+      - research-data:/home/vane/data
+    networks:
+      tradelord:
+        aliases:
+          - research
+    cpus: 1.0
+    mem_limit: 2g
+volumes:
+  research-data:
+networks:
+  tradelord:
+    external: true
+    name: tradelord-local

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#12251f"><title>Trade Lord Workspace</title><link rel="stylesheet" href="/workspace.css?v=1"><script type="module" src="/workspace-nav.js?v=1"></script><script type="module" src="/workspace.js?v=1"></script></head>
+<body class="workspace-root">
+<main class="ws-main">
+  <header class="ws-hero"><div><p class="ws-eyebrow">YOUR PRIVATE WORKSPACE</p><h1>Everything in one place.</h1><p>Trade Lord, SignalPilot, research and conversation.</p></div><a class="ws-button ws-secondary" href="/control-panel">Open SignalPilot</a></header>
+  <section class="ws-card" id="ws-login"><h2>Owner sign-in</h2><p>Use the same owner login for this workspace and SignalPilot.</p><form id="ws-login-form" class="ws-form"><label>Email<input name="email" type="email" autocomplete="username" required></label><label>Password<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label><button class="ws-button">Sign in</button></form><p id="ws-login-status" role="status"></p></section>
+  <div id="ws-owner" hidden>
+    <section class="ws-grid" aria-label="Workspace services">
+      <a class="ws-card ws-module" href="/control-panel"><span class="ws-eyebrow">COPY TRADING</span><h2>SignalPilot ↗</h2><p>Open positions, copy controls, wallet records and speed measurements.</p><span class="ws-tag">Existing trading service</span></a>
+      <a class="ws-card ws-module" href="/trade-lord"><span class="ws-eyebrow">SAVED KNOWLEDGE</span><h2>Trade Lord ↗</h2><p>Open this server’s conversation and saved lessons.</p><span class="ws-tag" id="ws-lessons-status">Laptop lessons awaiting connection</span></a>
+      <article class="ws-card"><span class="ws-eyebrow">CONNECTED SERVICES</span><h2>Readiness</h2><p id="ws-chat-status">Checking chat configuration…</p><p id="ws-research-status">Checking research configuration…</p><small>Configured does not mean tested. A successful request verifies each service.</small></article>
+    </section>
+    <section class="ws-card ws-notice"><strong>Morning-to-copy handover</strong><p id="ws-handover-status">Not enabled. SignalPilot keeps its existing manual start and stop controls.</p></section>
+    <section class="ws-card" id="calculator"><div class="ws-section-head"><div><p class="ws-eyebrow">TRADING TOOLS</p><h2>Calculator &amp; checker</h2></div><span class="ws-tag">Scenario check · no order submission</span></div>
+      <p>Calculate planned exposure from the current price to the stop for one linear instrument. Include existing units and all estimated exit costs. This check does not yet authorize or block SignalPilot orders.</p>
+      <form id="ws-calculator" class="ws-form ws-calculator-grid">
+        <label>Position side<select name="side"><option value="long">Long</option><option value="short">Short</option></select></label>
+        <label>Current price<input name="currentPrice" inputmode="decimal" value="105" required></label>
+        <label>Stop price<input name="stopPrice" inputmode="decimal" value="103" required></label>
+        <label>Value of one price point per unit<input name="pointValue" inputmode="decimal" value="1" required></label>
+        <label>Units already held<input name="existingUnits" inputmode="decimal" value="3" required></label>
+        <label>Units to add<input name="addedUnits" inputmode="decimal" value="2" required></label>
+        <label>Allowed unit increment<input name="unitStep" inputmode="decimal" value="1" required></label>
+        <label>Fixed exit costs for the whole position<input name="fixedExitCost" inputmode="decimal" value="1" required></label>
+        <label>Additional exit cost per unit<input name="exitCostPerUnit" inputmode="decimal" value="0" required></label>
+        <label>Total risk budget<input name="riskBudget" inputmode="decimal" value="10" required></label>
+        <div class="ws-form-action"><small>Example values are supplied. Replace them with your scenario; use one account currency throughout.</small><button class="ws-button">Calculate &amp; check</button></div>
+      </form><div id="ws-calculator-result" class="ws-result" role="status" hidden></div>
+    </section>
+    <section class="ws-card" id="conversation"><div class="ws-section-head"><div><p class="ws-eyebrow">ASK TRADE LORD</p><h2>Chat &amp; research</h2></div><button id="ws-clear-chat" class="ws-button ws-secondary" type="button">Clear conversation</button></div>
+      <form id="ws-conversation" class="ws-form"><label>Mode<select name="mode" id="ws-mode"><option value="chat">Normal chat &amp; reply drafting</option><option value="research">Online research with sources</option></select></label><p id="ws-mode-help">Chat uses your local model and recent conversation. Replies are drafts; nothing is sent to anyone.</p><div id="ws-messages" class="ws-messages" role="log" aria-live="polite"></div><label>Your message<textarea name="message" rows="3" maxlength="4000" placeholder="Ask a question or paste a conversation you want help replying to…" required></textarea></label><button class="ws-button" id="ws-send">Ask Trade Lord</button><p id="ws-request-status" role="status"></p></form>
+    </section>
+    <footer class="ws-footer"><span>Trading controls remain in SignalPilot.</span><button id="ws-logout" class="ws-button ws-secondary">Sign out</button></footer>
+  </div>
+</main></body></html>

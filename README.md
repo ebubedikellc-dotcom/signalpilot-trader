@@ -1,5 +1,7 @@
 # SignalPilot Trader
 
+The staged unified workspace is at `/workspace`; SignalPilot remains at `/control-panel`. See [WORKSPACE-INTEGRATION.md](WORKSPACE-INTEGRATION.md) for the calculator, local chat, optional Vane research integration, deployment prerequisites and remaining laptop connection. Set a unique `OWNER_PASSWORD` before deploying this branch. This branch does not migrate wallets or enable live trading.
+
 Private trading control panel for Decu Win and Risk Win profiles.
 
 ## Direct copy execution
@@ -64,3 +66,4 @@ memory for subsequent copies and exits. Unsupported routes still fall back to
 Jupiter before signing.
 
 The SDK builders are vendored and pinned; see `vendor/fnzero/README.md`.
+

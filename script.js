@@ -1657,7 +1657,8 @@ async function openCustomerLink() {
 async function ownerLogin() {
   try {
     const email = value("ownerEmail");
-    await api("/api/auth/owner", { method: "POST", body: JSON.stringify({ email }) });
+    await api("/api/auth/owner", { method: "POST", body: JSON.stringify({ email, password:value("ownerPassword") }) });
+    if (document.getElementById("ownerPassword")) document.getElementById("ownerPassword").value = "";
     showBusinessMessage("Owner control panel opened.");
     await loadBusiness();
   } catch (error) {
@@ -2501,3 +2502,4 @@ on('profitPlan','change',()=>{growthFormDirty=true;explainGrowthPlan();});
 on('growthStartingAmount','input',()=>{growthFormDirty=true;explainGrowthPlan();});
 on('growthTargetAmount','input',()=>{growthFormDirty=true;explainGrowthPlan();});
 on('saveProfitPlan','click',saveGrowthPlan);
+
