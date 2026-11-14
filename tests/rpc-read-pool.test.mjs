@@ -156,3 +156,45 @@ test('parallel reads honor provider cooldown before dispatching any more queued 
  releaseFirst(1);await first;await rejected;assert.equal(calls,2);
  releaseSecond(2);await second;assert.equal(h.pool.status().active,0);
 });
+
+test('an urgent sell wakes a transaction-only pacing wait without skipping provider spacing',async()=>{
+ let time=0;const waits=[],starts=[];
+ const pool=createRpcReadPool({intervalMs:250,maxConcurrent:2,now:()=>time,
+   sleep:ms=>new Promise(resolve=>waits.push({at:time+ms,resolve}))});
+ const tick=async at=>{time=at;for(const w of waits.splice(0)){if(w.at<=time)w.resolve();else waits.push(w);}await flush();};
+ // A transaction-specific limit slows transaction reads, not fresh sell balances.
+ pool.observe({status:429,headers:new Headers({'retry-after':'60'})},
+   {method:'getTransaction',message:'Too many requests for a specific RPC call'});
+ time=60001;
+ await pool.run('getParsedTransaction',['first'],async()=>{starts.push(['transaction',time]);return null;},50);
+ const delayed=pool.run('getParsedTransaction',['next'],async()=>{starts.push(['next',time]);return null;});
+ await tick(60251); // Global 250ms spacing elapsed; transaction method remains paced until 62001.
+ const sell=pool.run('getBalance',['urgent-sell'],async()=>{starts.push(['sell',time]);return 42;},100);
+ await flush();
+ assert.deepEqual(starts,[['transaction',60001],['sell',60251]],'sell should not wait for the unrelated 2-second transaction timer');
+ assert.equal(await sell,42);
+ await tick(60501);await tick(62001);await delayed;
+ assert.equal(starts.at(-1)[1],62001,'transaction method pacing must remain enforced');
+});
+
+test('new urgent arrivals cannot bypass the global provider interval',async()=>{
+ let time=0;const waits=[],starts=[];
+ const pool=createRpcReadPool({intervalMs:250,maxConcurrent:2,now:()=>time,
+   sleep:(ms,signal)=>new Promise(resolve=>{
+     const wait={at:time+ms,resolve,cancelled:false};waits.push(wait);
+     signal.addEventListener('abort',()=>{wait.cancelled=true;resolve();},{once:true});
+   })});
+ const tick=async at=>{time=at;for(const w of waits.splice(0)){if(w.cancelled)continue;if(w.at<=time)w.resolve();else waits.push(w);}await flush();};
+ await pool.run('getBalance',['first'],async()=>starts.push(['first',time]));
+ const background=pool.run('getBalance',['dashboard'],async()=>starts.push(['dashboard',time]));
+ await tick(100);
+ const sell=pool.run('getBalance',['sell'],async()=>starts.push(['sell',time]),100);
+ await flush();await tick(249);
+ assert.deepEqual(starts,[['first',0]]);
+ await tick(250);await sell;
+ assert.deepEqual(starts,[['first',0],['sell',250]]);
+ await tick(500);await background;
+ assert.deepEqual(starts,[['first',0],['sell',250],['dashboard',500]]);
+ assert(waits.every(w=>w.cancelled),'completed and superseded timers are cancelled');
+});
+
