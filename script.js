@@ -1281,7 +1281,7 @@ function renderState(state) {
     $("changeTrader").disabled = queueRunning;
     $("changeTrader").title = queueRunning ? "Stop trading before changing trader" : "Choose the trader to copy";
   }
-  if ($("selectedTrader") && document.activeElement !== $("selectedTrader")) $("selectedTrader").value = strategy.activeProfile || "frog";
+  if ($("selectedTrader") && $("traderPicker")?.hidden && document.activeElement !== $("selectedTrader")) $("selectedTrader").value = strategy.activeProfile || "frog";
   setText("selectedTraderLabel", `Selected trader: ${queueActiveLabel}`);
   setText("selectedModeLabel", `Trading options · ${buyModeLabel(buyMode)}${settings.profitMode === "target" ? " · Grow to target" : ""}`);
   [

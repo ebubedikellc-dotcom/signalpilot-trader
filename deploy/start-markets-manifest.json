@@ -2,22 +2,25 @@
   "server.js": {
     "old": [
       "e0ac3b50c0ae95b07c083098e2e0fbc3f7c2584f2605183ac2186b926b67aefe",
-      "5d1d15f6c354336c44a4dd5abdf80033c157b6dbe44f38eeae4d2e7b2e69fe9c"
+      "5d1d15f6c354336c44a4dd5abdf80033c157b6dbe44f38eeae4d2e7b2e69fe9c",
+      "c162b3cf9eb6b5bc0eb5af0042a19babafd8d9c3dd8f0eeac607968efa252408"
     ],
-    "new": "c162b3cf9eb6b5bc0eb5af0042a19babafd8d9c3dd8f0eeac607968efa252408"
+    "new": "6197928c2e455a7b8f1565a1ce596f2b5827f2f1b8575e8533558a53e99f3164"
   },
   "script.js": {
     "old": [
       "15161d0379db7efabe32ff22ba0a00703079fbd41a29b48fbaf5ceb208694f64",
-      "e5886d4aaeb7859376adea9b251690716bae84d275a3f20ca06dd95001870714"
+      "e5886d4aaeb7859376adea9b251690716bae84d275a3f20ca06dd95001870714",
+      "488b7cd4aa23d272ee00bd82ca03f1ded861963bfb3f845c29e9dd9e43f24cda"
     ],
-    "new": "488b7cd4aa23d272ee00bd82ca03f1ded861963bfb3f845c29e9dd9e43f24cda"
+    "new": "6508ee94d6031293288155f89a201a0f6a7fce1780e3b8971afbdda748d49478"
   },
   "control-panel.html": {
     "old": [
-      "7405654184d1cbcf77ec7f7f9c734565ebb0c6872a38207ec8e10e333b1c3590"
+      "7405654184d1cbcf77ec7f7f9c734565ebb0c6872a38207ec8e10e333b1c3590",
+      "b9e2ed9f24379c8f4373c0523d752f651f27158b7a1e18c20d0f0552da73c1ec"
     ],
-    "new": "b9e2ed9f24379c8f4373c0523d752f651f27158b7a1e18c20d0f0552da73c1ec"
+    "new": "37518734b697651df3ece0a61b6dd2ae908ef9c49b8f4d2bb7285785707946f5"
   },
   "copy-markets.js": {
     "old": [
@@ -27,9 +30,10 @@
   },
   "copy-markets.css": {
     "old": [
-      null
+      null,
+      "a9fc64240cf2f8f599a8411e490785f93801c34a466b2ba330f9a14cd55c6e5b"
     ],
-    "new": "a9fc64240cf2f8f599a8411e490785f93801c34a466b2ba330f9a14cd55c6e5b"
+    "new": "0b7efea2b629f8b5e951a3e2f45cabeae51e494d2c65c4c1188004dc911878a0"
   },
   "lib/copy-directory.mjs": {
     "old": [
@@ -42,5 +46,17 @@
       "9aa8af0491aa975d2af33ac7592fc2e8458f9f44796d8ddcfef133bfdb259f9c"
     ],
     "new": "6b4663c4ae059ac86c9577ce8b67482b047b93b0e701725ec859c448bc882947"
+  },
+  "trader-sizing.js": {
+    "old": [
+      null
+    ],
+    "new": "79665ebf05cb199875e4ff1c96aae5707724a6490dbfd3e95c3c65dc0b8a30ef"
+  },
+  "lib/trader-sizing.mjs": {
+    "old": [
+      null
+    ],
+    "new": "67a7aea91237b0195f2a70137cbc1a103ef69782b0eb7693dc852af00c5ecfd3"
   }
 }

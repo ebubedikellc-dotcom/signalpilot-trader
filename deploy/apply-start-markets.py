@@ -6,7 +6,7 @@ import shutil
 import sys
 import tempfile
 
-FILES = {'server.js','script.js','control-panel.html','copy-markets.js','copy-markets.css','lib/copy-directory.mjs','deploy/compose.laptop.yaml'}
+FILES = {'server.js','script.js','control-panel.html','copy-markets.js','copy-markets.css','trader-sizing.js','lib/copy-directory.mjs','lib/trader-sizing.mjs','deploy/compose.laptop.yaml'}
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None

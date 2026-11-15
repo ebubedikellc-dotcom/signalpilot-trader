@@ -22,6 +22,10 @@ test('mounted observation server keeps accounts and blocks paid-provider checks 
  assert.equal((await fetch(base+'/copytrade/server.js')).status,403);
  const login=await fetch(base+'/copytrade/api/auth/owner',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'test@example.invalid',password})});assert.equal(login.status,200);const cookie=login.headers.get('set-cookie').split(';')[0];
  const headers={Cookie:cookie,'Content-Type':'application/json'};
+ assert.equal((await fetch(base+'/copytrade/api/trader-sizing?profile=safe')).status,401);
+ assert.equal((await fetch(base+'/copytrade/api/trader-sizing?profile=unknown',{headers})).status,404);
+ assert.equal((await fetch(base+'/copytrade/api/trader-sizing?profile=frog',{headers})).status,409); // Synthetic invalid wallet: never contacts RPC.
+ assert.equal((await fetch(base+'/copytrade/api/trader-sizing?profile=safe',{method:'POST',headers,body:'{}'})).status,405);
  const settings=await fetch(base+'/copytrade/api/settings',{method:'POST',headers,body:'{}'});assert.equal(settings.status,200);
  const body=await settings.json();assert.equal(body.backend.freeConnection,true);assert.equal(body.backend.paidHeliusEnabled,false);assert.equal(body.backend.productionExecution,false);assert.equal(body.customers[0].id,'test-customer');
  assert.equal(body.settings.heliusKey,'test-stored-secret');assert.equal(body.settings.gmgnApiKey,'test-gmgn-secret'); // Owner retains settings, but public mode does not use them.

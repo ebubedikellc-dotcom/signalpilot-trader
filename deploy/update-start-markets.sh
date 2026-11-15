@@ -36,9 +36,11 @@ if ! "${COPYTRADE_COMPOSE[@]}" up -d --no-build --force-recreate --wait copytrad
   echo 'Share the error above; account data is retained.'
   exit 1
 fi
-echo 'Start & Markets update installed. Copying is STOPPED.'
+echo 'CopyTrade update installed, including trader amounts. Copying is STOPPED.'
 echo 'Open http://localhost:8088/trade-lord and click CopyTrade. Refresh with Ctrl+F5.'
 echo 'Sign in. Choose Solana and your trader. Review your saved budget and purchase limit.'
+echo 'Use Check trader amounts to compare recent buys and visible wallet balances.'
+echo 'Both sizing choices remain: My Purchase Limit or Trader’s Full Amount. Matching their balance is optional.'
 echo 'Open Trading options, Save trading mode, then Check free connection.'
 echo 'Only click Start Trading yourself when you want real copying to begin.'
 echo 'Gold and Forex have setup pages; a broker connection is still required.'

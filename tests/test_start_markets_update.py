@@ -1,6 +1,6 @@
 import hashlib,json,os,pathlib,shutil,subprocess,tempfile,unittest
 ROOT=pathlib.Path(__file__).resolve().parents[1]
-FILES=['server.js','script.js','control-panel.html','copy-markets.js','copy-markets.css','lib/copy-directory.mjs','deploy/compose.laptop.yaml']
+FILES=['server.js','script.js','control-panel.html','copy-markets.js','copy-markets.css','lib/copy-directory.mjs','deploy/compose.laptop.yaml','trader-sizing.js','lib/trader-sizing.mjs']
 class StartMarketsUpdate(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=pathlib.Path(self.tmp.name);self.source=self.root/'source';self.target=self.root/'target'
@@ -10,7 +10,7 @@ class StartMarketsUpdate(unittest.TestCase):
   for i,name in enumerate(FILES):
    dst=self.target/name;src=self.source/name;src.parent.mkdir(parents=True,exist_ok=True);src.write_text('new '+name)
    old=None
-   if i not in [3,4,5]:dst.parent.mkdir(parents=True,exist_ok=True);dst.write_text('old '+name);old=hashlib.sha256(dst.read_bytes()).hexdigest()
+   if i not in [3,4,5,7,8]:dst.parent.mkdir(parents=True,exist_ok=True);dst.write_text('old '+name);old=hashlib.sha256(dst.read_bytes()).hexdigest()
    manifest[name]={'old':[old],'new':hashlib.sha256(src.read_bytes()).hexdigest()}
   (self.source/'deploy/start-markets-manifest.json').write_text(json.dumps(manifest))
   (self.target/'deploy/.laptop.env').write_text('COPYTRADE_PORT=8088\nTRADE_LORD_NETWORK=retained\n')

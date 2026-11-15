@@ -19,6 +19,7 @@ import { gaslessMinimumError, prepareWalletPaidSell, submitWalletPaidSell } from
 import { currentExitNotices } from "./lib/exit-status.mjs";
 import { createQuotePacer } from "./lib/quote-pacer.mjs";
 import { sourceAmountsFromSwap } from "./lib/trader-amounts.mjs";
+import { createTraderSizingReader } from "./lib/trader-sizing.mjs";
 import { analyzeFrogBrain } from "./lib/frog-brain.mjs";
 import { createTradeLord, handleTradeLordApi } from "./lib/trade-lord.mjs";
 import { sellFraction, proportionalAmount, exitReason, trailingExit, takeBackExit, profitLadderExit, riseStepExit, tokenAmounts, buildPositions, dailyResults } from "./lib/position-accounting.mjs";
@@ -3712,7 +3713,25 @@ function startCopyWorker() {
   setInterval(() => { wakeCopyWorker().catch(() => {}); },workerIntervalMs);
 }
 
+const traderSizingReader=createTraderSizingReader({
+  connectionFor:settings=>solanaConnection(settings,{priority:-20}),
+  canRead:async()=>!queueStartPending && !Object.values((await readState()).profiles||{}).some(p=>p.running)
+});
+
 async function handleApi(request, response, url) {
+  if(url.pathname==='/api/trader-sizing') {
+    response.setHeader('Cache-Control','no-store');
+    const state=await readState();
+    if(requireOwner(response,sessionFromRequest(request,state)))return true;
+    if(request.method!=='GET'){send(response,405,{error:'Use a read-only GET request.'});return true;}
+    const profile=url.searchParams.get('profile');
+    if(!supportedProfiles.includes(profile)){send(response,404,{error:'Choose a saved Solana trader.'});return true;}
+    const wallet=targetWallet(state,profile);
+    if(!solanaAddress(wallet)){send(response,409,{error:'This trader needs a valid public wallet address.'});return true;}
+    try {send(response,200,{...(await traderSizingReader.get({wallet,settings:state.settings})),profile,name:profileLabel(profile)});}
+    catch {send(response,503,{error:'Trader amounts could not be read. No account settings changed.'});}
+    return true;
+  }
   if(url.pathname.startsWith('/api/copy-directory')) {
     const initial=await readState();
     if(requireOwner(response,sessionFromRequest(request,initial)))return true;
@@ -4779,7 +4798,7 @@ async function serveFile(response, pathname) {
   const filePath = path.normalize(path.join(__dirname, safePath));
   const relativePath = path.relative(__dirname, filePath);
   const hiddenSegment = relativePath.split(path.sep).some((segment) => segment.startsWith("."));
-  const publicFiles = new Set(["copy-markets.js","copy-markets.css","workspace.html","workspace.css","workspace.js","workspace-nav.js","whatsapp.js","control-panel.html","index.html","trade-lord.html","trade-lord-training.html","styles.css","script.js","trade-lord.css","trade-lord.js","trade-lord-client.js","trade-lord-panel.js","trade-lord-player.js","trade-lord-study.js","trade-lord-training.js","manifest.webmanifest","signalpilot-icon.svg","sw.js"]);
+  const publicFiles = new Set(["trader-sizing.js","copy-markets.js","copy-markets.css","workspace.html","workspace.css","workspace.js","workspace-nav.js","whatsapp.js","control-panel.html","index.html","trade-lord.html","trade-lord-training.html","styles.css","script.js","trade-lord.css","trade-lord.js","trade-lord-client.js","trade-lord-panel.js","trade-lord-player.js","trade-lord-study.js","trade-lord-training.js","manifest.webmanifest","signalpilot-icon.svg","sw.js"]);
   if (!filePath.startsWith(__dirname) || hiddenSegment || !publicFiles.has(relativePath)) {
     response.writeHead(403);
     response.end("Forbidden");
