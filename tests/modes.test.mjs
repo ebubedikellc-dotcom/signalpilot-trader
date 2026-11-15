@@ -1,3 +1,4 @@
+import {startReadiness} from '../lib/copy-directory.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
@@ -97,7 +98,7 @@ test('daily accounting uses Lagos midnight, not browser or server timezone',()=>
 });
 function controls(){
  const state={settings:{modesConfirmed:'yes'},strategy:{activeProfile:'safe',controlRevision:1},profiles:{safe:{running:false},frog:{running:false},truenest:{running:false}}};let output;
- const c=vm.createContext({process:{env:{}},Date,Number,Boolean,Object,Math,structuredClone,supportedProfiles:['safe','frog','truenest'],readState:async()=>state,requireOwner:()=>false,sessionFromRequest:()=>({role:'owner'}),readBody:async r=>r.body||{},saveState:async()=>{},send:(_,code,body)=>{output={code,body}},statusPayload:s=>s,profileLabel:p=>p,strategyLossKey:p=>p+'Losses',line:x=>x,ready:()=>true,assertHeliusReadyForProfile:async()=>{},defaultState:{strategy:{}},beginTradingSession:()=>{},queueFailureSwitchLimit:()=>3,liveTradingAllowed:()=>false,withWalletOperation:f=>f(),emergencyStopRequested:false});
+ const c=vm.createContext({startReadiness,queueStartPending:false,routeReplayBusy:false,fnzeroTestBusy:false,process:{env:{}},Date,Number,Boolean,Object,Math,structuredClone,supportedProfiles:['safe','frog','truenest'],readState:async()=>state,requireOwner:()=>false,sessionFromRequest:()=>({role:'owner'}),readBody:async r=>r.body||{},saveState:async()=>{},send:(_,code,body)=>{output={code,body}},statusPayload:s=>s,profileLabel:p=>p,strategyLossKey:p=>p+'Losses',line:x=>x,ready:()=>true,assertHeliusReadyForProfile:async()=>{},defaultState:{strategy:{}},beginTradingSession:()=>{},queueFailureSwitchLimit:()=>3,liveTradingAllowed:()=>false,withWalletOperation:f=>f(),emergencyStopRequested:false});
  vm.runInContext(section('async function handleApi(', 'async function serveFile('),c);
  return {c,state,run:async(url,body)=>{await c.handleApi({method:'POST',body},{},{pathname:url});return output;}};
 }

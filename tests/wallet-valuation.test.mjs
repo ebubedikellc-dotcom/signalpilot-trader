@@ -12,3 +12,5 @@ test('values current holdings with fresh same-wallet prices',()=>{const r=c.wall
 test('unknown token stays excluded and explicitly counted',()=>{const r=c.walletValuation(balance,100,{...prices,coins:[]},now);assert.equal(r.total,300);assert.equal(r.unknown,1);});
 test('stale prices and prices from another wallet cannot imply a complete total',()=>{for(const p of [{...prices,receivedAt:now-90001},{...prices,wallet:'other'},{...prices,solMarket:{priceUsd:100,checked:now-90001},coins:[]}]){const r=c.walletValuation(balance,100,p,now);assert.equal(r.total,100);assert.equal(r.solPriced,false);assert.equal(r.unknown,1);}});
 test('failed balances do not become a zero or stale total',()=>{assert.equal(c.walletValuation({...balance,error:'unavailable'},100,prices,now).total,null);});
+
+test('missing wallet and price snapshot render unknown value without crashing the dashboard',()=>{const r=c.walletValuation({},NaN,null,now);assert.equal(r.total,null);});

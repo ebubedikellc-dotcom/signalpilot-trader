@@ -1,3 +1,4 @@
+import {startReadiness} from '../lib/copy-directory.mjs';
 import {sourceAmountsFromSwap} from '../lib/trader-amounts.mjs';
 import {createMonitorSleep} from '../lib/monitor-sleep.mjs';
 import {rpcProvider,monitoredProfiles,directMonitoringEnabled} from '../lib/rpc-provider.mjs';
@@ -253,7 +254,7 @@ test('restart excludes buys from the stopped period without expiring new session
  state.profiles.safe.running=true;c.beginTradingSession(state);assert.equal(state.strategy.buySessionStartedAt,start);
 });
 test('dashboard status reports poll cadence without referencing a removed buy deadline',()=>{
- const c=vm.createContext({fnzeroRouter:{status:()=>({})},executionReport:null,rpcProvider,process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:250,feedPollLoopMs:250,
+ const c=vm.createContext({startReadiness,ready:()=>false,fnzeroRouter:{status:()=>({})},executionReport:null,rpcProvider,process:{env:{}},liveTradingAllowed:()=>false,publicSettings:()=>({}),workerIntervalMs:250,feedPollLoopMs:250,
  monitorSleepStatus:()=>({sleeping:false}),rpcConnections:new Map(),gmgnConnectionCheck:null,observationUntil:0,feedHealth:()=>[],liveSubscriptions:new Map(),customerPublic:x=>x});
  vm.runInContext(section(server,'function statusPayload(','async function walletBalances('),c);
  const result=c.statusPayload({settings:{},customers:[],profiles:{safe:{running:false}}},{role:'owner',id:'owner'});

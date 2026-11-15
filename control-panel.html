@@ -12,12 +12,54 @@
     <link rel="manifest" href="./manifest.webmanifest">
     <link rel="apple-touch-icon" href="./signalpilot-icon.svg">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2309161f'/%3E%3Cpath d='M14 41h36' stroke='%232ee6a6' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M18 37l9-12 9 8 10-15' fill='none' stroke='%23f6c95c' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='48' cy='18' r='5' fill='%232ee6a6'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="./copy-markets.css?v=1">
+    <script type="module" src="./copy-markets.js?v=1"></script>
     <link rel="stylesheet" href="./styles.css?v=high-risk-profit-run-v4">
     <link rel="stylesheet" href="/workspace.css?v=2">
     <script type="module" src="/workspace-nav.js?v=2"></script>
   </head>
   <body data-page="owner">
     <main class="app-shell control-shell">
+      <section class="copy-desk" id="copyDesk" aria-labelledby="copyDeskTitle">
+        <p class="desk-kicker">TRADE LORD / COPYTRADE</p>
+        <div class="desk-heading"><div><h1 id="copyDeskTitle">Your copy trading desk.</h1><p>Choose a market, keep your accounts together, and decide who to follow.</p></div><span class="desk-badge" id="deskBadge">Sign in to view status</span></div>
+        <nav class="market-tabs" aria-label="Copy trading markets">
+          <button type="button" data-market="solana" aria-pressed="true">Solana<small>Meme coins &amp; tokens</small></button>
+          <button type="button" data-market="gold" aria-pressed="false">Gold<small>XAU / USD</small></button>
+          <button type="button" data-market="forex" aria-pressed="false">Forex<small>EUR / USD</small></button>
+        </nav>
+        <div class="desk-summary"><div><h2 id="marketTitle">Solana copying</h2><p id="marketDescription">Use your existing wallet. Select one trader at a time below; new traders join the same list.</p></div></div>
+        <div class="desk-tools"><button type="button" id="deskAddTrader" disabled>+ Add trader</button><button type="button" id="deskAddAccount" disabled>+ Set up account</button></div>
+        <p id="deskNotice" class="desk-status" role="status">Sign in below to view your saved accounts and traders.</p>
+        <form class="desk-form" id="traderSetup" hidden>
+          <h3>Add a trader</h3><p id="traderSetupHelp">Use the trader's public wallet address. Adding a trader does not start copying.</p>
+          <div class="desk-form-grid">
+            <label>Trader name<input name="name" required maxlength="60" autocomplete="off"></label>
+            <label id="traderWalletField">Public Solana wallet<input name="wallet" autocomplete="off" spellcheck="false"></label>
+            <label class="full">Public profile or strategy link<input name="profileUrl" type="url" placeholder="https://" maxlength="500" autocomplete="off"></label>
+            <label id="traderAccountField" class="full" hidden>Account<select name="accountId"><option value="">Choose later</option></select></label>
+          </div><div class="desk-form-actions"><button type="submit">Save trader</button><button type="button" data-close="traderSetup">Cancel</button></div>
+        </form>
+        <form class="desk-form" id="accountSetup" hidden>
+          <h3>Set up an account entry</h3><p>Save the account you want to connect. This does not open a broker account, connect a wallet, or move money. Do not enter passwords or recovery phrases.</p>
+          <div class="desk-form-grid">
+            <label>Account name<input name="name" placeholder="My gold demo" required maxlength="80"></label>
+            <label>Broker or wallet service<input name="broker" placeholder="Service name" required maxlength="80"></label>
+            <label>Platform<select name="platform"><option value="solana">Solana wallet</option><option value="ctrader">cTrader</option><option value="mt5">MetaTrader 5</option><option value="other">Other broker platform</option></select></label>
+            <label>Account type<select name="mode"><option value="demo">Demo / practice</option><option value="live">Live account</option></select></label>
+          </div><div class="desk-form-actions"><button type="submit">Save account entry</button><button type="button" data-close="accountSetup">Cancel</button></div>
+        </form>
+        <div id="brokerConnection" class="broker-explainer" hidden>Broker connection required. Gold and EUR/USD use a broker account; your Solana wallet cannot place these trades. Saved entries are setup records. Copying is unavailable here until a compatible broker connection is implemented and verified.</div>
+        <div id="deskRecords" class="desk-list"></div>
+        <div class="candidate-card" id="goldCandidate" hidden>
+          <span class="candidate-label">RESEARCH CANDIDATE · NOT CONNECTED</span><h3>GOLD ORBIT <small>on cTrader Copy</small></h3>
+          <div class="candidate-facts"><div><strong>0%</strong>Performance &amp; management fees</div><div><strong>$0</strong>Volume fee</div><div><strong>$100</strong>Listed minimum</div></div>
+          <p>Public page checked 15 November 2026. Active since April 2026; reported maximum balance drawdown 10.72%. About 99.87% of volume was gold, with some index trading. Historical equity drawdown, broker availability and account suitability remain unverified. Broker spreads and other trading costs can still apply. Past results do not establish future returns.</p>
+          <a href="https://app.ctrader.com/copy/strategy/115140" target="_blank" rel="noopener noreferrer">Review strategy and current fees ↗</a> · <button type="button" id="saveGoldCandidate" disabled>Add to my review list</button>
+        </div>
+        <div class="candidate-card" id="forexCandidates" hidden><span class="candidate-label">PROVIDER RESEARCH</span><h3>Find a EUR/USD strategy</h3><p>No free EUR/USD provider has been verified for your account yet. Check all provider fees, actual EUR/USD trades, equity drawdown and broker support before choosing.</p><a href="https://ctrader.com/copy/symbols/eurusd" target="_blank" rel="noopener noreferrer">Explore the official cTrader directory ↗</a></div>
+      </section>
+
       <section class="room-help" aria-label="CopyTrade connection">
         <strong>CopyTrade · FnZero open source</strong>
         <label>Connection <select id="copyConnection"><option value="public">Free public Solana</option><option value="legacy">Existing provider settings</option></select></label>
@@ -32,6 +74,7 @@
           <button id="topStopTrading" class="stop-action" type="button">STOP TRADING</button>
           <button id="changeTrader" class="secondary-action" type="button">CHANGE TRADER</button>
         </div>
+        <p class="start-readiness" id="startReadiness" role="status" aria-live="polite">Sign in to check Start requirements.</p>
         <strong id="selectedTraderLabel">Selected trader: loading…</strong>
         <div class="stuck-sell-control">
           <button id="openStuckCoinSales" type="button">Sell coins manually / View gain &amp; loss</button>
@@ -44,7 +87,7 @@
             <button id="savePurchaseLimit" type="button">Save limit</button>
           </div>
           <small id="purchaseLimitStatus" role="status" aria-live="polite">Enter a maximum buy amount, or leave blank to copy the trader’s full amount within your available trading funds. Smaller buys keep their actual amount.</small>
-          <small>The 5% entry-price restriction is off. Copies can buy at a worse price than the trader paid. Your highest-buy limit, available funds and source verification still apply. Buy and sell target: 0.5 seconds; backup: 1 second. Valid trades submit as soon as ready, including after 1 second.</small>
+          <small>The 5% entry-price restriction is off. Copies can buy at a worse price than the trader paid. Your highest-buy limit, available funds and source verification still apply. Copies submit when verification and routing finish. Actual delay depends on the network and route; no fill time is guaranteed.</small>
         </div>
         <div id="traderPicker" hidden>
           <label>Who should I copy? <select id="selectedTrader"><option value="safe">Frog</option><option value="frog">Deku</option><option value="truenest">Trunoest</option></select></label>

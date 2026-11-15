@@ -1,3 +1,4 @@
+import {addCopyAccount, addCopyTrader, normalizeCopyDirectory, registeredSolanaTraders, prepareOwnerStart, startReadiness} from "./lib/copy-directory.mjs";
 import { createFnzeroRouter, submitFnzeroOrder } from "./lib/fnzero-route.mjs";
 import { createOwnerAuth } from "./lib/owner-auth.mjs";
 import { createWorkspace, handleWorkspaceApi } from "./lib/workspace.mjs";
@@ -126,6 +127,16 @@ const usdtMint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 const legacyFrogWallet = "4DdrfiDHpmx55i4SPssxVzS9ZaKLb8qr45NKY9Er9nNh";
 const decuWallet = "4vw54BmAogeRV3vPKWyFet5yf8DTLcREzdSzx4rw9Ud9";
 const supportedProfiles = ["safe", "frog", "truenest"];
+const customTraderNames = new Map();
+let queueStartPending = false;
+function registerDirectory(state) {
+  state.copyDirectory=normalizeCopyDirectory(state.copyDirectory);
+  for(const trader of registeredSolanaTraders(state.copyDirectory)) {
+    if(!supportedProfiles.includes(trader.id))supportedProfiles.push(trader.id);
+    customTraderNames.set(trader.id,trader.name);
+    state.settings[trader.id+'Wallet']=trader.wallet;
+  }
+}
 let tradeLordService;
 function getTradeLord() {
   if (!tradeLordService) tradeLordService = (async () => {
@@ -370,8 +381,9 @@ async function saveStateSerialized(state) {
     if (Number(saved.strategy?.controlRevision || 0) > Number(state.strategy?.controlRevision || 0)) {
       state.strategy = saved.strategy;
       state.settings = saved.settings;
+      state.copyDirectory = saved.copyDirectory;
       for (const profile of supportedProfiles) {
-        state.profiles[profile].running = saved.profiles[profile].running;
+        state.profiles[profile] = { ...(state.profiles[profile] || saved.profiles[profile]), running: saved.profiles[profile]?.running === true };
       }
     }
   } catch (error) {
@@ -492,12 +504,16 @@ function normalizeState(state) {
   state.settings.truenestRiskControl ||= state.settings.riskControl || defaultState.settings.riskControl;
   state.settings.truenestLiveTradingSwitch ||= state.settings.liveTradingSwitch || defaultState.settings.liveTradingSwitch;
   syncQueueSurviveSettings(state.settings);
+  registerDirectory(state);
   const incomingProfiles = state.profiles || {};
   state.profiles = {
     safe: { ...structuredClone(defaultState.profiles.safe), ...(incomingProfiles.safe || {}) },
     frog: { ...structuredClone(defaultState.profiles.frog), ...(incomingProfiles.frog || {}) },
     truenest: { ...structuredClone(defaultState.profiles.truenest), ...(incomingProfiles.truenest || {}) }
   };
+  for(const profile of supportedProfiles.filter(p=>p.startsWith('copy_'))) {
+    state.profiles[profile]={...structuredClone(defaultState.profiles.frog),...(incomingProfiles[profile]||{})};
+  }
   state.owner = { email: (state.owner?.email || ownerEmail).toLowerCase() };
   state.customers = Array.isArray(state.customers) ? state.customers : [];
   state.customers.forEach((customer) => {
@@ -782,6 +798,7 @@ function statusPayload(state, session) {
   return {
     ...state,
     settings: publicSettings(state.settings, isOwner),
+    copyDirectory: isOwner ? state.copyDirectory : undefined,
     trades: (state.trades || []).map(t => {
       const fill=executionReport?.confirmed?.find(f=>f.txid===t.execution?.txid);
       return fill ? {...t,status:"Executed",pnl:fill.pnl ?? 0,amount:fill.usd,execution:{...t.execution,status:"Executed",confirmedAt:new Date(fill.time).toISOString()}} : t;
@@ -790,7 +807,9 @@ function statusPayload(state, session) {
     sessions: undefined,
     customers: isOwner ? state.customers.map((customer) => customerPublic(customer, state)) : [],
     backend: {
-      appVersion: "high-risk-profit-run-v4",
+      appVersion: "copytrade-start-markets-v1",
+      startReadiness: isOwner ? startReadiness(state,process.env,ready(state),liveTradingAllowed(state,state.strategy?.activeProfile)) : undefined,
+      ownerStartRequired: process.env.COPYTRADE_REQUIRE_OWNER_START === 'true',
       fnzero: isOwner ? fnzeroRouter.status() : undefined,
       marketDataProvider: state.settings?.copyConnection === "public" ? "Public Solana alerts + confirmed history recovery" : "Direct Solana alerts + GMGN recovery",
       freeConnection: state.settings?.copyConnection === "public",
@@ -1002,7 +1021,7 @@ function ready(state) {
 function profileSetting(state, profile, key, fallback = "") {
   const prefix = supportedProfiles.includes(profile) ? profile : "frog";
   const profileKey = `${prefix}${key[0].toUpperCase()}${key.slice(1)}`;
-  return state.settings[profileKey] || state.settings[key] || fallback;
+  return state.settings[profileKey] || (prefix.startsWith("copy_") && key!=="wallet" ? state.settings[`frog${key[0].toUpperCase()}${key.slice(1)}`] : "") || state.settings[key] || fallback;
 }
 
 function profileWalletSync(state, profile) {
@@ -1073,6 +1092,7 @@ function liveTradingAllowed(state, profile = "") {
 }
 
 function profileLabel(profile) {
+  if(customTraderNames.has(profile))return customTraderNames.get(profile);
   if (profile === "safe") return "Frog safe bot";
   if (profile === "truenest") return "Trunoest risk bot";
   return "Deku riskier bot";
@@ -1150,6 +1170,8 @@ function closedTraderPnlUsd(trades = [], sellTrade = {}, profile = "frog") {
 }
 
 function profileFromTrade(trade = {}) {
+  if(supportedProfiles.includes(trade.profileId))return trade.profileId;
+  for(const [id,name] of customTraderNames)if(trade.profile===name)return id;
   if (trade.profile === "Frog safe bot" || trade.profile === "safe") return "safe";
   if (trade.profile === "Risk Win" || trade.profile === "Trunoest risk bot" || trade.profile === "truenest") return "truenest";
   return "frog";
@@ -2892,6 +2914,8 @@ async function executeManualTokenSellLocked(state, { profile, mint, automatic = 
 }
 
 function roomMatchesProfile(trade = {}, profile = "") {
+  if(trade.profileId)return trade.profileId===profile;
+  if(customTraderNames.has(profile))return trade.profile===customTraderNames.get(profile);
   const text = String(trade.profile || "").toLowerCase();
   if (profile === "safe") return text.includes("frog safe") || text.includes("safe bot") || text.includes("beginner") || text === "frog";
   if (profile === "truenest") return text.includes("risk win") || text.includes("truenest") || text.includes("trunoest") || text.includes("big win") || text.includes("risk bot");
@@ -2930,6 +2954,7 @@ function tradeFromTransaction(profile, transaction, state) {
     signature: transaction.signature,
     time: transaction.timestamp ? new Date(transaction.timestamp * 1000).toLocaleString("en-US", { hour12: false }) : new Date().toLocaleString("en-US", { hour12: false }),
     profile: profileLabel(profile),
+    profileId: profile,
     action: leg?.action === "sell" ? "Sell signal" : leg?.action === "buy" ? "Buy signal" : "Observed movement",
     token: tradedToken,
     tradedToken,
@@ -3688,6 +3713,30 @@ function startCopyWorker() {
 }
 
 async function handleApi(request, response, url) {
+  if(url.pathname.startsWith('/api/copy-directory')) {
+    const initial=await readState();
+    if(requireOwner(response,sessionFromRequest(request,initial)))return true;
+    if(request.method==='GET' && url.pathname==='/api/copy-directory') {send(response,200,{directory:initial.copyDirectory});return true;}
+    if(request.method==='POST' && ['/api/copy-directory/accounts','/api/copy-directory/traders'].includes(url.pathname)) {
+      const input=await readBody(request);
+      await withWalletOperation(async()=>{
+        const state=await readState();
+        if(queueStartPending || supportedProfiles.some(p=>state.profiles[p]?.running)) {send(response,409,{error:'Stop trading before adding an account or trader.'});return;}
+        try {
+          const result=url.pathname.endsWith('/accounts') ? addCopyAccount(state.copyDirectory,input) : addCopyTrader(state.copyDirectory,input,supportedProfiles.map(p=>targetWallet(state,p)));
+          state.copyDirectory=result.directory;
+          registerDirectory(state);
+          for(const t of registeredSolanaTraders(state.copyDirectory))state.profiles[t.id]||={...structuredClone(defaultState.profiles.frog),running:false};
+          state.strategy.controlRevision=Math.max(Date.now(),Number(state.strategy.controlRevision||0)+1);
+          await saveState(state);
+          send(response,201,{directory:state.copyDirectory,record:result.account||result.trader,status:statusPayload(state,{role:'owner'})});
+        }catch(error){send(response,400,{error:error.message});}
+      });
+      return true;
+    }
+    send(response,404,{error:'Directory action not found.'});return true;
+  }
+
   if (url.pathname.startsWith("/api/workspace")) {
     const state = await readState();
     return handleWorkspaceApi({request,response,url,isOwner:sessionFromRequest(request,state)?.role === "owner",workspace});
@@ -3752,7 +3801,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     send(response, 200, {
       ok: true,
-      appVersion: "high-risk-profit-run-v4",
+      appVersion: "copytrade-start-markets-v1",
       commit: process.env.RENDER_GIT_COMMIT || null,
       liveTradingEnv: process.env.ENABLE_LIVE_TRADING === "true",
       productionExecution: process.env.EXECUTE_REAL_SWAPS === "true"
@@ -4541,6 +4590,7 @@ async function handleApi(request, response, url) {
         signature: result.txid || "",
         time: new Date().toLocaleString("en-US", { hour12: false }),
         profile: profileLabel(profile),
+    profileId: profile,
         action: stockOpenUsd > 0 ? "Stock coin sell" : "Manual sell",
         token: result.inputMint,
         tradedToken: result.inputMint,
@@ -4580,75 +4630,44 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/queue/start") {
-    const state = await readState();
-    if (requireOwner(response, sessionFromRequest(request, state))) return true;
-    if (state.settings.providerRepairHold && state.settings.copyConnection !== "public") { send(response,409,{error:"Trading stays stopped while GMGN access is being repaired. It will not restart automatically."}); return true; }
-    if (state.settings.modesConfirmed !== "yes") { send(response,409,{error:"Choose and save your trading mode before starting."}); return true; }
-    if (process.env.ENABLE_LIVE_TRADING !== "true" || process.env.EXECUTE_REAL_SWAPS !== "true") {send(response,409,{error:"This installation is in observation mode. Use Check free connection; automatic trading is disabled."});return true;}
-    if (!ready(state)) {
-      send(response, 400, { error: "Engine Room is not complete yet." });
-      return true;
-    }
+    const state=await readState();
+    if(requireOwner(response,sessionFromRequest(request,state)))return true;
+    if(queueStartPending || routeReplayBusy || fnzeroTestBusy){send(response,409,{error:'A start or route check is already in progress. Wait for its result.'});return true;}
+    const readiness=startReadiness(state,process.env,ready(state),liveTradingAllowed(state,state.strategy.activeProfile));
+    if(!readiness.canStart){send(response,409,{error:readiness.message,status:statusPayload(state,{role:'owner'})});return true;}
+    queueStartPending=true;
+    emergencyStopRequested=false;
+    const startingRevision=Number(state.strategy.controlRevision||0);
     try {
-      await assertHeliusReadyForProfile(state, state.strategy.activeProfile);
-    } catch (error) {
-      state.activity = [
-        line(`Trading queue start blocked: ${error.message}`),
-        ...(state.activity || [])
-      ].slice(0, 20);
-      await saveState(state);
-      send(response, 400, { error: error.message, status: statusPayload(state, { role: "owner", id: "owner" }) });
-      return true;
-    }
-    if (state.settings.profitMode === "target") {
-      try { await withWalletOperation(() => prepareGrowthSession(state)); }
-      catch(error) { send(response,409,{error:error.message}); return true; }
-    }
-    state.strategy = { ...structuredClone(defaultState.strategy), ...(state.strategy || {}) };
-    state.strategy.activeProfile = supportedProfiles.includes(state.strategy.activeProfile) ? state.strategy.activeProfile : "safe";
-    state.strategy.controlRevision = Date.now();
-    state.strategy.exhaustedProfiles = [];
-    state.strategy.paused = false;
-    state.strategy.pauseReason = "";
-    state.strategy.frogLosses = 0;
-    state.strategy.truenestLosses = 0;
-    state.strategy.safeLosses = 0;
-    state.strategy.processedClosedTrades = [];
-    emergencyStopRequested = false;
-    beginTradingSession(state);
-    supportedProfiles.forEach((profile) => {
-      state.profiles[profile].running = true;
-    });
-    state.profiles.frog.lastAction = new Date().toISOString();
-    const activeWallet = tradeWallet(state, state.strategy.activeProfile);
-    if (activeWallet) {
-      try {
-        const warmConnection = solanaConnection(state.settings, { priority: 75 });
-        await withWalletOperation(() => profileTradeableUsdc(warmConnection, state, state.strategy.activeProfile, activeWallet), 75);
-      } catch (error) {
-        supportedProfiles.forEach((profile) => {
-          state.profiles[profile].running = false;
-        });
-        emergencyStopRequested = true;
-        state.activity = [
-          line(`Trading start blocked: wallet budget could not be verified fast enough (${error.message}).`),
-          ...(state.activity || [])
-        ].slice(0, 20);
+      await assertHeliusReadyForProfile(state,state.strategy.activeProfile);
+      await withWalletOperation(async()=>{
+        if(state.settings.profitMode==='target')await prepareGrowthSession(state);
+        const wallet=tradeWallet(state,state.strategy.activeProfile);
+        const connection=solanaConnection(state.settings,{priority:75});
+        const available=await profileTradeableUsdc(connection,state,state.strategy.activeProfile,wallet);
+        if(!(available>0))throw Error('No available trading cash. Check your wallet balance, trading budget and locked profit.');
+        const current=await readState();
+        if(emergencyStopRequested || Number(current.strategy.controlRevision||0)!==startingRevision)throw Error('Start cancelled because the controls changed. Review the settings and press Start again.');
+        beginTradingSession(state);
+        state.strategy.paused=false;
+        state.strategy.pauseReason='';
+        state.strategy.controlRevision=Math.max(Date.now(),startingRevision+1,Number(state.strategy.controlRevision||0));
+        // Buy filtering uses activeProfile; all retained positions keep their sell monitoring.
+        for(const profile of supportedProfiles)state.profiles[profile].running=true;
+        state.activity=[line(`Copying started for ${profileLabel(state.strategy.activeProfile)}. Existing positions retain sell monitoring.`),...(state.activity||[])].slice(0,20);
         await saveState(state);
-        send(response, 409, { error: `Wallet budget could not be verified: ${error.message}`, status: statusPayload(state, { role: "owner", id: "owner" }) });
-        return true;
-      }
-    }
-    const switchLimit = queueFailureSwitchLimit(state);
-    state.activity = [
-      line(`Trading queue started: ${profileLabel(state.strategy.activeProfile)} in ${state.strategy.autoSwitch ? "Automatic" : "Manual"} mode. Sell monitoring stays active.`),
-      line(liveTradingAllowed(state, "frog")
-        ? "Production execution is enabled. Copy worker can execute with the connected signer."
-        : "Monitoring is active. Real swap execution stays locked until EXECUTE_REAL_SWAPS=true is set in Render."),
-      ...(state.activity || [])
-    ].slice(0, 20);
-    await saveState(state);
-    send(response, 200, statusPayload(state, { role: "owner", id: "owner" }));
+      },75);
+      if(emergencyStopRequested)throw Error('Start cancelled by Stop Trading.');
+      send(response,200,statusPayload(state,{role:'owner'}));
+    }catch(error){
+      emergencyStopRequested=true;
+      const stopped=await readState();
+      for(const profile of supportedProfiles)stopped.profiles[profile].running=false;
+      stopped.strategy.controlRevision=Math.max(Date.now(),Number(stopped.strategy.controlRevision||0)+1);
+      stopped.activity=[line(`Start blocked: ${error.message}`),...(stopped.activity||[])].slice(0,20);
+      await saveState(stopped);
+      send(response,409,{error:error.message,status:statusPayload(stopped,{role:'owner'})});
+    }finally{queueStartPending=false;}
     return true;
   }
 
@@ -4683,7 +4702,7 @@ async function handleApi(request, response, url) {
     const body = await readBody(request);
     const profile = supportedProfiles.includes(body.profile) ? body.profile : "";
     if (!profile) {
-      send(response, 400, { error: "Choose Frog, Deku, or Trunoest." });
+      send(response, 400, { error: "Choose a trader from your saved Solana list." });
       return true;
     }
     if (supportedProfiles.some((item) => state.profiles[item].running)) {
@@ -4760,7 +4779,7 @@ async function serveFile(response, pathname) {
   const filePath = path.normalize(path.join(__dirname, safePath));
   const relativePath = path.relative(__dirname, filePath);
   const hiddenSegment = relativePath.split(path.sep).some((segment) => segment.startsWith("."));
-  const publicFiles = new Set(["workspace.html","workspace.css","workspace.js","workspace-nav.js","whatsapp.js","control-panel.html","index.html","trade-lord.html","trade-lord-training.html","styles.css","script.js","trade-lord.css","trade-lord.js","trade-lord-client.js","trade-lord-panel.js","trade-lord-player.js","trade-lord-study.js","trade-lord-training.js","manifest.webmanifest","signalpilot-icon.svg","sw.js"]);
+  const publicFiles = new Set(["copy-markets.js","copy-markets.css","workspace.html","workspace.css","workspace.js","workspace-nav.js","whatsapp.js","control-panel.html","index.html","trade-lord.html","trade-lord-training.html","styles.css","script.js","trade-lord.css","trade-lord.js","trade-lord-client.js","trade-lord-panel.js","trade-lord-player.js","trade-lord-study.js","trade-lord-training.js","manifest.webmanifest","signalpilot-icon.svg","sw.js"]);
   if (!filePath.startsWith(__dirname) || hiddenSegment || !publicFiles.has(relativePath)) {
     response.writeHead(403);
     response.end("Forbidden");
@@ -4777,6 +4796,16 @@ async function serveFile(response, pathname) {
   });
   response.writeHead(200, { "Content-Type": mime[path.extname(filePath)] || "application/octet-stream" });
   stream.pipe(response);
+}
+
+// Laptop services never resume a saved funded session after an update or reboot.
+if(process.env.COPYTRADE_REQUIRE_OWNER_START === 'true') {
+  let saved;
+  try { saved=normalizeState(JSON.parse(await readFile(dataFile,'utf8'))); }
+  catch(error) { if(error.code!=='ENOENT')throw Error('Existing account file could not be read; startup stopped without replacing it.'); saved=normalizeState(structuredClone(defaultState)); }
+  const stopped=prepareOwnerStart(saved);
+  emergencyStopRequested=true;
+  await saveState(stopped);
 }
 
 createServer(async (request, response) => {

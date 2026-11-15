@@ -17,8 +17,9 @@ services:
       COPYTRADE_HOME_URL: /trade-lord
       COPYTRADE_CONNECTION: public
       COPYTRADE_KEYLESS_QUOTES: "true"
-      ENABLE_LIVE_TRADING: "false"
-      EXECUTE_REAL_SWAPS: "false"
+      ENABLE_LIVE_TRADING: "${COPYTRADE_LIVE_TRADING:-false}"
+      EXECUTE_REAL_SWAPS: "${COPYTRADE_LIVE_TRADING:-false}"
+      COPYTRADE_REQUIRE_OWNER_START: "true"
       TRADE_LORD_DISABLED: "true"
       NODE_ENV: development
     volumes:

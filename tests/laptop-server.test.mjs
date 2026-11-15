@@ -10,8 +10,8 @@ test('mounted observation server keeps accounts and blocks paid-provider checks 
  const data=await mkdtemp(path.join(os.tmpdir(),'copytrade-server-test-'));t.after(()=>rm(data,{recursive:true,force:true}));
  const reserve=net.createServer();await new Promise(r=>reserve.listen(0,'127.0.0.1',r));const port=reserve.address().port;await new Promise(r=>reserve.close(r));
  const password='test-only-password-no-live-account';
- await writeFile(path.join(data,'signalpilot-state.json'),JSON.stringify({settings:{heliusKey:'test-stored-secret',gmgnApiKey:'test-gmgn-secret',modesConfirmed:'no',frogMax:'17',frogWallet:'preserved-source-wallet',protectedCapStrategyVersion:'decu-50-cap-v1',manualModesVersion:'v1',gmgnRepairReleaseVersion:'v1'},customers:[{id:'test-customer',name:'Synthetic account',email:'test@example.invalid'}],profiles:{safe:{running:false},frog:{running:false},truenest:{running:false}},owner:{email:'test@example.invalid'}}));
- const child=spawn(process.execPath,['server.js'],{cwd:new URL('..',import.meta.url),env:{...process.env,PORT:String(port),HOST:'127.0.0.1',DATA_DIR:data,OWNER_EMAIL:'test@example.invalid',OWNER_PASSWORD:'',OWNER_PASSWORD_B64:Buffer.from(password).toString('base64'),APP_BASE_PATH:'/copytrade',COPYTRADE_HOME_URL:'/trade-lord',COPYTRADE_CONNECTION:'public',COPYTRADE_KEYLESS_QUOTES:'true',DISABLE_BACKGROUND_WORKERS:'true',TRADE_LORD_DISABLED:'true',ENABLE_LIVE_TRADING:'false',EXECUTE_REAL_SWAPS:'false',NODE_ENV:'development'},stdio:['ignore','pipe','pipe']});
+ await writeFile(path.join(data,'signalpilot-state.json'),JSON.stringify({settings:{heliusKey:'test-stored-secret',gmgnApiKey:'test-gmgn-secret',modesConfirmed:'no',frogMax:'17',frogWallet:'preserved-source-wallet',protectedCapStrategyVersion:'decu-50-cap-v1',manualModesVersion:'v1',gmgnRepairReleaseVersion:'v1'},customers:[{id:'test-customer',name:'Synthetic account',email:'test@example.invalid'}],profiles:{safe:{running:true},frog:{running:false},truenest:{running:false}},owner:{email:'test@example.invalid'}}));
+ const child=spawn(process.execPath,['server.js'],{cwd:new URL('..',import.meta.url),env:{...process.env,PORT:String(port),HOST:'127.0.0.1',DATA_DIR:data,OWNER_EMAIL:'test@example.invalid',OWNER_PASSWORD:'',OWNER_PASSWORD_B64:Buffer.from(password).toString('base64'),APP_BASE_PATH:'/copytrade',COPYTRADE_HOME_URL:'/trade-lord',COPYTRADE_CONNECTION:'public',COPYTRADE_KEYLESS_QUOTES:'true',COPYTRADE_REQUIRE_OWNER_START:'true',DISABLE_BACKGROUND_WORKERS:'true',TRADE_LORD_DISABLED:'true',ENABLE_LIVE_TRADING:'false',EXECUTE_REAL_SWAPS:'false',NODE_ENV:'development'},stdio:['ignore','pipe','pipe']});
  t.after(async()=>{if(child.exitCode===null){child.kill();await once(child,'exit');}});
  let logs='';child.stderr.on('data',chunk=>{logs+=chunk;});
  await Promise.race([once(child.stdout,'data'),once(child,'exit').then(()=>{throw Error('Server failed: '+logs);}),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Server startup timeout')),10000);timer.unref();})]);
@@ -25,6 +25,7 @@ test('mounted observation server keeps accounts and blocks paid-provider checks 
  const settings=await fetch(base+'/copytrade/api/settings',{method:'POST',headers,body:'{}'});assert.equal(settings.status,200);
  const body=await settings.json();assert.equal(body.backend.freeConnection,true);assert.equal(body.backend.paidHeliusEnabled,false);assert.equal(body.backend.productionExecution,false);assert.equal(body.customers[0].id,'test-customer');
  assert.equal(body.settings.heliusKey,'test-stored-secret');assert.equal(body.settings.gmgnApiKey,'test-gmgn-secret'); // Owner retains settings, but public mode does not use them.
+ assert.equal(body.profiles.safe.running,false);assert.equal(body.backend.startReadiness.code,'observation');
  assert.equal(body.settings.frogMax,'17');assert.equal(body.settings.frogWallet,'preserved-source-wallet');
  for(const route of ['gmgn/check','owner/helius-check','queue/start']) {
    const response=await fetch(base+'/copytrade/api/'+route,{method:'POST',headers,body:'{}'});assert.equal(response.status,409,route);
@@ -32,5 +33,10 @@ test('mounted observation server keeps accounts and blocks paid-provider checks 
  for(const route of ['public/check','simple-speed-test']) {
    const noOwner=await fetch(base+'/copytrade/api/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});assert.equal(noOwner.status,401);
  }
+ const account=await fetch(base+'/copytrade/api/copy-directory/accounts',{method:'POST',headers,body:JSON.stringify({name:'Synthetic gold demo',broker:'Test broker',market:'gold',platform:'ctrader',mode:'demo'})});assert.equal(account.status,201);assert.equal((await account.json()).record.status,'connection_required');
+ const newTrader=await fetch(base+'/copytrade/api/copy-directory/traders',{method:'POST',headers,body:JSON.stringify({name:'New synthetic source',market:'solana',wallet:'11111111111111111111111111111111'})});assert.equal(newTrader.status,201);const added=await newTrader.json();assert.equal(added.status.profiles[added.record.id].running,false);
+ const selected=await fetch(base+'/copytrade/api/queue/switch',{method:'POST',headers,body:JSON.stringify({profile:added.record.id})});assert.equal(selected.status,200);assert.equal((await selected.json()).strategy.activeProfile,added.record.id);
+ assert.equal((await fetch(base+'/copytrade/api/copy-directory')).status,401);
+ const crossSite=await fetch(base+'/copytrade/api/copy-directory/accounts',{method:'POST',headers:{...headers,Origin:'https://example.invalid'},body:'{}'});assert.equal(crossSite.status,403);
  const switchBack=await fetch(base+'/copytrade/api/settings',{method:'POST',headers,body:'{"copyConnection":"legacy"}'});assert.equal(switchBack.status,409);
 });

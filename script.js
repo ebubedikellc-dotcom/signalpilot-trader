@@ -800,6 +800,8 @@ function localReady(data = payload()) {
 }
 
 function profileName(profile) {
+  const custom=latestState.copyDirectory?.traders?.find(t=>t.id===profile);
+  if(custom)return custom.name;
   if (profile === "safe") return "Frog";
   if (profile === "truenest") return "Trunoest";
   return "Deku";
@@ -810,12 +812,15 @@ function profileStatusName(profile) {
 }
 
 function simpleProfileName(profile) {
+  const custom=latestState.copyDirectory?.traders?.find(t=>t.id===profile);
+  if(custom)return custom.name;
   if (profile === "safe") return "Frog";
   if (profile === "truenest") return "Trunoest";
   return "Deku";
 }
 
 function profileTradeMatches(profile, trade) {
+  if(trade.profileId)return trade.profileId===profile;
   const text = String(trade.profile || "").toLowerCase();
   if (profile === "safe") return text.includes("frog safe") || text.includes("safe bot") || text.includes("beginner") || text === "frog";
   if (profile === "truenest") return text.includes("risk win") || text.includes("truenest") || text.includes("trunoest") || text.includes("big win") || text.includes("risk bot");
@@ -1147,7 +1152,7 @@ function renderFrogBrain(brain = {}) {
 }
 
 function renderLiveWatch(settings = {}, profiles = {}, trades = [], strategy = {}) {
-  const profile = ["safe", "frog", "truenest"].includes(strategy.activeProfile) ? strategy.activeProfile : (profiles.frog?.running || !profiles.truenest?.running ? "frog" : "truenest");
+  const profile = Object.hasOwn(profiles,strategy.activeProfile) ? strategy.activeProfile : (profiles.frog?.running || !profiles.truenest?.running ? "frog" : "truenest");
   const label = profileName(profile);
   const prefix = roomPrefix(profile);
   const deposit = settings.frogDeposit || settings[`${prefix}Deposit`] || 0;
@@ -1221,12 +1226,14 @@ function renderState(state) {
     strategy: { ...(latestState.strategy || {}), ...(state.strategy || {}) },
     walletBalances: state.walletBalances || latestState.walletBalances || {}
   };
+  window.copyTradeState=latestState;
+  window.dispatchEvent(new CustomEvent("copytrade-state",{detail:latestState}));
   const settings = latestState.settings || {};
   const profiles = latestState.profiles || {};
   const trades = latestState.trades || [];
   const backend = latestState.backend || {};
   const strategy = latestState.strategy || {};
-  const queueRunning = Boolean(profiles.safe?.running || profiles.frog?.running || profiles.truenest?.running);
+  const queueRunning = Object.values(profiles).some(p=>p?.running);
   const observingWhileStopped = Boolean(backend.observationUntil) && !queueRunning;
   const feedRows = backend.feeds || [];
   const checkedConnection = backend.gmgnConnectionCheck;
@@ -1262,7 +1269,13 @@ function renderState(state) {
   if ($("truenestStart")) $("truenestStart").disabled = !ready || heliusBlocked || profiles.truenest?.running;
   if ($("frogStop")) $("frogStop").disabled = !profiles.frog?.running;
   if ($("truenestStop")) $("truenestStop").disabled = !profiles.truenest?.running;
-  if ($("queueStart")) $("queueStart").disabled = !backend.productionExecution || backend.providerRepairHold || !ready || heliusBlocked || queueRunning;
+  if ($("queueStart")) $("queueStart").disabled = backend.startReadiness ? !backend.startReadiness.canStart || heliusBlocked || queueRunning : !backend.productionExecution || backend.providerRepairHold || !ready || heliusBlocked || queueRunning;
+  setText("startReadiness",backend.startReadiness?.message || "Sign in to check Start requirements.");
+  if($("selectedTrader")) {
+    for(const t of latestState.copyDirectory?.traders||[])if(t.market==='solana' && !Array.from($("selectedTrader").options).some(o=>o.value===t.id)) {
+      const option=document.createElement('option');option.value=t.id;option.textContent=t.name;$("selectedTrader").append(option);
+    }
+  }
   if ($("queueStop")) $("queueStop").disabled = !queueRunning;
   if ($("changeTrader")) {
     $("changeTrader").disabled = queueRunning;
@@ -1467,6 +1480,12 @@ function showBusinessMessage(text, error = false) {
 
 function setMode(role) {
   document.body.dataset.role = role || "guest";
+  if(role!=='owner') {
+    latestState.auth=null;latestState.copyDirectory={accounts:[],traders:[]};
+    window.copyTradeState=latestState;
+    window.dispatchEvent(new CustomEvent('copytrade-state',{detail:latestState}));
+    if($('queueStart'))$('queueStart').disabled=true;
+  }
   setHidden("authPanel", Boolean(role));
   setHidden("ownerPanel", role !== "owner");
   setHidden("customerPanel", role !== "customer");
@@ -1477,6 +1496,7 @@ function setMode(role) {
   document.querySelectorAll(".customer-only").forEach((node) => {
     node.classList.toggle("hidden", role !== "customer");
   });
+  setText("businessPortalTitle",role === "owner" ? "Account & settings" : "Log in to control panel");
   if (role === "owner") showOwnerPage("trade");
 }
 
@@ -1816,11 +1836,13 @@ async function refresh() {
   try {
     const state = await api("/api/status");
     if (state.auth?.role === "owner" || document.body.dataset.role === "owner") renderState(state);
-  } catch {
+  } catch(error) {
+    console.error("Dashboard refresh failed:", error.message);
+    if($("queueStart"))$("queueStart").disabled=true;
     setText('remainingBalanceStatus','Connection timed out or failed. Balances are not verified; the next refresh will retry.');
     ['remainingUsdc','remainingSol','remainingLocked','remainingTradeable','remainingCoins','remainingTotal'].forEach(id=>setText(id,'Unable to check'));
     setText("engineStatus", "Backend not connected");
-    setText("engineSubtext", "Render is not answering right now. The site cannot monitor until backend returns.");
+    setText("engineSubtext", "The local service is not responding correctly. Check its status before starting.");
     ["frogStart", "truenestStart", "frogStop", "truenestStop"].forEach((id) => {
       const button = $(id);
       if (button) button.disabled = true;
@@ -2094,12 +2116,17 @@ async function stopProfile(profile) {
 }
 
 async function startQueue() {
+  if($("queueStart"))$("queueStart").disabled=true;
+  setText("startReadiness","Checking trader connection and available funds…");
   try {
     renderState(await api("/api/queue/start", { method: "POST" }));
     showBusinessMessage(`Trading started with ${profileName(latestState.strategy.activeProfile)}. You alone choose when to change trader.`);
+    setText("startReadiness", "Copying is running. Stop Trading turns off automatic buys and sells.");
   } catch (error) {
     if (error.payload?.status) renderState(error.payload.status);
     showBusinessMessage(error.message, true);
+    setText("startReadiness",error.message);
+    if($("queueStart"))$("queueStart").disabled=!latestState.backend?.startReadiness?.canStart;
   }
 }
 
@@ -2318,7 +2345,7 @@ function renderExecutionReport() {
 }
 
 function walletValuation(balance, cash, prices, now = Date.now()) {
- const fresh = prices?.wallet === balance.address && Number.isFinite(prices.receivedAt) && now - prices.receivedAt < 90000;
+ const fresh = Boolean(prices && balance.address) && prices.wallet === balance.address && Number.isFinite(prices.receivedAt) && now - prices.receivedAt < 90000;
  const priceOf = item => fresh && typeof item?.priceUsd === "number" && item.priceUsd > 0 && Number.isFinite(item.priceUsd) && now - item.checked < 90000 ? item.priceUsd : null;
  const result = { total: Number.isFinite(cash) && !balance.error ? cash : null, coins: 0, unknown: 0, solPriced: false };
  if (result.total === null || !balance.tokens) return { ...result, total: null };
