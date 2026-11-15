@@ -35,6 +35,10 @@ required for this installation, and no Render service is changed.
 
 ## Exactly what is included
 
+For an existing installation with the imported account, use the small
+**CopyTrade-Frog-Update.zip** package and **Update-CopyTrade.cmd**, described in
+`COPYTRADE-UPDATE.md`. Do not repeat installation or account migration.
+
 - **FnZero** MIT-licensed source, pinned at commit
   `287dd67bd37b6e3084b253674c58cf1b9dbe3f34`; attribution and license are in
   `vendor/fnzero`. The extracted code prepares supported routes; it is not a new

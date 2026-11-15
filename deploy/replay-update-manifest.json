@@ -1,0 +1,10 @@
+{
+  "server.js": {
+    "old": "5d1d15f6c354336c44a4dd5abdf80033c157b6dbe44f38eeae4d2e7b2e69fe9c",
+    "new": "e0ac3b50c0ae95b07c083098e2e0fbc3f7c2584f2605183ac2186b926b67aefe"
+  },
+  "script.js": {
+    "old": "e5886d4aaeb7859376adea9b251690716bae84d275a3f20ca06dd95001870714",
+    "new": "15161d0379db7efabe32ff22ba0a00703079fbd41a29b48fbaf5ceb208694f64"
+  }
+}

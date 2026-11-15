@@ -29,6 +29,8 @@ test('mounted observation server keeps accounts and blocks paid-provider checks 
  for(const route of ['gmgn/check','owner/helius-check','queue/start']) {
    const response=await fetch(base+'/copytrade/api/'+route,{method:'POST',headers,body:'{}'});assert.equal(response.status,409,route);
  }
- const noOwner=await fetch(base+'/copytrade/api/public/check',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});assert.equal(noOwner.status,401);
+ for(const route of ['public/check','simple-speed-test']) {
+   const noOwner=await fetch(base+'/copytrade/api/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});assert.equal(noOwner.status,401);
+ }
  const switchBack=await fetch(base+'/copytrade/api/settings',{method:'POST',headers,body:'{"copyConnection":"legacy"}'});assert.equal(switchBack.status,409);
 });

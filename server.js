@@ -160,6 +160,7 @@ let emergencyStopRequested = false;
 
 const fnzeroRouter = createFnzeroRouter();
 let fnzeroTestBusy = false;
+let routeReplayBusy = false;
 const fnzeroTestAt = new Map();
 const fnzeroCoinChecks = new Map();
 
@@ -4000,26 +4001,47 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/simple-speed-test") {
     const state = await readState();
     if (requireOwner(response, sessionFromRequest(request, state))) return true;
+    if (supportedProfiles.some(p => state.profiles?.[p]?.running)) {
+      send(response, 409, {error:"Stop trading before running the read-only buy and sell test."});
+      return true;
+    }
+    if (routeReplayBusy) {
+      send(response, 409, {error:"A buy and sell test is already running. Wait for it to finish."});
+      return true;
+    }
     const testInput = await readBody(request);
     if (testInput.testVersion !== 2) {
       send(response, 409, {error:"The testing screen has been updated. Refresh this page to load the new buy and sell test, then press Test speed again."});
       return true;
     }
+    // Recheck after the request body: two concurrent requests may both have
+    // passed the first guard before either finished reading its input.
+    if (routeReplayBusy) {
+      send(response, 409, {error:"A buy and sell test is already running. Wait for it to finish."});
+      return true;
+    }
+    routeReplayBusy = true;
+    try {
     const started = Date.now();
     const profile = state.strategy?.activeProfile || "frog";
     const wallet = tradeWallet(state, profile);
-    const real = {ok:false, submitted:false, profile};
+    const publicMode = freeConnection(state.settings, process.env);
+    const real = {ok:false, submitted:false, profile, feedSource:publicMode ? "Public Solana" : "GMGN", traderWallet:targetWallet(state, profile)};
     let transactions = [], buySignal;
     try {
       if (!targetWallet(state, profile) || !wallet) throw new Error("Configure the trader and trading wallet first.");
       const feedStarted = Date.now();
-      transactions = await fetchGmgnTransactionsForAddress(state.settings, targetWallet(state, profile));
+      transactions = publicMode
+        ? await recentPublicSwaps(targetWallet(state, profile))
+        : await fetchGmgnTransactionsForAddress(state.settings, targetWallet(state, profile));
       real.feedMs = Date.now() - feedStarted;
       buySignal = transactions.find(t => {
         const leg = primarySwapLeg(t, profile, state);
         return leg?.action === "buy" && leg.outputMint && !isQuoteMint(leg.outputMint);
       });
       if (!buySignal) throw new Error("Feed connected, but no recent buy was available to replay.");
+      real.sourceSignature = canonicalSignalId(buySignal.signature);
+      real.sourceTimestamp = buySignal.timestamp || null;
       const replay = {...buySignal, detectedAt:new Date().toISOString()};
       // Internal dry-run flag cannot be selected on a live execution endpoint.
       const buy = await executeCopiedSwapLocked(profile, replay, structuredClone(state), false, undefined, true);
@@ -4068,6 +4090,7 @@ async function handleApi(request, response, url) {
       message:"Replayed an existing signal using live preparation checks. Signing, sending and confirmation were not performed."
     });
     return true;
+    } finally { routeReplayBusy = false; }
   }
 
   if (request.method === "POST" && url.pathname === "/api/fnzero/coins") {

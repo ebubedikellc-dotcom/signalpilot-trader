@@ -1858,7 +1858,8 @@ async function runSimpleSpeedTest() {
     result.innerHTML = `
       <p><strong>${real.ok ? `BUY preparation ready in ${Math.round(real.buyReadyMs)} ms (${(real.buyReadyMs/1000).toFixed(2)} s)` : "BUY preparation did not pass"}</strong></p>
       <p>${escapeHtml(real.ok ? `${real.token || "Coin"}: $${real.plannedUsd.toFixed(2)} using ${buy.executionEngine}` : real.message || "No result")}</p>
-      <p>Buy and sell target: <strong>0.5 seconds</strong>; backup target: <strong>1 second</strong>. Submit as soon as ready. Valid buys and sells keep trying after 1 second; a known trader sell cancels an unsent buy. These are targets, not guaranteed completion times.</p>
+      <p>Source connection: ${escapeHtml(real.feedSource || "Not reported")}${real.traderWallet ? ` · Trader wallet: ${escapeHtml(real.traderWallet)}` : ""}.</p>
+      <p>Your copy-speed target is <strong>0.5 seconds</strong>. The measurements below show preparation only; they do not establish a live copy-to-fill time. A known trader sell cancels an unsent buy.</p>
       <ol>${rows}</ol>
       ${real.ok ? `<p>Starting wallet budget: ${!buy.fundsCacheUsed ? "fresh balance read required" : `cached balance ${Math.round(buy.fundsCacheAgeMs)} ms old; spending reservations checked`}. ${escapeHtml(buy.liveControlMessage || "")}</p>` : ""}
       ${buy.fnzeroFallbackReason ? `<p>FnZero fallback: ${escapeHtml(buy.fnzeroFallbackReason)}</p>` : ""}
@@ -1867,7 +1868,7 @@ async function runSimpleSpeedTest() {
       ${sell.fnzeroFallbackReason ? `<p>Sell FnZero fallback: ${escapeHtml(sell.fnzeroFallbackReason)}</p>` : ""}
       <p>Signing → sending → confirmation: <strong>not run in this test</strong>. Live trading adds these steps after preparation.</p>
       <p>${live ? `Latest recorded live submission: ${escapeHtml(live.token || "coin")} — ${Math.round(live.timingsMs.detectionToSubmit)} ms from site detection to submission request. ${escapeHtml(live.time || "")}` : "No recorded live submission timing yet."}</p>
-      <p>Existing signal replay; feed request time does not measure how soon GMGN first detects a new trade. Phone result displayed in ${browserMs} ms. No money moved.</p>`;
+      <p>Existing signal replay; feed request time does not measure how soon a new trade is detected. Phone result displayed in ${browserMs} ms. No money moved.</p>`;
   } catch (error) {
     result.textContent = `Speed test failed: ${error.message}. No real trade was sent.`;
   } finally {
