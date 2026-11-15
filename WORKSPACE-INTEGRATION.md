@@ -10,7 +10,7 @@ This branch adds one owner workspace at `/workspace` (also `/`) and shared navig
 - Separate owner-only normal-chat and Vane web-research endpoints. Normal chat sends only recent conversation; research returns HTTP(S) source links. Neither receives a trading executor, signing material or messaging tools.
 - One active workspace AI request at a time, bounded inputs, outputs and timeout. This is not a global lock across the separate laptop PDF/video/question workers; that requires their current source.
 - Configuration status reports missing services honestly. Configured is not a health check.
-- Password-based owner login. Set `OWNER_PASSWORD` privately before deploying, using 16–256 characters. Existing email-only owner sessions are rejected; password changes invalidate owner sessions. Customer session formats are preserved, with server-side expiry now checked. Five failed password attempts in a minute block more attempts in that window.
+- Password-based owner login. Set `OWNER_PASSWORD` privately before deploying, using 13–256 characters. Existing email-only owner sessions are rejected; password changes invalidate owner sessions. Customer session formats are preserved, with server-side expiry now checked. Five failed password attempts in a minute block more attempts in that window.
 - Same-origin mutation checks and a static-file allowlist. The application's program files and data directories are not downloadable through the static handler.
 - Optional, isolated Vane Docker Compose definition pinned to source commit `348feca3e378fb4157b217724ed508dc707f853f`.
 

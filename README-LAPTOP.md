@@ -11,7 +11,7 @@ SignalPilot interface. It does not install another Qwen or replace your lessons.
 2. Extract the downloaded ZIP. Open the folder containing `Install-CopyTrade.cmd`.
 3. Double-click **Install-CopyTrade.cmd**. It opens your existing Ubuntu/WSL.
 4. If Docker asks, enter your Ubuntu administrator password. Then choose a **new
-   CopyTrade password**, at least 16 characters. Typing passwords is invisible.
+   CopyTrade password**, at least 13 characters. Typing passwords is invisible.
 5. Wait for **Installed**. Open **http://localhost:8088/trade-lord** and click
    **CopyTrade**. Sign in using your owner email and the new password.
 6. Click **Check free connection**. It reads public history and listens for up

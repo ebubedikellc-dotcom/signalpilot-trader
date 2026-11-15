@@ -16,7 +16,7 @@ This optional local service provides real linked-device QR codes for TradeLog's 
 
 This code is prepared for the Node TradeLog workspace on this branch. It has **not** been installed in the separate Python Trade Lord currently running on the laptop. Do not replace that application or its data directory with this repository. Its current source and Docker configuration are needed for a controlled integration.
 
-1. Confirm the workspace owner login is configured (`OWNER_PASSWORD`, at least 16 characters). Use a separate staging data directory initially, with trading execution disabled.
+1. Confirm the workspace owner login is configured (`OWNER_PASSWORD`, at least 13 characters). Use a separate staging data directory initially, with trading execution disabled.
 2. Use a new random `WHATSAPP_BRIDGE_TOKEN` with at least 32 characters. Provide the same value privately to the workspace and connector. Do not commit it or paste it in chat.
 3. Install Node 22 or use `deploy/compose.whatsapp.yaml`. The Compose service expects a pre-existing private network named `tradelord-local`; verify the actual laptop network before using it. The connector publishes **no host port**. A workspace container on that network uses `WHATSAPP_BRIDGE_URL=http://whatsapp:3040`. The initial 512 MB / 0.5 CPU limits still need measurement on the target laptop.
 4. For a non-Docker install, run `npm ci --omit=dev` in this directory. Set `WHATSAPP_DATA_DIR` to a dedicated private directory, provide the token, and run `npm start`. It binds to `127.0.0.1:3040` by default; a workspace on the same host can use that address. Do not expose this service publicly.

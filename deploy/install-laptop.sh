@@ -46,13 +46,13 @@ pathlib.Path('deploy/.laptop.env').write_text(f'TRADE_LORD_NETWORK={network}\nTR
 print('Existing Trade Lord detected. Its code, lessons and Ollama will be kept.')
 PY
 if [[ ! -f deploy/.laptop.private.env ]]; then
-  echo 'Choose a NEW CopyTrade sign-in password with at least 16 characters.'
+  echo 'Choose a NEW CopyTrade sign-in password with at least 13 characters.'
   read -r -s -p 'New password (typing is hidden): ' COPYTRADE_PASSWORD
   echo
   read -r -s -p 'Repeat new password: ' COPYTRADE_PASSWORD_REPEAT
   echo
-  if [[ "$COPYTRADE_PASSWORD" != "$COPYTRADE_PASSWORD_REPEAT" || ${#COPYTRADE_PASSWORD} -lt 16 || ${#COPYTRADE_PASSWORD} -gt 256 ]]; then
-    echo 'Passwords must match and contain 16–256 characters. No service was started.'; exit 1
+  if [[ "$COPYTRADE_PASSWORD" != "$COPYTRADE_PASSWORD_REPEAT" || ${#COPYTRADE_PASSWORD} -lt 13 || ${#COPYTRADE_PASSWORD} -gt 256 ]]; then
+    echo 'Passwords must match and contain 13–256 characters. No service was started.'; exit 1
   fi
   { printf 'OWNER_PASSWORD_B64='; printf '%s' "$COPYTRADE_PASSWORD" | base64 -w0; printf '\n'; } > deploy/.laptop.private.env
   unset COPYTRADE_PASSWORD COPYTRADE_PASSWORD_REPEAT

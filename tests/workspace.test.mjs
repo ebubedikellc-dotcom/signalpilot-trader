@@ -43,6 +43,16 @@ test('owner password is required; old sessions and rotated-password sessions fai
   let now=0;const limited=createOwnerAuth({password:'another-long-test-password',now:()=>now});for(let n=0;n<5;n++)assert.equal(limited.verify('wrong'),false);
   assert.throws(()=>limited.verify('another-long-test-password'),e=>e.status===429);now=60001;assert.equal(limited.verify('another-long-test-password'),true);
 });
+test('owner accepts the requested 13-character minimum and retains upper bound and mismatch checks',()=>{
+  for(const length of [13,17,256]) {
+    const password='x'.repeat(length),gate=createOwnerAuth({password});
+    assert.equal(gate.configured,true);assert.equal(gate.verify(password),true);assert.equal(gate.verify(password+'y'),false);
+  }
+  for(const length of [0,12,257]) {
+    const password='x'.repeat(length),gate=createOwnerAuth({password});
+    assert.equal(gate.configured,false);assert.throws(()=>gate.verify(password),e=>e.status===503);
+  }
+});
 test('normal chat sends only recent chat, has no tools, and accepts only completed answers',async()=>{
   const sent=[];const workspace=createWorkspace({env:{WORKSPACE_OLLAMA_URL:'http://ollama.test'},fetcher:async(url,opts)=>{sent.push({url,body:JSON.parse(opts.body)});return new Response(JSON.stringify({done:true,message:{content:'Hello!'}}));}});
   assert.equal((await workspace.chat({message:'Hi',history:[{role:'user',content:'Good morning'}]})).message,'Hello!');
